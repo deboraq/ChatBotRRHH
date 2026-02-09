@@ -26,3 +26,5 @@ generar_reporte.py: Script para exportar datos de feedback a Google Sheets.
 extraer_pendientes.py: Extractor de dudas no resueltas para auditoría de RRHH.
 
 cargar_faqs.py: Administrador de carga masiva de la base de conocimientos.
+
+![Dashboard](dashboard.png)
