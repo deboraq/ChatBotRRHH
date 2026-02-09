@@ -1,55 +1,42 @@
-## 📊 Business Intelligence & Monitoreo
+🏢 Asistente Virtual de RRHH Inteligente - Bacar SA
+Solución integral de vanguardia para la gestión de Recursos Humanos que integra un Chatbot con Inteligencia Artificial y un ecosistema de Business Intelligence para la toma de decisiones basada en datos.
 
-Solución integral de automatización para el departamento de Recursos Humanos de Bacar SA. El proyecto integra un Chatbot interactivo con un ecosistema de Business Intelligence para la toma de decisiones basada en datos.
+🚀 Funcionalidades Principales
+Entendimiento Inteligente (Fuzzy Matching): Gracias a la librería TheFuzz, el bot entiende errores de ortografía y variaciones gramaticales (ej: "vacaSiones", "reCibo").
 
-🚀 Tecnologías Utilizadas
-Backend: Python con integración de Firebase Admin SDK.
+Análisis de Sentimiento (NLP): Utiliza TextBlob para detectar el estado emocional del colaborador en las consultas no resueltas.
 
-Base de Datos: Google Firebase Cloud Firestore (NoSQL).
+Omnicanalidad y Escalabilidad: Arquitectura preparada para integrarse con WhatsApp y otros canales.
 
-Visualización: Google Looker Studio para monitoreo de KPIs.
+Persistencia en Tiempo Real: Uso de Firebase Cloud Firestore para el almacenamiento de interacciones y feedback.
 
-📊 Dashboard de Monitoreo e Inteligencia
-El sistema no solo resuelve dudas, sino que captura métricas estratégicas en tiempo real:
+📊 Dashboard de Monitoreo (Looker Studio)
+El sistema recolecta métricas estratégicas visualizadas en tiempo real:
 
-Tasa de Satisfacción: Seguimiento de respuestas útiles mediante feedback directo.
+Tasa de Satisfacción: Basada en el feedback directo de los empleados (si/no).
 
-Hot Topics: Análisis de los temas más consultados (Vacaciones, ART, Sueldo).
+Hot Topics: Mapa de calor de los temas más consultados (Vacaciones, ART, Sueldo).
 
-Mejora Continua: Registro automático de consultas no entendidas para alimentar la base de conocimientos.
+Auditoría de Pendientes: RRHH puede identificar consultas fallidas y priorizarlas según el tono detectado por el análisis de sentimiento.
 
-🛠️ Estructura del Repositorio
-app.py: Lógica principal del chatbot interactivo.
+🛠️ Tecnologías y Librerías
+Lenguaje: Python 3.12
 
-generar_reporte.py: Script para exportar datos de feedback a Google Sheets.
+Base de Datos: Firebase Admin SDK (Firestore NoSQL)
 
-extraer_pendientes.py: Extractor de dudas no resueltas para auditoría de RRHH.
+IA y Procesamiento de Lenguaje: TheFuzz (Fuzzy Matching) y TextBlob (Sentimiento)
 
-cargar_faqs.py: Administrador de carga masiva de la base de conocimientos.
+BI: Google Looker Studio y Google Sheets
+
+📁 Estructura del Proyecto
+app.py: El cerebro del bot con lógica de IA y respuesta interactiva.
+
+generar_reporte.py: Script ETL para exportar métricas de satisfacción.
+
+extraer_pendientes.py: Auditoría y análisis de dudas no resueltas.
+
+cargar_faqs.py: Script para la gestión y carga de la base de conocimientos.
 
 ![Dashboard](dashboard.png)
 
 
-Solución de vanguardia para la gestión de RRHH que integra un Chatbot con procesamiento de lenguaje natural y un ecosistema de Business Intelligence.
-
-## 🚀 Nuevas Funcionalidades Inteligentes
-- **Fuzzy Matching (TheFuzz):** El bot ahora entiende errores de ortografía y variaciones gramaticales (ej: "vacaSiones", "reCibo").
-- **Análisis de Sentimiento (TextBlob):** Capacidad de detectar el estado emocional del colaborador en consultas no resueltas.
-- **Arquitectura NoSQL:** Persistencia de datos en tiempo real con Firebase Cloud Firestore.
-
-## 📊 Dashboard de BI (Looker Studio)
-El sistema recolecta métricas estratégicas para la toma de decisiones:
-- **Nivel de Satisfacción:** Basado en el feedback directo de los empleados.
-- **Mapa de Calor de Consultas:** Identificación de los temas más críticos.
-- **Priorización por Sentimiento:** RRHH puede identificar consultas urgentes o de colaboradores frustrados mediante el análisis de tono.
-
-## 🛠️ Tecnologías y Librerías
-- **Python 3.12** (Lógica principal)
-- **Firebase Admin SDK** (Base de datos)
-- **TheFuzz** (Similitud de palabras)
-- **TextBlob** (Análisis de sentimiento)
-
-## 📁 Estructura del Proyecto
-- `app.py`: El cerebro del bot con lógica de IA.
-- `generar_reporte.py`: Extractor de datos para el Dashboard.
-- `extraer_pendientes.py`: Auditoría de consultas fallidas.
