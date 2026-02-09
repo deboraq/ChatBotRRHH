@@ -1,11 +1,12 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
+from thefuzz import process  # NUEVO: Para entender errores de ortografía
+from textblob import TextBlob # NUEVO: Para analizar el humor del empleado
 
 # ==========================================================
 # 1. CONFIGURACIÓN INICIAL Y CONEXIÓN CON FIRESTORE
 # ==========================================================
-# Se establece la conexión oficial con la base de datos de Bacar SA
 try:
     if not firebase_admin._apps:
         cred = credentials.Certificate("claves.json")
@@ -20,14 +21,12 @@ except Exception as e:
 # ==========================================================
 # 2. DICCIONARIO DE INTELIGENCIA Y SINÓNIMOS
 # ==========================================================
-# Definimos palabras clave para que el bot entienda el lenguaje natural
-# Esto permite que el colaborador no tenga que escribir palabras exactas
 SINONIMOS = {
     "vacaciones": ["descanso", "licencia anual", "días libres", "vacas", "feriado"],
     "art": ["accidente", "me lastimé", "seguro laboral", "la art", "lesión"],
     "recibo": ["sueldo", "comprobante", "liquidación", "haberes", "recibos"],
     "aguinaldo": ["sac", "sueldo anual complementario", "cobro diciembre", "cobro junio"],
-    "hola": ["buen día", "buenas", "hola bot", "buenos días", "holaa", "hola", "saludos"],
+    "hola": ["buen día", "buenas", "hola bot", "buenos días", "holaa", "saludos"],
     "ayuda": ["no sé qué hacer", "help", "necesito ayuda", "ayudame", "que hago"]
 }
 
@@ -35,7 +34,6 @@ SINONIMOS = {
 # 3. FUNCIONES DE ADMINISTRACIÓN DE DATOS Y REGISTROS
 # ==========================================================
 def mostrar_menu():
-    """Muestra el menú oficial numerado en la terminal de Bacar SA"""
     print("\n" + "═"*55)
     print(" 🏢 ASISTENTE VIRTUAL DE RRHH - BACAR SA ")
     print("═"*55)
@@ -54,7 +52,6 @@ def mostrar_menu():
     return temas_map
 
 def registrar_feedback(tema, utilidad):
-    """Guarda en Firestore si la respuesta fue útil para el empleado"""
     db.collection('feedback_respuestas').add({
         'tema': tema, 
         'fue_util': utilidad, 
@@ -62,11 +59,21 @@ def registrar_feedback(tema, utilidad):
     })
 
 def registrar_pendiente(consulta):
-    """Guarda dudas que el bot no pudo resolver para auditoría de RRHH"""
+    # --- NUEVO: Análisis de Sentimiento ---
+    analisis = TextBlob(consulta)
+    # Traducimos polaridad (-1 a 1) a algo que RRHH entienda rápido
+    if analisis.sentiment.polarity < -0.1:
+        sentimiento = "negativo/enojado"
+    elif analisis.sentiment.polarity > 0.1:
+        sentimiento = "positivo/amigable"
+    else:
+        sentimiento = "neutral"
+
     db.collection('consultas_pendientes').add({
         'pregunta': consulta, 
         'fecha': datetime.now(), 
-        'estado': 'pendiente'
+        'estado': 'pendiente',
+        'sentimiento': sentimiento  # Nuevo campo para el dashboard
     })
 
 # ==========================================================
@@ -76,7 +83,7 @@ def obtener_respuesta(entrada, temas_map):
     entrada_clean = entrada.lower().strip()
     tema_elegido = None
     
-    # 1. Buscamos concordancia por número o nombre de tema
+    # 1. Búsqueda exacta por número o nombre
     tema_elegido = temas_map.get(entrada_clean)
     if not tema_elegido:
         for id_tema in temas_map.values():
@@ -84,17 +91,23 @@ def obtener_respuesta(entrada, temas_map):
                 tema_elegido = id_tema
                 break
 
-    # 2. Buscamos concordancia por diccionario de sinónimos
+    # 2. Búsqueda por sinónimos
     if not tema_elegido:
         for oficial, variaciones in SINONIMOS.items():
             if any(v in entrada_clean for v in variaciones):
                 tema_elegido = oficial
                 break
-
-    # 3. Detectar si el mensaje contiene un saludo de cortesía
-    saludo_detectado = any(s in entrada_clean for s in SINONIMOS["hola"])
+    
+    # 3. NUEVO: Fuzzy Matching (Entender errores de ortografía)
+    if not tema_elegido:
+        opciones = list(temas_map.values()) + list(SINONIMOS.keys())
+        mejor_coincidencia, puntaje = process.extractOne(entrada_clean, opciones)
+        if puntaje > 70:  # Si el parecido es mayor al 70%
+            tema_elegido = mejor_coincidencia
 
     # --- RESPUESTAS LÓGICAS ---
+    saludo_detectado = any(s in entrada_clean for s in SINONIMOS["hola"])
+
     if saludo_detectado and tema_elegido and tema_elegido != "hola":
         doc = db.collection('faq_rrhh').document(tema_elegido).get()
         if doc.exists:
@@ -115,7 +128,7 @@ def obtener_respuesta(entrada, temas_map):
     return None, None
 
 # ==========================================================
-# 5. BUCLE PRINCIPAL DE INTERACCIÓN Y CIERRE (130-160)
+# 5. BUCLE PRINCIPAL DE INTERACCIÓN
 # ==========================================================
 if __name__ == "__main__":
     dict_temas = mostrar_menu()
@@ -142,8 +155,6 @@ if __name__ == "__main__":
                 if fdbk in ["si", "no"]:
                     registrar_feedback(tema_id, fdbk)
                     print("\nBot: ¡Muchas gracias por tu feedback!")
-                    
-                    # CIERRE INTERACTIVO DE SESIÓN
                     print("Bot: ¿Tenés otra duda o preferís volver al 'menu' principal?")
                     print("👉 Escribí tu duda, la palabra 'menu' o 'salir'.")
         else:
@@ -154,5 +165,4 @@ if __name__ == "__main__":
             print("   - Escribí 'menu' para volver al inicio.")
             registrar_pendiente(msj_usuario)
 
-# FINAL DEL PROGRAMA - PROPIEDAD DE BACAR SA - 2024
-# ==========================================================
+# FINAL DEL PROGRAMA - PROPIEDAD DE BACAR SA - 2026
