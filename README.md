@@ -33,11 +33,40 @@ BI: Google Looker Studio y Google Sheets
 
 app.py: El cerebro del bot con lógica de IA y respuesta interactiva.
 
+web_chat.py: Interfaz web local para probar conversaciones en navegador.
+
 generar_reporte.py: Script ETL para exportar métricas de satisfacción.
 
 extraer_pendientes.py: Auditoría y análisis de dudas no resueltas.
 
 cargar_faqs.py: Script para la gestión y carga de la base de conocimientos.
+
+## 💬 Interfaz Web de Pruebas
+
+Si querés probar el chatbot con una experiencia similar a un canal real (antes de WhatsApp), podés usar la UI web local.
+
+1) Instalá dependencias:
+
+```bash
+pip install -r requirements.txt
+```
+
+2) Ejecutá la interfaz:
+
+```bash
+python web_chat.py
+```
+
+3) Abrí en tu navegador:
+
+```text
+http://localhost:5000
+```
+
+Funciones disponibles en la UI:
+- Chat en tiempo real con el motor del bot.
+- Flujo de feedback (si/no) integrado.
+- Botones rápidos: menú, hablar con RRHH y reiniciar sesión.
 
 ![Dashboard](dashboard.png)
 
