@@ -2,9 +2,6 @@ import argparse
 import json
 from pathlib import Path
 
-import firebase_admin
-from firebase_admin import credentials, firestore
-
 # 1. LISTADO ORIGINAL DE PREGUNTAS FRECUENTES (FAQS) PARA BACAR
 FAQS_BACAR = [
     {
@@ -70,6 +67,14 @@ PERFILES = {
 
 
 def conectar_firestore():
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, firestore
+    except ModuleNotFoundError as error:
+        raise ModuleNotFoundError(
+            "No se encontro 'firebase_admin'. Instala dependencias o ejecuta con --dry-run."
+        ) from error
+
     if not firebase_admin._apps:
         cred = credentials.Certificate("claves.json")
         firebase_admin.initialize_app(cred)
