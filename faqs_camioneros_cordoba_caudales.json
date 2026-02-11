@@ -1,0 +1,182 @@
+[
+  {
+    "tema": "aplicacion_convenio",
+    "pregunta": "A que personal de la empresa de caudales le aplica el convenio de Camioneros en Cordoba?",
+    "respuesta": "Aplica al personal encuadrado en la actividad alcanzada por el CCT de Camioneros y sus acuerdos vigentes para la rama caudales en Cordoba. El encuadramiento depende de las tareas reales, categoria y modalidad de prestacion.",
+    "base_legal": "CCT Camioneros (rama caudales), LCT 20.744 y acuerdos paritarios vigentes."
+  },
+  {
+    "tema": "categorias",
+    "pregunta": "Como se define mi categoria laboral?",
+    "respuesta": "La categoria se define por la funcion efectivamente realizada (por ejemplo chofer, acompanante, operador, administrativo encuadrado, etc.) y no solo por el titulo del puesto. Si haces tareas superiores de forma habitual, corresponde revisar el encuadramiento.",
+    "base_legal": "CCT Camioneros y principio de primacia de la realidad."
+  },
+  {
+    "tema": "tarea_fuera_de_categoria",
+    "pregunta": "Que pasa si me asignan tareas que no son de mi categoria?",
+    "respuesta": "Puede ocurrir de forma excepcional y temporal por necesidad operativa, pero no debe convertirse en una practica permanente sin adecuar categoria y remuneracion. Si se repite, registra fechas y consulta en RRHH o con tu representacion sindical.",
+    "base_legal": "LCT y reglas de categoria del CCT."
+  },
+  {
+    "tema": "jornada_ordinaria",
+    "pregunta": "Cual es mi jornada normal de trabajo?",
+    "respuesta": "La jornada ordinaria y su distribucion se definen por CCT, LCT y organizacion de turnos de la empresa. Debe respetar los topes legales diarios/semanales y la planificacion informada por la compania.",
+    "base_legal": "LCT, Ley de Jornada y CCT aplicable."
+  },
+  {
+    "tema": "horas_extra",
+    "pregunta": "Como se pagan las horas extra?",
+    "respuesta": "Las horas que exceden la jornada legal o convencional se liquidan con recargos. El porcentaje exacto depende del dia, franja horaria y normativa vigente del periodo liquidado.",
+    "base_legal": "LCT y escalas/acuerdos vigentes del CCT."
+  },
+  {
+    "tema": "descanso_entre_jornadas",
+    "pregunta": "Tengo derecho a descanso entre una jornada y otra?",
+    "respuesta": "Si. Debe respetarse el descanso minimo legal entre fin e inicio de jornada para preservar salud y seguridad. Si no se cumple de forma reiterada, reportalo por canal formal.",
+    "base_legal": "LCT y normativa de higiene y seguridad."
+  },
+  {
+    "tema": "franco_semanal",
+    "pregunta": "Como funciona el franco semanal?",
+    "respuesta": "Corresponde descanso semanal conforme al esquema operativo y la normativa vigente. Cuando por servicio se trabaja en dias de descanso, debe compensarse y/o abonarse segun reglas aplicables.",
+    "base_legal": "LCT, CCT y acuerdos de organizacion de turnos."
+  },
+  {
+    "tema": "feriados",
+    "pregunta": "Si trabajo un feriado, como se liquida?",
+    "respuesta": "El trabajo en feriado se liquida con el tratamiento legal especial y, cuando corresponda, con recargos convencionales. Revisalo en el recibo del mes y consulta si hay diferencias.",
+    "base_legal": "Ley de Contrato de Trabajo y CCT vigente."
+  },
+  {
+    "tema": "vacaciones_antiguedad",
+    "pregunta": "Cuantos dias de vacaciones me corresponden?",
+    "respuesta": "La cantidad depende de tu antiguedad al 31 de diciembre de cada ano y de lo que disponga la normativa vigente. RRHH debe informar el periodo y dias asignados segun legajo.",
+    "base_legal": "LCT y disposiciones convencionales aplicables."
+  },
+  {
+    "tema": "vacaciones_solicitud",
+    "pregunta": "Con cuanta anticipacion pido vacaciones?",
+    "respuesta": "Se solicita con antelacion segun politica interna y se confirma por cronograma operativo. La empresa debe notificar formalmente fechas de goce dentro de los plazos legales.",
+    "base_legal": "LCT y procedimientos internos de RRHH."
+  },
+  {
+    "tema": "enfermedad_inculpable",
+    "pregunta": "Que hago si me enfermo y no puedo ir a trabajar?",
+    "respuesta": "Debes avisar de inmediato a tu supervisor y/o RRHH por el canal oficial, indicando domicilio de reposo para control medico. Luego presenta la documentacion respaldatoria dentro de plazo.",
+    "base_legal": "LCT (enfermedad inculpable) y reglamento interno."
+  },
+  {
+    "tema": "accidente_laboral_art",
+    "pregunta": "Que debo hacer ante un accidente laboral o in itinere?",
+    "respuesta": "Prioriza atencion medica y comunica el hecho en forma inmediata a tu jefe y a RRHH para activar la ART. Guarda numero de siniestro, constancias medicas y toda documentacion.",
+    "base_legal": "Ley de Riesgos del Trabajo, ART y protocolos internos."
+  },
+  {
+    "tema": "licencia_nacimiento",
+    "pregunta": "Cuantos dias tengo por nacimiento de hijo/a?",
+    "respuesta": "La licencia por nacimiento se otorga segun marco legal y convencional vigente para tu encuadramiento. Para liquidacion correcta, presenta acta o constancia dentro del plazo que indique RRHH.",
+    "base_legal": "LCT y CCT de actividad."
+  },
+  {
+    "tema": "licencia_matrimonio",
+    "pregunta": "Cuantos dias corresponden por matrimonio?",
+    "respuesta": "La licencia por matrimonio se reconoce conforme a lo previsto por la normativa laboral aplicable y eventuales mejoras convencionales. Debes informar fecha con anticipacion y presentar acta.",
+    "base_legal": "LCT y CCT vigente."
+  },
+  {
+    "tema": "licencia_fallecimiento",
+    "pregunta": "Hay licencia por fallecimiento de familiar?",
+    "respuesta": "Si. Se otorga licencia paga por fallecimiento de familiares en los supuestos y plazos previstos en la normativa. Consulta previamente a RRHH que parentescos estan incluidos para cada caso.",
+    "base_legal": "LCT y CCT aplicable."
+  },
+  {
+    "tema": "licencia_examen",
+    "pregunta": "Tengo licencia por estudio o examen?",
+    "respuesta": "Si estas alcanzado por ese beneficio, la licencia se concede contra presentacion de certificado de examen o cursado. El detalle de dias y tope anual surge del marco legal/convencional vigente.",
+    "base_legal": "LCT y/o clausulas convencionales."
+  },
+  {
+    "tema": "recibo_sueldo",
+    "pregunta": "Que debe figurar en mi recibo de sueldo?",
+    "respuesta": "Debe incluir datos identificatorios, categoria, periodo liquidado, basicos, adicionales, descuentos y neto a cobrar. Si detectas conceptos desconocidos o montos inconsistentes, pedi revision por escrito.",
+    "base_legal": "LCT, normativa previsional y CCT aplicable."
+  },
+  {
+    "tema": "fecha_pago",
+    "pregunta": "En que fecha se paga el sueldo?",
+    "respuesta": "El pago debe hacerse dentro de los plazos legales para remuneraciones mensuales. Si hay feriado o no habil bancario, la acreditacion puede ajustarse al primer dia habil inmediato.",
+    "base_legal": "LCT y practica de pago informada por la empresa."
+  },
+  {
+    "tema": "aguinaldo",
+    "pregunta": "Como se calcula y cuando se cobra el aguinaldo?",
+    "respuesta": "El SAC se abona en dos cuotas anuales, calculadas sobre la mejor remuneracion mensual del semestre, conforme normativa vigente. En el recibo debe verse discriminado como concepto especifico.",
+    "base_legal": "LCT y normas complementarias sobre SAC."
+  },
+  {
+    "tema": "adicionales_convenio",
+    "pregunta": "Que adicionales del convenio pueden corresponderme?",
+    "respuesta": "Segun funcion, zona y modalidad, pueden aplicar adicionales convencionales (por ejemplo actividad, antiguedad, presentismo, u otros pactados). Los porcentajes y bases de calculo se actualizan por acuerdos salariales.",
+    "base_legal": "CCT Camioneros y actas paritarias vigentes."
+  },
+  {
+    "tema": "viaticos",
+    "pregunta": "Tengo derecho a viaticos?",
+    "respuesta": "Si la tarea requiere desplazamientos o condiciones previstas por convenio, corresponde el reconocimiento de viaticos segun politica y escala vigente. Conserva comprobantes cuando el procedimiento lo exija.",
+    "base_legal": "CCT de actividad y normas internas de rendicion."
+  },
+  {
+    "tema": "nocturnidad",
+    "pregunta": "El trabajo nocturno tiene un tratamiento especial?",
+    "respuesta": "Si. El trabajo en franja nocturna puede tener reglas diferenciales de jornada y/o adicionales segun ley y convenio. Verifica en recibo que el concepto este correctamente liquidado.",
+    "base_legal": "LCT y clausulas convencionales de jornada."
+  },
+  {
+    "tema": "ropa_de_trabajo",
+    "pregunta": "La empresa debe entregar uniforme o ropa de trabajo?",
+    "respuesta": "Si la tarea lo requiere, la empresa debe proveer indumentaria y reposicion razonable en condiciones de uso seguras. Reporta por escrito faltantes o deterioro que afecte la prestacion.",
+    "base_legal": "Normas de higiene y seguridad, CCT y reglamento interno."
+  },
+  {
+    "tema": "elementos_de_seguridad",
+    "pregunta": "Quien provee los elementos de proteccion personal (EPP)?",
+    "respuesta": "La empresa debe entregar los EPP necesarios, capacitar en su uso y controlar su cumplimiento. El trabajador debe utilizarlos correctamente y notificar cuando falten o esten vencidos.",
+    "base_legal": "Ley de Higiene y Seguridad y procedimientos internos."
+  },
+  {
+    "tema": "capacitacion_habilitaciones",
+    "pregunta": "La empresa puede exigirme capacitaciones o recertificaciones?",
+    "respuesta": "Si, cuando son necesarias para seguridad operativa, cumplimiento legal o mejora del servicio. Deben comunicarse objetivos, alcance y modalidad, respetando tus condiciones laborales.",
+    "base_legal": "Facultad de organizacion empresaria y normativa de seguridad."
+  },
+  {
+    "tema": "cambios_de_turno",
+    "pregunta": "Me pueden cambiar de turno sin aviso?",
+    "respuesta": "Los cambios de turno deben comunicarse con antelacion razonable y respetar limites legales de jornada y descanso. Si el cambio te genera perjuicio relevante, deja constancia y consulta formalmente.",
+    "base_legal": "LCT (ius variandi) y CCT aplicable."
+  },
+  {
+    "tema": "traslados",
+    "pregunta": "La empresa puede trasladarme a otra base u objetivo?",
+    "respuesta": "Puede disponer traslados por razones operativas dentro de limites legales y convencionales, sin afectar de forma arbitraria tus condiciones esenciales. Si hay perjuicio concreto, corresponde reclamo formal.",
+    "base_legal": "LCT (ius variandi) y reglas convencionales."
+  },
+  {
+    "tema": "sanciones",
+    "pregunta": "Como deben notificarse apercibimientos o suspensiones?",
+    "respuesta": "Las sanciones deben estar fundadas, notificarse de forma fehaciente y ser proporcionales al hecho imputado. Tienes derecho a descargo y a asesorarte antes de responder.",
+    "base_legal": "LCT, reglamento disciplinario y debido proceso interno."
+  },
+  {
+    "tema": "cuota_sindical",
+    "pregunta": "Por que aparece descuento sindical en mi recibo?",
+    "respuesta": "Puede corresponder a afiliacion sindical, aporte solidario o contribucion prevista en acuerdo colectivo. Si no reconoces el concepto, solicita a RRHH detalle de norma y periodo aplicado.",
+    "base_legal": "Ley de asociaciones sindicales, CCT y acuerdos vigentes."
+  },
+  {
+    "tema": "consultas_formales",
+    "pregunta": "Como hago un reclamo de liquidacion o encuadramiento?",
+    "respuesta": "Presenta consulta por escrito a RRHH con periodo, concepto y respaldo documental (recibos, horarios, novedades). Pide numero de seguimiento y, si no se resuelve, escala por via sindical/legal.",
+    "base_legal": "Buenas practicas de trazabilidad laboral y normativa vigente."
+  }
+]

@@ -41,4 +41,23 @@ cargar_faqs.py: Script para la gestión y carga de la base de conocimientos.
 
 ![Dashboard](dashboard.png)
 
+## 📚 Nuevo: Preguntero Camioneros Córdoba (Caudales)
+
+Se agregó un preguntero orientado a empleados de empresa de caudales:
+
+- `preguntero_camioneros_cordoba_caudales.md` (versión legible para RRHH/empleados)
+- `faqs_camioneros_cordoba_caudales.json` (versión para carga automática)
+
+Para validar el contenido sin escribir en Firebase:
+
+```bash
+python cargar_faqs.py --perfil camioneros_cordoba --dry-run
+```
+
+Para cargarlo en la colección principal del bot:
+
+```bash
+python cargar_faqs.py --perfil camioneros_cordoba --coleccion faq_rrhh
+```
+
 
