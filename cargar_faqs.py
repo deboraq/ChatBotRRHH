@@ -1,14 +1,18 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# 1. CONEXIÓN CON FIREBASE
-try:
-    if not firebase_admin._apps:
-        cred = credentials.Certificate("claves.json")
-        firebase_admin.initialize_app(cred)
-    db = firestore.client()
-except Exception as e:
-    print(f"Error de conexión: {e}")
+def inicializar_firestore():
+    try:
+        if not firebase_admin._apps:
+            cred = credentials.Certificate("claves.json")
+            firebase_admin.initialize_app(cred)
+        return firestore.client()
+    except Exception as exc:
+        print(f"❌ Error de conexión con Firebase: {exc}")
+        return None
+
+
+db = inicializar_firestore()
 
 # 2. LISTADO DE PREGUNTAS FRECUENTES (FAQS) PARA BACAR
 faqs_bacar = [
@@ -18,7 +22,7 @@ faqs_bacar = [
     {"tema": "aguinaldo", "respuesta": "El SAC se abona en dos cuotas: la primera con vencimiento el 30 de junio y la segunda el 18 de diciembre."},
     {"tema": "obra social", "respuesta": "Para cambios o consultas sobre tu cobertura médica, debés enviar un correo a beneficios@bacar.com.ar."},
     {"tema": "licencia examen", "respuesta": "Tenés derecho a 2 días corridos por examen, hasta 20 días anuales. Presentá el certificado al día siguiente de rendir."},
-    {"tema": "ART", "respuesta": "En caso de accidente laboral, comunicate inmediatamente al 0800 de nuestra aseguradora y avisá a tu supervisor."},
+    {"tema": "art", "respuesta": "En caso de accidente laboral, comunicate inmediatamente al 0800 de nuestra aseguradora y avisá a tu supervisor."},
     {"tema": "uniforme", "respuesta": "La reposición de uniformes se realiza cada 6 meses. Podés solicitar el tuyo en la oficina de suministros."},
     {"tema": "adelanto", "respuesta": "Los pedidos de adelanto de sueldo se reciben hasta el día 20 de cada mes y no deben superar el 30% del neto."},
     {"tema": "nacimiento", "respuesta": "Por nacimiento de hijo, contás con 2 días corridos de licencia paga (según CCT). Recordá traer el acta de nacimiento."},
@@ -26,14 +30,25 @@ faqs_bacar = [
     {"tema": "capacitacion", "respuesta": "Podés ver los cursos disponibles en la intranet de Bacar, sección 'Mi Desarrollo'."}
 ]
 
+
+def normalizar_tema(tema):
+    return str(tema).strip().lower()
+
+
 def cargar_datos():
+    if not db:
+        print("⚠️ No se puede cargar información porque no hay conexión a Firebase.")
+        return
+
     print("🚀 Subiendo info oficial a Firestore...")
-    coleccion = db.collection('faq_rrhh')
+    coleccion = db.collection("faq_rrhh")
     
     for faq in faqs_bacar:
-        # Usamos el tema como ID para evitar duplicados
-        coleccion.document(faq['tema']).set(faq)
-        print(f"✅ Categoría cargada: {faq['tema']}")
+        tema = normalizar_tema(faq["tema"])
+        payload = {"tema": tema, "respuesta": faq["respuesta"]}
+        # Usamos el tema normalizado como ID para evitar duplicados y errores de casing.
+        coleccion.document(tema).set(payload)
+        print(f"✅ Categoría cargada: {tema}")
     
     print("\n¡Éxito! Tu base de datos de RRHH ya está completa.")
 

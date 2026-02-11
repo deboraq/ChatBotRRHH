@@ -1,159 +1,365 @@
+import re
+import unicodedata
+from datetime import datetime
+
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
-from thefuzz import process  # NUEVO: Para entender errores de ortografía
-from textblob import TextBlob # NUEVO: Para analizar el humor del empleado
+from textblob import TextBlob
+from thefuzz import process
 
 # ==========================================================
 # 1. CONFIGURACIÓN INICIAL Y CONEXIÓN CON FIRESTORE
 # ==========================================================
-try:
-    if not firebase_admin._apps:
-        cred = credentials.Certificate("claves.json")
-        firebase_admin.initialize_app(cred)
-    db = firestore.client()
-    print("✅ SISTEMA BACAR: Conexión Exitosa con la Base de Datos.")
-    print("🚀 El asistente virtual de RRHH está listo para operar.\n")
-except Exception as e:
-    print(f"❌ Error crítico al conectar con Firestore: {e}")
-    db = None
+MENSAJE_BIENVENIDA = (
+    "👋 ¡Hola! Soy el asistente de RRHH de Bacar. ¿En qué puedo ayudarte hoy?"
+)
+MENSAJE_CONTACTO = "📞 Para hablar con un representante, comunicate al interno 104."
+MENSAJE_AYUDA = (
+    "🆘 Puedo ayudarte con vacaciones, recibo, aguinaldo, ART y otros temas de RRHH.\n"
+    "Escribí tu consulta o poné 'menu' para ver todas las opciones."
+)
+TEMAS_SIN_FEEDBACK = {"saludo", "ayuda", "RRHH"}
+PALABRAS_SALIDA = {"salir", "chau", "exit", "no", "adios", "adiós"}
+
+# Respaldo local para que el chatbot siga funcionando aun sin Firebase.
+FAQ_FALLBACK = {
+    "vacaciones": (
+        "Se deben solicitar con 15 días de anticipación a través del portal "
+        "Legajos.online."
+    ),
+    "fraccionamiento": (
+        "Las vacaciones se pueden fraccionar en períodos mínimos de 7 días, "
+        "con aval de tu responsable directo."
+    ),
+    "recibo": (
+        "Los recibos de sueldo están disponibles para firma digital el cuarto día "
+        "hábil de cada mes en la plataforma habitual."
+    ),
+    "aguinaldo": (
+        "El SAC se abona en dos cuotas: la primera con vencimiento el 30 de junio "
+        "y la segunda el 18 de diciembre."
+    ),
+    "obra social": (
+        "Para cambios o consultas sobre tu cobertura médica, debés enviar un correo "
+        "a beneficios@bacar.com.ar."
+    ),
+    "licencia examen": (
+        "Tenés derecho a 2 días corridos por examen, hasta 20 días anuales. "
+        "Presentá el certificado al día siguiente de rendir."
+    ),
+    "art": (
+        "En caso de accidente laboral, comunicate inmediatamente al 0800 de nuestra "
+        "aseguradora y avisá a tu supervisor."
+    ),
+    "uniforme": (
+        "La reposición de uniformes se realiza cada 6 meses. Podés solicitar el tuyo "
+        "en la oficina de suministros."
+    ),
+    "adelanto": (
+        "Los pedidos de adelanto de sueldo se reciben hasta el día 20 de cada mes y "
+        "no deben superar el 30% del neto."
+    ),
+    "nacimiento": (
+        "Por nacimiento de hijo, contás con 2 días corridos de licencia paga "
+        "(según CCT). Recordá traer el acta de nacimiento."
+    ),
+    "casamiento": (
+        "La licencia por matrimonio es de 10 días corridos. Debés avisar con 30 días "
+        "de antelación."
+    ),
+    "capacitacion": (
+        "Podés ver los cursos disponibles en la intranet de Bacar, sección "
+        "'Mi Desarrollo'."
+    ),
+}
+
+
+def inicializar_firestore():
+    try:
+        if not firebase_admin._apps:
+            cred = credentials.Certificate("claves.json")
+            firebase_admin.initialize_app(cred)
+        cliente = firestore.client()
+        print("✅ SISTEMA BACAR: Conexión exitosa con la base de datos.")
+        print("🚀 El asistente virtual de RRHH está listo para operar.\n")
+        return cliente
+    except Exception as exc:
+        print(f"⚠️ No se pudo conectar con Firestore: {exc}")
+        print("🧪 Se activa modo local con respuestas de respaldo.\n")
+        return None
+
+
+db = inicializar_firestore()
 
 # ==========================================================
 # 2. DICCIONARIO DE INTELIGENCIA Y SINÓNIMOS
 # ==========================================================
 SINONIMOS = {
-    "vacaciones": ["descanso", "licencia anual", "días libres", "vacas", "feriado"],
-    "art": ["accidente", "me lastimé", "seguro laboral", "la art", "lesión"],
-    "recibo": ["sueldo", "comprobante", "liquidación", "haberes", "recibos"],
-    "aguinaldo": ["sac", "sueldo anual complementario", "cobro diciembre", "cobro junio"],
-    "hola": ["buen día", "buenas", "hola bot", "buenos días", "holaa", "saludos"],
-    "ayuda": ["no sé qué hacer", "help", "necesito ayuda", "ayudame", "que hago"]
+    "vacaciones": ["descanso", "licencia anual", "dias libres", "vacas", "feriado"],
+    "art": ["accidente", "me lastime", "seguro laboral", "la art", "lesion"],
+    "recibo": ["sueldo", "comprobante", "liquidacion", "haberes", "recibos"],
+    "aguinaldo": [
+        "sac",
+        "sueldo anual complementario",
+        "cobro diciembre",
+        "cobro junio",
+    ],
+    "hola": ["buen dia", "buenas", "hola bot", "buenos dias", "holaa", "saludos"],
+    "ayuda": ["no se que hacer", "help", "necesito ayuda", "ayudame", "que hago"],
 }
+
+INTENCIONES_CONTACTO = {"rrhh", "representante", "persona", "humano", "asesor", "operador"}
+
+
+def normalizar_texto(texto):
+    texto = str(texto).lower().strip()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    texto = re.sub(r"[^\w\s]", " ", texto)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto
+
+
+def contiene_frase(texto_normalizado, frase_normalizada):
+    if not texto_normalizado or not frase_normalizada:
+        return False
+    patron = rf"\b{re.escape(frase_normalizada)}\b"
+    return re.search(patron, texto_normalizado) is not None
+
+
+def obtener_temas_desde_firestore():
+    if not db:
+        return []
+    try:
+        docs = db.collection("faq_rrhh").stream()
+        return sorted((doc.id for doc in docs), key=normalizar_texto)
+    except Exception as exc:
+        print(f"⚠️ No se pudieron leer temas desde Firestore: {exc}")
+        return []
+
 
 # ==========================================================
 # 3. FUNCIONES DE ADMINISTRACIÓN DE DATOS Y REGISTROS
 # ==========================================================
 def mostrar_menu():
-    print("\n" + "═"*55)
+    print("\n" + "═" * 55)
     print(" 🏢 ASISTENTE VIRTUAL DE RRHH - BACAR SA ")
-    print("═"*55)
+    print("═" * 55)
     print("Seleccioná un número o escribí el tema de tu consulta:")
-    
+
+    temas_disponibles = obtener_temas_desde_firestore()
+    if not temas_disponibles:
+        temas_disponibles = sorted(FAQ_FALLBACK.keys(), key=normalizar_texto)
+        print("⚠️ Mostrando temas en modo local (sin conexión a Firestore).")
+
     temas_map = {}
-    if db:
-        docs = db.collection('faq_rrhh').stream()
-        lista_temas = sorted([doc.id for doc in docs])
-        for i, tema in enumerate(lista_temas, 1):
-            temas_map[str(i)] = tema
-            print(f" {i}. {tema.capitalize()}")
-        
-        print(" H. Hablar con alguien de RRHH")
-        print("─"*55)
+    for i, tema in enumerate(temas_disponibles, start=1):
+        temas_map[str(i)] = tema
+        print(f" {i}. {tema.capitalize()}")
+
+    print(" H. Hablar con alguien de RRHH")
+    print("─" * 55)
     return temas_map
 
+
+def guardar_en_firestore(coleccion, payload):
+    if not db:
+        return False
+    try:
+        db.collection(coleccion).add(payload)
+        return True
+    except Exception as exc:
+        print(f"⚠️ No se pudo guardar en '{coleccion}': {exc}")
+        return False
+
+
 def registrar_feedback(tema, utilidad):
-    db.collection('feedback_respuestas').add({
-        'tema': tema, 
-        'fue_util': utilidad, 
-        'fecha': datetime.now()
-    })
+    payload = {"tema": tema, "fue_util": utilidad, "fecha": datetime.now()}
+    if not guardar_en_firestore("feedback_respuestas", payload):
+        print("ℹ️ Feedback no persistido por falta de conexión.")
+
+
+def analizar_sentimiento(consulta):
+    try:
+        analisis = TextBlob(consulta)
+        polaridad = analisis.sentiment.polarity
+    except Exception:
+        return "neutral"
+
+    if polaridad < -0.1:
+        return "negativo/enojado"
+    if polaridad > 0.1:
+        return "positivo/amigable"
+    return "neutral"
+
 
 def registrar_pendiente(consulta):
-    # --- NUEVO: Análisis de Sentimiento ---
-    analisis = TextBlob(consulta)
-    # Traducimos polaridad (-1 a 1) a algo que RRHH entienda rápido
-    if analisis.sentiment.polarity < -0.1:
-        sentimiento = "negativo/enojado"
-    elif analisis.sentiment.polarity > 0.1:
-        sentimiento = "positivo/amigable"
-    else:
-        sentimiento = "neutral"
+    payload = {
+        "pregunta": consulta,
+        "fecha": datetime.now(),
+        "estado": "pendiente",
+        "sentimiento": analizar_sentimiento(consulta),
+    }
+    if not guardar_en_firestore("consultas_pendientes", payload):
+        print("ℹ️ Consulta pendiente no persistida por falta de conexión.")
 
-    db.collection('consultas_pendientes').add({
-        'pregunta': consulta, 
-        'fecha': datetime.now(), 
-        'estado': 'pendiente',
-        'sentimiento': sentimiento  # Nuevo campo para el dashboard
-    })
+
+def obtener_respuesta_faq(tema):
+    tema_norm = normalizar_texto(tema)
+
+    if db:
+        try:
+            doc = db.collection("faq_rrhh").document(tema).get()
+            if doc.exists:
+                respuesta = doc.to_dict().get("respuesta")
+                if respuesta:
+                    return respuesta
+
+            # Soporte para IDs con mayúsculas/minúsculas distintas (ej. ART vs art).
+            for doc in db.collection("faq_rrhh").stream():
+                if normalizar_texto(doc.id) == tema_norm:
+                    respuesta = doc.to_dict().get("respuesta")
+                    if respuesta:
+                        return respuesta
+        except Exception as exc:
+            print(f"⚠️ Error al consultar FAQ en Firestore: {exc}")
+
+    return FAQ_FALLBACK.get(tema_norm)
+
 
 # ==========================================================
 # 4. LÓGICA DE PROCESAMIENTO DE CONVERSACIÓN (RESPUESTAS)
 # ==========================================================
+def detectar_tema(entrada_norm, temas_map):
+    tema_directo = temas_map.get(entrada_norm)
+    if tema_directo:
+        return tema_directo
+
+    indice_temas = {normalizar_texto(tema): tema for tema in temas_map.values()}
+
+    # Prioriza frases largas para evitar falsos positivos.
+    for tema_norm, tema_real in sorted(indice_temas.items(), key=lambda item: len(item[0]), reverse=True):
+        if contiene_frase(entrada_norm, tema_norm):
+            return tema_real
+
+    for oficial, variaciones in SINONIMOS.items():
+        tema_destino = indice_temas.get(normalizar_texto(oficial), normalizar_texto(oficial))
+        for alias in [oficial, *variaciones]:
+            if contiene_frase(entrada_norm, normalizar_texto(alias)):
+                return tema_destino
+
+    if len(entrada_norm) < 3:
+        return None
+
+    opciones = {}
+    for tema_norm, tema_real in indice_temas.items():
+        opciones[tema_norm] = tema_real
+
+    for oficial, variaciones in SINONIMOS.items():
+        tema_destino = indice_temas.get(normalizar_texto(oficial), normalizar_texto(oficial))
+        for alias in [oficial, *variaciones]:
+            alias_norm = normalizar_texto(alias)
+            if len(alias_norm) >= 3:
+                opciones.setdefault(alias_norm, tema_destino)
+
+    if not opciones:
+        return None
+
+    match = process.extractOne(entrada_norm, list(opciones.keys()))
+    if match and match[1] >= 78:
+        return opciones[match[0]]
+    return None
+
+
+def es_saludo(entrada_norm):
+    saludos = ["hola", *SINONIMOS["hola"]]
+    return any(contiene_frase(entrada_norm, normalizar_texto(saludo)) for saludo in saludos)
+
+
+def solicita_contacto_rrhh(entrada_norm):
+    if entrada_norm == "h":
+        return True
+    return any(contiene_frase(entrada_norm, clave) for clave in INTENCIONES_CONTACTO)
+
+
+def sugerir_temas(entrada, temas_map, limite=3):
+    entrada_norm = normalizar_texto(entrada)
+    if len(entrada_norm) < 3 or not temas_map:
+        return []
+
+    opciones = {normalizar_texto(tema): tema for tema in temas_map.values()}
+    resultados = process.extract(entrada_norm, list(opciones.keys()), limit=limite)
+    sugerencias = []
+    for tema_norm, score in resultados:
+        if score >= 62:
+            sugerencias.append(opciones[tema_norm])
+    return sugerencias
+
+
 def obtener_respuesta(entrada, temas_map):
-    entrada_clean = entrada.lower().strip()
-    tema_elegido = None
-    
-    # 1. Búsqueda exacta por número o nombre
-    tema_elegido = temas_map.get(entrada_clean)
-    if not tema_elegido:
-        for id_tema in temas_map.values():
-            if id_tema.lower() in entrada_clean:
-                tema_elegido = id_tema
-                break
+    entrada_norm = normalizar_texto(entrada)
+    if not entrada_norm:
+        return "⚠️ No llegué a entender tu consulta. ¿Podrías reformularla?", "ayuda"
 
-    # 2. Búsqueda por sinónimos
-    if not tema_elegido:
-        for oficial, variaciones in SINONIMOS.items():
-            if any(v in entrada_clean for v in variaciones):
-                tema_elegido = oficial
-                break
-    
-    # 3. NUEVO: Fuzzy Matching (Entender errores de ortografía)
-    if not tema_elegido:
-        opciones = list(temas_map.values()) + list(SINONIMOS.keys())
-        mejor_coincidencia, puntaje = process.extractOne(entrada_clean, opciones)
-        if puntaje > 70:  # Si el parecido es mayor al 70%
-            tema_elegido = mejor_coincidencia
+    if solicita_contacto_rrhh(entrada_norm):
+        return MENSAJE_CONTACTO, "RRHH"
 
-    # --- RESPUESTAS LÓGICAS ---
-    saludo_detectado = any(s in entrada_clean for s in SINONIMOS["hola"])
+    tema_elegido = detectar_tema(entrada_norm, temas_map)
+    saludo_detectado = es_saludo(entrada_norm)
 
-    if saludo_detectado and tema_elegido and tema_elegido != "hola":
-        doc = db.collection('faq_rrhh').document(tema_elegido).get()
-        if doc.exists:
-            res_doc = doc.to_dict().get('respuesta')
-            return f"👋 ¡Hola! Sobre tu consulta de {tema_elegido}:\n{res_doc}", tema_elegido
+    if saludo_detectado and tema_elegido and normalizar_texto(tema_elegido) not in {"hola", "ayuda"}:
+        respuesta = obtener_respuesta_faq(tema_elegido)
+        if respuesta:
+            return f"👋 ¡Hola! Sobre tu consulta de {tema_elegido}:\n{respuesta}", tema_elegido
 
     if saludo_detectado:
-        return "👋 ¡Hola! Soy el asistente de RRHH de Bacar. ¿En qué puedo ayudarte hoy?", "saludo"
+        return MENSAJE_BIENVENIDA, "saludo"
 
     if tema_elegido:
-        doc = db.collection('faq_rrhh').document(tema_elegido).get()
-        if doc.exists:
-            return doc.to_dict().get('respuesta'), tema_elegido
-            
-    if entrada_clean == 'h':
-        return "📞 Para hablar con un representante, comunicate al interno 104.", "RRHH"
+        tema_norm = normalizar_texto(tema_elegido)
+        if tema_norm == "ayuda":
+            return MENSAJE_AYUDA, "ayuda"
+        if tema_norm == "hola":
+            return MENSAJE_BIENVENIDA, "saludo"
 
+        respuesta = obtener_respuesta_faq(tema_elegido)
+        if respuesta:
+            return respuesta, tema_elegido
+
+    if entrada_norm == "ayuda":
+        return MENSAJE_AYUDA, "ayuda"
     return None, None
+
 
 # ==========================================================
 # 5. BUCLE PRINCIPAL DE INTERACCIÓN
 # ==========================================================
 if __name__ == "__main__":
     dict_temas = mostrar_menu()
-    
+
     while True:
         msj_usuario = input("\nColaborador: ")
-        
-        if msj_usuario.lower() in ["salir", "chau", "exit", "no", "adiós"]:
+        msj_norm = normalizar_texto(msj_usuario)
+
+        if msj_norm in PALABRAS_SALIDA:
             print("\nBot: Gracias por comunicarte con RRHH de Bacar. ¡Buen día!")
             break
-        
-        if msj_usuario.lower() == "menu":
+
+        if msj_norm == "menu":
             dict_temas = mostrar_menu()
             continue
-            
+
         respuesta_bot, tema_id = obtener_respuesta(msj_usuario, dict_temas)
-        
+
         if respuesta_bot:
             print(f"\nBot: {respuesta_bot}")
-            
-            if tema_id not in ["saludo", "ayuda", "RRHH"]:
+
+            if tema_id not in TEMAS_SIN_FEEDBACK:
                 print("-" * 45)
-                fdbk = input("Bot: ¿Esta información te fue de utilidad? (si/no): ").lower().strip()
-                if fdbk in ["si", "no"]:
-                    registrar_feedback(tema_id, fdbk)
+                fdbk = input("Bot: ¿Esta información te fue de utilidad? (si/no): ").strip()
+                fdbk_norm = normalizar_texto(fdbk)
+                if fdbk_norm in {"si", "no"}:
+                    registrar_feedback(tema_id, fdbk_norm)
                     print("\nBot: ¡Muchas gracias por tu feedback!")
                     print("Bot: ¿Tenés otra duda o preferís volver al 'menu' principal?")
                     print("👉 Escribí tu duda, la palabra 'menu' o 'salir'.")
@@ -163,6 +369,9 @@ if __name__ == "__main__":
             print("   - Escribí el NÚMERO de la opción (ejemplo: '1')")
             print("   - Escribí la PALABRA clave (ejemplo: 'Vacaciones')")
             print("   - Escribí 'menu' para volver al inicio.")
+            sugerencias = sugerir_temas(msj_usuario, dict_temas)
+            if sugerencias:
+                print(f"   - Tal vez quisiste decir: {', '.join(sugerencias)}")
             registrar_pendiente(msj_usuario)
 
 # FINAL DEL PROGRAMA - PROPIEDAD DE BACAR SA - 2026
