@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chatbot RRHH Bacar</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='chat.css') }}" />
+  </head>
+  <body>
+    <main class="chat-wrapper">
+      <header class="chat-header">
+        <h1>Asistente Virtual RRHH</h1>
+        <p>Entorno de prueba previo a WhatsApp</p>
+      </header>
+
+      <section id="chat-window" class="chat-window" aria-live="polite"></section>
+
+      <section class="quick-actions">
+        <button id="btn-menu" type="button">Ver menú</button>
+        <button id="btn-rrhh" type="button">Hablar con RRHH</button>
+        <button id="btn-reset" type="button" class="secondary">Reiniciar chat</button>
+      </section>
+
+      <form id="chat-form" class="chat-form">
+        <input
+          id="message-input"
+          type="text"
+          autocomplete="off"
+          placeholder="Escribí tu consulta..."
+          required
+        />
+        <button id="send-button" type="submit">Enviar</button>
+      </form>
+
+      <p id="feedback-hint" class="feedback-hint"></p>
+    </main>
+
+    <script>
+      const chatWindow = document.getElementById("chat-window");
+      const chatForm = document.getElementById("chat-form");
+      const messageInput = document.getElementById("message-input");
+      const feedbackHint = document.getElementById("feedback-hint");
+      const btnMenu = document.getElementById("btn-menu");
+      const btnRrhh = document.getElementById("btn-rrhh");
+      const btnReset = document.getElementById("btn-reset");
+
+      function addMessage(role, text) {
+        const bubble = document.createElement("article");
+        bubble.className = `message ${role}`;
+        bubble.textContent = text;
+        chatWindow.appendChild(bubble);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      }
+
+      async function sendMessage(message, skipRenderUser = false) {
+        const trimmed = message.trim();
+        if (!trimmed) return;
+
+        if (!skipRenderUser) {
+          addMessage("user", trimmed);
+        }
+
+        messageInput.value = "";
+        messageInput.focus();
+
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: trimmed }),
+          });
+
+          const data = await response.json();
+          if (!data.ok) {
+            addMessage("bot", "Hubo un error procesando tu mensaje.");
+            feedbackHint.textContent = "";
+            return;
+          }
+
+          addMessage("bot", data.reply);
+          feedbackHint.textContent = data.await_feedback
+            ? "Esperando feedback: respondé si/no, o escribí otra consulta."
+            : "";
+        } catch (error) {
+          addMessage("bot", "No pude conectarme con el servidor del chatbot.");
+          feedbackHint.textContent = "";
+        }
+      }
+
+      chatForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        sendMessage(messageInput.value);
+      });
+
+      btnMenu.addEventListener("click", () => sendMessage("menu"));
+      btnRrhh.addEventListener("click", () => sendMessage("h"));
+      btnReset.addEventListener("click", async () => {
+        try {
+          const response = await fetch("/api/reset", { method: "POST" });
+          const data = await response.json();
+          chatWindow.innerHTML = "";
+          addMessage("bot", "{{ bienvenida }}");
+          addMessage("bot", data.reply);
+          feedbackHint.textContent = "";
+        } catch (error) {
+          addMessage("bot", "No se pudo reiniciar la sesión.");
+        }
+      });
+
+      addMessage("bot", "{{ bienvenida }}");
+      addMessage("bot", "Escribí tu consulta o tocá 'Ver menú' para empezar.");
+      messageInput.focus();
+    </script>
+  </body>
+</html>
