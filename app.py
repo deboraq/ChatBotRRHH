@@ -1,11 +1,25 @@
 import re
 import unicodedata
 from datetime import datetime
+from difflib import SequenceMatcher
 
-import firebase_admin
-from firebase_admin import credentials, firestore
-from textblob import TextBlob
-from thefuzz import process
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except ImportError:
+    firebase_admin = None
+    credentials = None
+    firestore = None
+
+try:
+    from textblob import TextBlob
+except ImportError:
+    TextBlob = None
+
+try:
+    from thefuzz import process
+except ImportError:
+    process = None
 
 # ==========================================================
 # 1. CONFIGURACIÓN INICIAL Y CONEXIÓN CON FIRESTORE
@@ -75,6 +89,10 @@ FAQ_FALLBACK = {
 
 
 def inicializar_firestore():
+    if not firebase_admin:
+        print("⚠️ firebase_admin no está instalado. Se activa modo local.\n")
+        return None
+
     try:
         if not firebase_admin._apps:
             cred = credentials.Certificate("claves.json")
@@ -125,6 +143,38 @@ def contiene_frase(texto_normalizado, frase_normalizada):
         return False
     patron = rf"\b{re.escape(frase_normalizada)}\b"
     return re.search(patron, texto_normalizado) is not None
+
+
+def fuzzy_extract_one(query, choices):
+    if not choices:
+        return None
+
+    if process:
+        return process.extractOne(query, choices)
+
+    mejor_opcion = None
+    mejor_score = -1
+    for opcion in choices:
+        score = int(SequenceMatcher(None, query, opcion).ratio() * 100)
+        if score > mejor_score:
+            mejor_opcion = opcion
+            mejor_score = score
+
+    if mejor_opcion is None:
+        return None
+    return mejor_opcion, mejor_score
+
+
+def fuzzy_extract(query, choices, limit=3):
+    if not choices:
+        return []
+
+    if process:
+        return process.extract(query, choices, limit=limit)
+
+    puntajes = [(opcion, int(SequenceMatcher(None, query, opcion).ratio() * 100)) for opcion in choices]
+    puntajes.sort(key=lambda item: item[1], reverse=True)
+    return puntajes[:limit]
 
 
 def obtener_temas_desde_firestore():
@@ -180,6 +230,9 @@ def registrar_feedback(tema, utilidad):
 
 
 def analizar_sentimiento(consulta):
+    if TextBlob is None:
+        return "neutral"
+
     try:
         analisis = TextBlob(consulta)
         polaridad = analisis.sentiment.polarity
@@ -265,7 +318,7 @@ def detectar_tema(entrada_norm, temas_map):
     if not opciones:
         return None
 
-    match = process.extractOne(entrada_norm, list(opciones.keys()))
+    match = fuzzy_extract_one(entrada_norm, list(opciones.keys()))
     if match and match[1] >= 78:
         return opciones[match[0]]
     return None
@@ -288,7 +341,7 @@ def sugerir_temas(entrada, temas_map, limite=3):
         return []
 
     opciones = {normalizar_texto(tema): tema for tema in temas_map.values()}
-    resultados = process.extract(entrada_norm, list(opciones.keys()), limit=limite)
+    resultados = fuzzy_extract(entrada_norm, list(opciones.keys()), limit=limite)
     sugerencias = []
     for tema_norm, score in resultados:
         if score >= 62:

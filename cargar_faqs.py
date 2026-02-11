@@ -1,7 +1,16 @@
-import firebase_admin
-from firebase_admin import credentials, firestore
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except ImportError:
+    firebase_admin = None
+    credentials = None
+    firestore = None
 
 def inicializar_firestore():
+    if not firebase_admin:
+        print("⚠️ firebase_admin no está instalado. No se puede cargar en Firestore.")
+        return None
+
     try:
         if not firebase_admin._apps:
             cred = credentials.Certificate("claves.json")
