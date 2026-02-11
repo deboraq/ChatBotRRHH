@@ -29,8 +29,16 @@ MENSAJE_BIENVENIDA = (
 )
 MENSAJE_CONTACTO = "📞 Para hablar con un representante, comunicate al interno 104."
 MENSAJE_AYUDA = (
-    "🆘 Puedo ayudarte con vacaciones, recibo, aguinaldo, ART y otros temas de RRHH.\n"
+    "🆘 Puedo ayudarte con vacaciones, fraccionamiento, recibo, aguinaldo, ART y otros temas de RRHH.\n"
     "Escribí tu consulta o poné 'menu' para ver todas las opciones."
+)
+RESPUESTA_DIAS_VACACIONES = (
+    "📅 Los días de vacaciones dependen de tu antigüedad:\n"
+    "- Hasta 5 años: 14 días corridos.\n"
+    "- Más de 5 y hasta 10: 21 días corridos.\n"
+    "- Más de 10 y hasta 20: 28 días corridos.\n"
+    "- Más de 20 años: 35 días corridos.\n"
+    "Si querés, también te explico cómo se gestiona el fraccionamiento."
 )
 TEMAS_SIN_FEEDBACK = {"saludo", "ayuda", "RRHH"}
 PALABRAS_SALIDA = {"salir", "chau", "exit", "no", "adios", "adiós"}
@@ -113,7 +121,24 @@ db = inicializar_firestore()
 # 2. DICCIONARIO DE INTELIGENCIA Y SINÓNIMOS
 # ==========================================================
 SINONIMOS = {
-    "vacaciones": ["descanso", "licencia anual", "dias libres", "vacas", "feriado"],
+    "vacaciones": [
+        "descanso",
+        "licencia anual",
+        "dias libres",
+        "vacas",
+        "feriado",
+        "dias de vacaciones",
+        "cuantos dias de vacaciones",
+        "cuanto me corresponde de vacaciones",
+    ],
+    "fraccionamiento": [
+        "fraccionar",
+        "fraccionadas",
+        "fraccionado",
+        "vacaciones fraccionadas",
+        "dividir vacaciones",
+        "partir vacaciones",
+    ],
     "art": ["accidente", "me lastime", "seguro laboral", "la art", "lesion"],
     "recibo": ["sueldo", "comprobante", "liquidacion", "haberes", "recibos"],
     "aguinaldo": [
@@ -349,6 +374,30 @@ def sugerir_temas(entrada, temas_map, limite=3):
     return sugerencias
 
 
+def consulta_sobre_dias_vacaciones(entrada_norm):
+    if not any(
+        contiene_frase(entrada_norm, palabra)
+        for palabra in ["vacaciones", "vacacion", "descanso", "licencia anual"]
+    ):
+        return False
+
+    pistas = ["cuanto", "cuantos", "dias", "corresponde", "corresponden", "antiguedad"]
+    return any(contiene_frase(entrada_norm, pista) for pista in pistas)
+
+
+def clasificar_input_feedback(texto):
+    texto_norm = normalizar_texto(texto)
+    if not texto_norm:
+        return "vacio", texto_norm
+    if texto_norm in {"si", "no"}:
+        return "feedback", texto_norm
+    if texto_norm == "menu":
+        return "menu", texto_norm
+    if texto_norm in PALABRAS_SALIDA:
+        return "salir", texto_norm
+    return "consulta", texto_norm
+
+
 def obtener_respuesta(entrada, temas_map):
     entrada_norm = normalizar_texto(entrada)
     if not entrada_norm:
@@ -374,6 +423,8 @@ def obtener_respuesta(entrada, temas_map):
             return MENSAJE_AYUDA, "ayuda"
         if tema_norm == "hola":
             return MENSAJE_BIENVENIDA, "saludo"
+        if tema_norm == "vacaciones" and consulta_sobre_dias_vacaciones(entrada_norm):
+            return RESPUESTA_DIAS_VACACIONES, tema_elegido
 
         respuesta = obtener_respuesta_faq(tema_elegido)
         if respuesta:
@@ -389,9 +440,16 @@ def obtener_respuesta(entrada, temas_map):
 # ==========================================================
 if __name__ == "__main__":
     dict_temas = mostrar_menu()
+    consulta_pendiente = None
 
     while True:
-        msj_usuario = input("\nColaborador: ")
+        if consulta_pendiente is not None:
+            msj_usuario = consulta_pendiente
+            consulta_pendiente = None
+            print(f"\nColaborador: {msj_usuario}")
+        else:
+            msj_usuario = input("\nColaborador: ")
+
         msj_norm = normalizar_texto(msj_usuario)
 
         if msj_norm in PALABRAS_SALIDA:
@@ -410,12 +468,21 @@ if __name__ == "__main__":
             if tema_id not in TEMAS_SIN_FEEDBACK:
                 print("-" * 45)
                 fdbk = input("Bot: ¿Esta información te fue de utilidad? (si/no): ").strip()
-                fdbk_norm = normalizar_texto(fdbk)
-                if fdbk_norm in {"si", "no"}:
+                tipo_feedback, fdbk_norm = clasificar_input_feedback(fdbk)
+
+                if tipo_feedback == "feedback":
                     registrar_feedback(tema_id, fdbk_norm)
                     print("\nBot: ¡Muchas gracias por tu feedback!")
                     print("Bot: ¿Tenés otra duda o preferís volver al 'menu' principal?")
                     print("👉 Escribí tu duda, la palabra 'menu' o 'salir'.")
+                elif tipo_feedback == "menu":
+                    dict_temas = mostrar_menu()
+                elif tipo_feedback == "salir":
+                    print("\nBot: Gracias por comunicarte con RRHH de Bacar. ¡Buen día!")
+                    break
+                elif tipo_feedback == "consulta":
+                    print("\nBot: Entiendo tu mensaje como una nueva consulta.")
+                    consulta_pendiente = fdbk
         else:
             print("\nBot: ⚠️ Lo siento, no tengo información registrada sobre eso.")
             print("👉 Para que pueda ayudarte, por favor intentá lo siguiente:")

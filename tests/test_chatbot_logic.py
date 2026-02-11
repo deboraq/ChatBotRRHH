@@ -10,6 +10,7 @@ class ChatbotLogicTests(unittest.TestCase):
             "2": "ART",
             "3": "recibo",
             "4": "aguinaldo",
+            "5": "fraccionamiento",
         }
 
     def test_normalizar_texto_remueve_acentos_y_puntuacion(self):
@@ -36,6 +37,23 @@ class ChatbotLogicTests(unittest.TestCase):
     def test_sugiere_temas_cuando_hay_error_ortografico(self):
         sugerencias = app.sugerir_temas("vacasiones", self.temas_map)
         self.assertIn("vacaciones", sugerencias)
+
+    def test_detecta_fraccionamiento_por_pregunta_corta(self):
+        respuesta, tema = app.obtener_respuesta("y las puedo fraccionar?", self.temas_map)
+        self.assertEqual(tema, "fraccionamiento")
+        self.assertIn("fraccionar", respuesta.lower())
+
+    def test_responde_cuantos_dias_corresponden_de_vacaciones(self):
+        respuesta, tema = app.obtener_respuesta(
+            "quiero saber cuánto me corresponde de vacaciones", self.temas_map
+        )
+        self.assertEqual(tema, "vacaciones")
+        self.assertIn("14 días corridos", respuesta.lower())
+
+    def test_feedback_con_pregunta_se_trata_como_consulta(self):
+        tipo, texto_norm = app.clasificar_input_feedback("y las puedo fraccionar?")
+        self.assertEqual(tipo, "consulta")
+        self.assertEqual(texto_norm, "y las puedo fraccionar")
 
     def test_consulta_desconocida_retorna_none(self):
         respuesta, tema = app.obtener_respuesta("beneficios gym", self.temas_map)
