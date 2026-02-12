@@ -55,6 +55,14 @@ class ChatbotLogicTests(unittest.TestCase):
         self.assertEqual(tipo, "consulta")
         self.assertEqual(texto_norm, "y las puedo fraccionar")
 
+    def test_analizar_sentimiento_detecta_frase_negativa_en_espanol(self):
+        sentimiento = app.analizar_sentimiento("No! no entendes?")
+        self.assertEqual(sentimiento, "negativo/enojado")
+
+    def test_analizar_sentimiento_detecta_agradecimiento_como_positivo(self):
+        sentimiento = app.analizar_sentimiento("Muchas gracias, me ayudaste!")
+        self.assertEqual(sentimiento, "positivo/amigable")
+
     def test_consulta_desconocida_retorna_none(self):
         respuesta, tema = app.obtener_respuesta("beneficios gym", self.temas_map)
         self.assertIsNone(respuesta)

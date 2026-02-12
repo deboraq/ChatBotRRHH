@@ -6,6 +6,16 @@ def _normalizar_texto(valor):
     return str(valor).strip().lower() if valor is not None else ""
 
 
+def _es_voto_si(voto):
+    voto_norm = _normalizar_texto(voto)
+    return voto_norm in {"si", "sí", "yes", "y", "true"}
+
+
+def _es_voto_no(voto):
+    voto_norm = _normalizar_texto(voto)
+    return voto_norm in {"no", "n", "false"}
+
+
 def _extraer_fecha(valor):
     if isinstance(valor, datetime):
         if valor.tzinfo is None:
@@ -62,9 +72,9 @@ def build_statistics_from_records(
 
     for item in feedback_records:
         voto = _normalizar_texto(item.get("fue_util"))
-        if voto in {"si", "sí", "yes", "y", "true"}:
+        if _es_voto_si(voto):
             votos_si += 1
-        elif voto in {"no", "n", "false"}:
+        elif _es_voto_no(voto):
             votos_no += 1
 
         tema = _normalizar_texto(item.get("tema"))
@@ -120,7 +130,14 @@ def build_statistics_from_records(
         for sentimiento, cantidad in sentimientos_counter.most_common()
     ]
 
-    feedback_reciente = _ordenar_por_fecha_desc(feedback_reciente)[:detail_limit]
+    feedback_reciente_ordenado = _ordenar_por_fecha_desc(feedback_reciente)
+    feedback_no_util = [
+        item for item in feedback_reciente_ordenado if _es_voto_no(item.get("fue_util"))
+    ][:detail_limit]
+    feedback_si_util = [
+        item for item in feedback_reciente_ordenado if _es_voto_si(item.get("fue_util"))
+    ][:detail_limit]
+    feedback_reciente = feedback_reciente_ordenado[:detail_limit]
     pendientes_recientes = _ordenar_por_fecha_desc(pendientes_recientes)[:detail_limit]
     desglose_diario = [
         {
@@ -137,6 +154,7 @@ def build_statistics_from_records(
             "total_feedback": total_feedback,
             "votos_si": votos_si,
             "votos_no": votos_no,
+            "no_util_total": votos_no,
             "utilidad_pct": utilidad_pct,
             "total_pendientes": total_pendientes,
         },
@@ -145,6 +163,8 @@ def build_statistics_from_records(
         "series_7_dias": serie,
         "detail": {
             "feedback_reciente": feedback_reciente,
+            "feedback_no_util": feedback_no_util,
+            "feedback_si_util": feedback_si_util,
             "pendientes_recientes": pendientes_recientes,
             "ranking_temas": top_temas_todos,
             "ranking_sentimientos": sentimientos_todos,
@@ -169,6 +189,7 @@ def obtener_estadisticas(db, now=None, days=7):
                 "total_feedback": 0,
                 "votos_si": 0,
                 "votos_no": 0,
+                "no_util_total": 0,
                 "utilidad_pct": 0.0,
                 "total_pendientes": 0,
             },
@@ -177,6 +198,8 @@ def obtener_estadisticas(db, now=None, days=7):
             "series_7_dias": _serie_vacia(labels),
             "detail": {
                 "feedback_reciente": [],
+                "feedback_no_util": [],
+                "feedback_si_util": [],
                 "pendientes_recientes": [],
                 "ranking_temas": [],
                 "ranking_sentimientos": [],

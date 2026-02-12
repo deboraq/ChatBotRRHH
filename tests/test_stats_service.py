@@ -29,6 +29,7 @@ class StatsServiceTests(unittest.TestCase):
         self.assertEqual(result["kpis"]["total_feedback"], 3)
         self.assertEqual(result["kpis"]["votos_si"], 2)
         self.assertEqual(result["kpis"]["votos_no"], 1)
+        self.assertEqual(result["kpis"]["no_util_total"], 1)
         self.assertEqual(result["kpis"]["total_pendientes"], 3)
         self.assertAlmostEqual(result["kpis"]["utilidad_pct"], 66.67, places=2)
         self.assertEqual(result["top_temas"][0]["tema"], "vacaciones")
@@ -42,6 +43,8 @@ class StatsServiceTests(unittest.TestCase):
         self.assertIn("pendientes_recientes", result["detail"])
         self.assertIn("ranking_temas", result["detail"])
         self.assertIn("desglose_diario", result["detail"])
+        self.assertIn("feedback_no_util", result["detail"])
+        self.assertEqual(len(result["detail"]["feedback_no_util"]), 1)
         self.assertTrue(len(result["detail"]["feedback_reciente"]) > 0)
         self.assertEqual(len(result["detail"]["desglose_diario"]), 7)
 
@@ -50,9 +53,11 @@ class StatsServiceTests(unittest.TestCase):
         self.assertFalse(result["available"])
         self.assertEqual(result["kpis"]["total_feedback"], 0)
         self.assertEqual(result["kpis"]["total_pendientes"], 0)
+        self.assertEqual(result["kpis"]["no_util_total"], 0)
         self.assertEqual(len(result["series_7_dias"]["labels"]), 7)
         self.assertIn("detail", result)
         self.assertEqual(result["detail"]["feedback_reciente"], [])
+        self.assertEqual(result["detail"]["feedback_no_util"], [])
 
 
 if __name__ == "__main__":

@@ -127,6 +127,7 @@ El proyecto incluye una página de métricas conectada directo a Firestore para 
 Métricas incluidas:
 - Total de feedback y porcentaje de utilidad.
 - Votos sí/no.
+- Casos "No útil" con detalle clickeable.
 - Pendientes por sentimiento.
 - Evolución de feedback y pendientes (últimos 7 días).
 - Top temas consultados.
