@@ -33,6 +33,8 @@
         <button id="send-button" type="submit">Enviar</button>
       </form>
 
+      <section id="dynamic-actions" class="dynamic-actions"></section>
+
       <p id="feedback-hint" class="feedback-hint"></p>
     </main>
 
@@ -44,6 +46,8 @@
       const btnMenu = document.getElementById("btn-menu");
       const btnRrhh = document.getElementById("btn-rrhh");
       const btnReset = document.getElementById("btn-reset");
+      const dynamicActions = document.getElementById("dynamic-actions");
+      const initialQuickActions = {{ quick_actions_iniciales|tojson }};
 
       function addMessage(role, text) {
         const bubble = document.createElement("article");
@@ -53,12 +57,29 @@
         chatWindow.scrollTop = chatWindow.scrollHeight;
       }
 
-      async function sendMessage(message, skipRenderUser = false) {
+      function renderQuickActions(actions) {
+        dynamicActions.innerHTML = "";
+        if (!Array.isArray(actions) || actions.length === 0) return;
+
+        actions.forEach((action) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = `chip ${action.variant || "default"}`;
+          btn.textContent = action.label;
+          btn.addEventListener("click", () =>
+            sendMessage(action.value, { displayText: action.label })
+          );
+          dynamicActions.appendChild(btn);
+        });
+      }
+
+      async function sendMessage(message, options = {}) {
+        const { skipRenderUser = false, displayText = null } = options;
         const trimmed = message.trim();
         if (!trimmed) return;
 
         if (!skipRenderUser) {
-          addMessage("user", trimmed);
+          addMessage("user", displayText || trimmed);
         }
 
         messageInput.value = "";
@@ -75,6 +96,7 @@
           if (!data.ok) {
             addMessage("bot", "Hubo un error procesando tu mensaje.");
             feedbackHint.textContent = "";
+            renderQuickActions([]);
             return;
           }
 
@@ -82,9 +104,11 @@
           feedbackHint.textContent = data.await_feedback
             ? "Esperando feedback: respondé si/no, o escribí otra consulta."
             : "";
+          renderQuickActions(data.quick_actions || []);
         } catch (error) {
           addMessage("bot", "No pude conectarme con el servidor del chatbot.");
           feedbackHint.textContent = "";
+          renderQuickActions([]);
         }
       }
 
@@ -93,8 +117,12 @@
         sendMessage(messageInput.value);
       });
 
-      btnMenu.addEventListener("click", () => sendMessage("menu"));
-      btnRrhh.addEventListener("click", () => sendMessage("h"));
+      btnMenu.addEventListener("click", () =>
+        sendMessage("menu", { displayText: "Ver menú" })
+      );
+      btnRrhh.addEventListener("click", () =>
+        sendMessage("h", { displayText: "Hablar con RRHH" })
+      );
       btnReset.addEventListener("click", async () => {
         try {
           const response = await fetch("/api/reset", { method: "POST" });
@@ -103,6 +131,7 @@
           addMessage("bot", "{{ bienvenida }}");
           addMessage("bot", data.reply);
           feedbackHint.textContent = "";
+          renderQuickActions(data.quick_actions || initialQuickActions);
         } catch (error) {
           addMessage("bot", "No se pudo reiniciar la sesión.");
         }
@@ -110,6 +139,7 @@
 
       addMessage("bot", "{{ bienvenida }}");
       addMessage("bot", "Escribí tu consulta o tocá 'Ver menú' para empezar.");
+      renderQuickActions(initialQuickActions);
       messageInput.focus();
     </script>
   </body>

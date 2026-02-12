@@ -114,6 +114,7 @@ Funciones disponibles en la UI:
 - Chat en tiempo real con el motor del bot.
 - Flujo de feedback (si/no) integrado.
 - Botones rápidos: menú, hablar con RRHH y reiniciar sesión.
+- Atajos clickeables por número/tema y sugerencias de preguntas.
 - Vista de estadísticas en tiempo real: `http://localhost:5000/estadisticas`
 
 ## 📈 Dashboard Web (sin Google Sheets)
