@@ -39,6 +39,19 @@ class WebChatApiTests(unittest.TestCase):
         self.assertIn("Gracias por tu feedback", body_segunda["reply"])
         self.assertTrue(len(body_segunda["quick_actions"]) > 0)
 
+    def test_feedback_flow_recibo_no_no_cierra_chat(self):
+        primera = self.client.post("/api/chat", json={"message": "recibo"})
+        self.assertEqual(primera.status_code, 200)
+        body_primera = primera.get_json()
+        self.assertTrue(body_primera["await_feedback"])
+
+        segunda = self.client.post("/api/chat", json={"message": "no"})
+        self.assertEqual(segunda.status_code, 200)
+        body_segunda = segunda.get_json()
+        self.assertTrue(body_segunda["ok"])
+        self.assertFalse(body_segunda["end_session"])
+        self.assertIn("feedback", body_segunda["reply"].lower())
+
     def test_pregunta_en_feedback_se_toma_como_consulta(self):
         self.client.post("/api/chat", json={"message": "vacaciones"})
         response = self.client.post(

@@ -35,7 +35,8 @@ RESPUESTA_DIAS_VACACIONES = (
     "Si querés, también te explico cómo se gestiona el fraccionamiento."
 )
 TEMAS_SIN_FEEDBACK = {"saludo", "ayuda", "RRHH"}
-PALABRAS_SALIDA = {"salir", "chau", "exit", "no", "adios", "adiós"}
+# "no" no se incluye para no confundirlo con feedback negativo.
+PALABRAS_SALIDA = {"salir", "chau", "exit", "adios", "adiós"}
 
 # Respaldo local para que el chatbot siga funcionando aun sin Firebase.
 FAQ_FALLBACK = {
@@ -296,7 +297,8 @@ def registrar_feedback(tema, utilidad):
     payload = {"tema": tema, "fue_util": utilidad, "fecha": datetime.now()}
     if not guardar_en_firestore("feedback_respuestas", payload):
         print("ℹ️ Feedback no persistido por falta de conexión.")
-
+        return False
+    return True
 
 def analizar_sentimiento(consulta):
     consulta_norm = normalizar_texto(consulta)
@@ -329,6 +331,8 @@ def registrar_pendiente(consulta):
     }
     if not guardar_en_firestore("consultas_pendientes", payload):
         print("ℹ️ Consulta pendiente no persistida por falta de conexión.")
+        return False
+    return True
 
 
 def obtener_respuesta_faq(tema):

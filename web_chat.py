@@ -438,11 +438,20 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map):
     tipo, texto_norm = chatbot.clasificar_input_feedback(texto_usuario)
 
     if tipo == "feedback":
-        chatbot.registrar_feedback(tema_pendiente, texto_norm)
+        guardado = chatbot.registrar_feedback(tema_pendiente, texto_norm)
         limpiar_estado_conversacion()
+        if guardado:
+            texto = (
+                "¡Gracias por tu feedback! 🙌\n"
+                "Si querés, escribime otra consulta o poné 'menu' para ver temas."
+            )
+        else:
+            texto = (
+                "⚠️ Recibí tu feedback, pero no pude guardarlo en la base de datos.\n"
+                "Podés seguir usando el chat y revisar tu conexión Firebase."
+            )
         return _payload(
-            "¡Gracias por tu feedback! 🙌\n"
-            "Si querés, escribime otra consulta o poné 'menu' para ver temas.",
+            texto,
             quick_actions=construir_acciones_menu(temas_map, limite=6),
         )
 
@@ -580,9 +589,12 @@ def responder_chat(mensaje_usuario):
             quick_actions=construir_acciones_menu(temas_map, limite=4),
         )
 
-    chatbot.registrar_pendiente(mensaje_usuario)
+    guardado_pendiente = chatbot.registrar_pendiente(mensaje_usuario)
+    respuesta = armar_respuesta_no_entendida(mensaje_usuario, temas_map)
+    if not guardado_pendiente:
+        respuesta += "\nℹ️ No pude registrar esta consulta en la base de datos."
     return _payload(
-        armar_respuesta_no_entendida(mensaje_usuario, temas_map),
+        respuesta,
         quick_actions=construir_acciones_sugerencias(mensaje_usuario, temas_map),
     )
 
