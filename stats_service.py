@@ -24,7 +24,7 @@ def _labels_ultimos_dias(now, days):
 
 
 def build_statistics_from_records(feedback_records, pendientes_records, now=None, days=7):
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc)
     labels = _labels_ultimos_dias(now, days)
     serie = _serie_vacia(labels)
     labels_set = set(labels)
@@ -94,7 +94,8 @@ def build_statistics_from_records(feedback_records, pendientes_records, now=None
 
 def obtener_estadisticas(db, now=None, days=7):
     if db is None:
-        labels = _labels_ultimos_dias(now or datetime.utcnow(), days)
+        current_time = now or datetime.now(timezone.utc)
+        labels = _labels_ultimos_dias(current_time, days)
         return {
             "available": False,
             "reason": "Sin conexión a Firestore",
@@ -108,7 +109,7 @@ def obtener_estadisticas(db, now=None, days=7):
             "top_temas": [],
             "pendientes_por_sentimiento": [],
             "series_7_dias": _serie_vacia(labels),
-            "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+            "updated_at": current_time.isoformat(timespec="seconds"),
         }
 
     feedback_records = [doc.to_dict() for doc in db.collection("feedback_respuestas").stream()]
