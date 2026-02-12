@@ -138,6 +138,17 @@ def _list_handoffs(include_closed=False, limit=100):
     return filtered[:limit]
 
 
+def _all_handoff_records_for_stats():
+    if chatbot.db:
+        rows = []
+        for doc in chatbot.db.collection("rrhh_handoffs").stream():
+            payload = doc.to_dict() or {}
+            payload["id"] = doc.id
+            rows.append(payload)
+        return rows
+    return [dict(value) for value in IN_MEMORY_HANDOFFS.values()]
+
+
 def _add_handoff_message(
     conversation_id,
     remitente,
@@ -737,8 +748,11 @@ def rrhh_responder_api(conversation_id):
 
 @flask_app.get("/api/stats")
 def stats_api():
-    stats = stats_service.obtener_estadisticas(chatbot.db)
-    return jsonify({"ok": True, **stats})
+    handoff_records = _all_handoff_records_for_stats()
+    stats = stats_service.obtener_estadisticas(chatbot.db, rrhh_records=handoff_records)
+    response = jsonify({"ok": True, **stats})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @flask_app.post("/api/reset")

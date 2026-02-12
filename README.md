@@ -141,7 +141,9 @@ Métricas incluidas:
 - Pendientes por sentimiento.
 - Evolución de feedback y pendientes (últimos 7 días).
 - Top temas consultados.
+- Estado de derivaciones RRHH (abiertas, en atención, cerradas).
 - Drill-down interactivo: podés hacer click en KPIs, temas y gráficos para ver detalle.
+- Auto-refresco cada 5 segundos (sin cache del navegador).
 
 ![Dashboard](dashboard.png)
 
