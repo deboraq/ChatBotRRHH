@@ -132,6 +132,43 @@ SINONIMOS = {
 }
 
 INTENCIONES_CONTACTO = {"rrhh", "representante", "persona", "humano", "asesor", "operador"}
+PALABRAS_NEGATIVAS = {
+    "mal",
+    "pesimo",
+    "horrible",
+    "enojado",
+    "frustrado",
+    "molesto",
+    "bronca",
+    "inutil",
+}
+FRASES_NEGATIVAS = {
+    "no entendes",
+    "no entiende",
+    "no me entendes",
+    "no me entiende",
+    "no sirve",
+    "no funciona",
+    "no me ayuda",
+    "no me resolviste",
+}
+PALABRAS_POSITIVAS = {
+    "gracias",
+    "excelente",
+    "genial",
+    "perfecto",
+    "util",
+    "sirvio",
+    "bueno",
+    "buenisimo",
+}
+FRASES_POSITIVAS = {
+    "me sirvio",
+    "muy util",
+    "muchas gracias",
+    "me ayudaste",
+    "quedo claro",
+}
 
 
 def normalizar_texto(texto):
@@ -148,6 +185,33 @@ def contiene_frase(texto_normalizado, frase_normalizada):
         return False
     patron = rf"\b{re.escape(frase_normalizada)}\b"
     return re.search(patron, texto_normalizado) is not None
+
+
+def puntuar_sentimiento_reglas(consulta_original, consulta_norm):
+    score = 0.0
+
+    for frase in FRASES_NEGATIVAS:
+        if contiene_frase(consulta_norm, frase):
+            score -= 2
+    for palabra in PALABRAS_NEGATIVAS:
+        if contiene_frase(consulta_norm, palabra):
+            score -= 0.7
+
+    for frase in FRASES_POSITIVAS:
+        if contiene_frase(consulta_norm, frase):
+            score += 1.7
+    for palabra in PALABRAS_POSITIVAS:
+        if contiene_frase(consulta_norm, palabra):
+            score += 0.6
+
+    signos_exclamacion = str(consulta_original).count("!")
+    if signos_exclamacion >= 2:
+        if score < 0:
+            score -= 0.5
+        elif score > 0:
+            score += 0.3
+
+    return score
 
 
 def fuzzy_extract_one(query, choices):
@@ -235,18 +299,23 @@ def registrar_feedback(tema, utilidad):
 
 
 def analizar_sentimiento(consulta):
-    if TextBlob is None:
+    consulta_norm = normalizar_texto(consulta)
+    if not consulta_norm:
         return "neutral"
 
-    try:
-        analisis = TextBlob(consulta)
-        polaridad = analisis.sentiment.polarity
-    except Exception:
-        return "neutral"
+    score_reglas = puntuar_sentimiento_reglas(consulta, consulta_norm)
+    polaridad = 0.0
+    if TextBlob is not None:
+        try:
+            analisis = TextBlob(consulta)
+            polaridad = analisis.sentiment.polarity
+        except Exception:
+            polaridad = 0.0
 
-    if polaridad < -0.1:
+    score_total = score_reglas + (polaridad * 2)
+    if score_total <= -0.8 or score_reglas <= -2:
         return "negativo/enojado"
-    if polaridad > 0.1:
+    if score_total >= 0.8 or score_reglas >= 2:
         return "positivo/amigable"
     return "neutral"
 

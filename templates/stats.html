@@ -38,6 +38,11 @@
           <p id="kpi-votos">0 / 0</p>
           <small>Click para ver distribución</small>
         </article>
+        <article class="kpi-card actionable" id="card-no-util" data-drilldown="no_util">
+          <h3>No útil</h3>
+          <p id="kpi-no-util">0</p>
+          <small>Click para ver casos</small>
+        </article>
         <article class="kpi-card actionable" id="card-pendientes" data-drilldown="pendientes">
           <h3>Pendientes</h3>
           <p id="kpi-pendientes">0</p>
@@ -90,6 +95,7 @@
       const feedbackTotalEl = document.getElementById("kpi-feedback-total");
       const utilidadEl = document.getElementById("kpi-utilidad");
       const votosEl = document.getElementById("kpi-votos");
+      const noUtilEl = document.getElementById("kpi-no-util");
       const pendientesEl = document.getElementById("kpi-pendientes");
       const topTemasBody = document.getElementById("top-temas-body");
       const refreshBtn = document.getElementById("btn-refresh");
@@ -192,6 +198,20 @@
           return;
         }
 
+        if (activeDetail.type === "no_util") {
+          setDetailTable(
+            "Casos donde la respuesta NO fue útil",
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Tema", key: "tema" },
+              { label: "Utilidad", key: "fue_util" },
+            ],
+            detail.feedback_no_util,
+            "Todavía no hay respuestas marcadas como no útiles."
+          );
+          return;
+        }
+
         if (activeDetail.type === "utilidad") {
           setDetailTable(
             "Cómo se calcula utilidad",
@@ -202,6 +222,7 @@
             [
               { concepto: "Votos Sí", valor: kpis.votos_si },
               { concepto: "Votos No", valor: kpis.votos_no },
+              { concepto: "No útil", valor: kpis.no_util_total ?? kpis.votos_no },
               { concepto: "Feedback total", valor: kpis.total_feedback },
               { concepto: "Utilidad (%)", valor: `${kpis.utilidad_pct}%` },
             ]
@@ -410,6 +431,7 @@
           feedbackTotalEl.textContent = data.kpis.total_feedback;
           utilidadEl.textContent = `${data.kpis.utilidad_pct}%`;
           votosEl.textContent = `${data.kpis.votos_si} / ${data.kpis.votos_no}`;
+          noUtilEl.textContent = data.kpis.no_util_total ?? data.kpis.votos_no;
           pendientesEl.textContent = data.kpis.total_pendientes;
           renderTopTemas(data.top_temas);
           renderLineChart(data.series_7_dias);
