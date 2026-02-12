@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Estadísticas Chatbot RRHH</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='stats.css') }}" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <main class="stats-wrapper">
+      <header class="stats-header">
+        <div>
+          <h1>Dashboard de Estadísticas</h1>
+          <p>Métricas en tiempo real desde Firestore (sin exportar a Sheets).</p>
+        </div>
+        <div class="actions">
+          <a class="btn" href="/">Ir al Chat</a>
+          <button id="btn-refresh" type="button">Actualizar</button>
+        </div>
+      </header>
+
+      <section id="status" class="status"></section>
+
+      <section class="kpis-grid">
+        <article class="kpi-card">
+          <h3>Feedback total</h3>
+          <p id="kpi-feedback-total">0</p>
+        </article>
+        <article class="kpi-card">
+          <h3>Utilidad (%)</h3>
+          <p id="kpi-utilidad">0%</p>
+        </article>
+        <article class="kpi-card">
+          <h3>Votos Sí / No</h3>
+          <p id="kpi-votos">0 / 0</p>
+        </article>
+        <article class="kpi-card">
+          <h3>Pendientes</h3>
+          <p id="kpi-pendientes">0</p>
+        </article>
+      </section>
+
+      <section class="charts-grid">
+        <article class="panel">
+          <h2>Evolución últimos 7 días</h2>
+          <canvas id="lineChart" height="140"></canvas>
+        </article>
+        <article class="panel">
+          <h2>Pendientes por sentimiento</h2>
+          <canvas id="pieChart" height="140"></canvas>
+        </article>
+      </section>
+
+      <section class="panel">
+        <h2>Top temas consultados (feedback)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Tema</th>
+              <th>Cantidad</th>
+            </tr>
+          </thead>
+          <tbody id="top-temas-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const feedbackTotalEl = document.getElementById("kpi-feedback-total");
+      const utilidadEl = document.getElementById("kpi-utilidad");
+      const votosEl = document.getElementById("kpi-votos");
+      const pendientesEl = document.getElementById("kpi-pendientes");
+      const topTemasBody = document.getElementById("top-temas-body");
+      const refreshBtn = document.getElementById("btn-refresh");
+
+      let lineChart;
+      let pieChart;
+
+      function renderTopTemas(items) {
+        topTemasBody.innerHTML = "";
+        if (!items.length) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = "<td colspan='2'>Sin datos por el momento.</td>";
+          topTemasBody.appendChild(tr);
+          return;
+        }
+
+        for (const item of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${item.tema}</td><td>${item.cantidad}</td>`;
+          topTemasBody.appendChild(tr);
+        }
+      }
+
+      function renderLineChart(series) {
+        const data = {
+          labels: series.labels,
+          datasets: [
+            {
+              label: "Feedback",
+              data: series.feedback,
+              borderColor: "#2563eb",
+              backgroundColor: "rgba(37, 99, 235, 0.2)",
+              tension: 0.3,
+            },
+            {
+              label: "Pendientes",
+              data: series.pendientes,
+              borderColor: "#dc2626",
+              backgroundColor: "rgba(220, 38, 38, 0.2)",
+              tension: 0.3,
+            },
+          ],
+        };
+
+        if (lineChart) {
+          lineChart.data = data;
+          lineChart.update();
+          return;
+        }
+
+        lineChart = new Chart(document.getElementById("lineChart"), {
+          type: "line",
+          data,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+          },
+        });
+      }
+
+      function renderPieChart(items) {
+        const labels = items.map((item) => item.sentimiento);
+        const values = items.map((item) => item.cantidad);
+        const palette = ["#2563eb", "#16a34a", "#dc2626", "#f59e0b", "#9333ea"];
+
+        const data = {
+          labels,
+          datasets: [
+            {
+              data: values,
+              backgroundColor: values.map((_, idx) => palette[idx % palette.length]),
+            },
+          ],
+        };
+
+        if (pieChart) {
+          pieChart.data = data;
+          pieChart.update();
+          return;
+        }
+
+        pieChart = new Chart(document.getElementById("pieChart"), {
+          type: "doughnut",
+          data,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+          },
+        });
+      }
+
+      async function loadStats() {
+        statusEl.textContent = "Cargando estadísticas...";
+        try {
+          const response = await fetch("/api/stats");
+          const data = await response.json();
+          if (!data.ok) {
+            statusEl.textContent = "No se pudo obtener estadísticas.";
+            return;
+          }
+
+          feedbackTotalEl.textContent = data.kpis.total_feedback;
+          utilidadEl.textContent = `${data.kpis.utilidad_pct}%`;
+          votosEl.textContent = `${data.kpis.votos_si} / ${data.kpis.votos_no}`;
+          pendientesEl.textContent = data.kpis.total_pendientes;
+          renderTopTemas(data.top_temas);
+          renderLineChart(data.series_7_dias);
+          renderPieChart(data.pendientes_por_sentimiento);
+
+          if (data.available) {
+            statusEl.textContent = `Última actualización: ${data.updated_at}`;
+          } else {
+            statusEl.textContent = `Modo local: ${data.reason}`;
+          }
+        } catch (error) {
+          statusEl.textContent = "Error de conexión con el servidor.";
+        }
+      }
+
+      refreshBtn.addEventListener("click", loadStats);
+      loadStats();
+    </script>
+  </body>
+</html>

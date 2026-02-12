@@ -3,6 +3,7 @@ import os
 from flask import Flask, jsonify, render_template, request, session
 
 import app as chatbot
+import stats_service
 
 
 flask_app = Flask(__name__)
@@ -122,6 +123,11 @@ def home():
     )
 
 
+@flask_app.get("/estadisticas")
+def stats_page():
+    return render_template("stats.html")
+
+
 @flask_app.post("/api/chat")
 def chat_api():
     data = request.get_json(silent=True) or {}
@@ -139,6 +145,12 @@ def chat_api():
             "end_session": finalizar,
         }
     )
+
+
+@flask_app.get("/api/stats")
+def stats_api():
+    stats = stats_service.obtener_estadisticas(chatbot.db)
+    return jsonify({"ok": True, **stats})
 
 
 @flask_app.post("/api/reset")
