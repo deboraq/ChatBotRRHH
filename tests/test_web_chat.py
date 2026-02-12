@@ -41,6 +41,14 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIn("fraccionar", body["reply"].lower())
 
+    def test_stats_endpoint_structure(self):
+        response = self.client.get("/api/stats")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIn("kpis", body)
+        self.assertIn("series_7_dias", body)
+
 
 if __name__ == "__main__":
     unittest.main()

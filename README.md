@@ -114,6 +114,21 @@ Funciones disponibles en la UI:
 - Chat en tiempo real con el motor del bot.
 - Flujo de feedback (si/no) integrado.
 - Botones rápidos: menú, hablar con RRHH y reiniciar sesión.
+- Vista de estadísticas en tiempo real: `http://localhost:5000/estadisticas`
+
+## 📈 Dashboard Web (sin Google Sheets)
+
+El proyecto incluye una página de métricas conectada directo a Firestore para no depender de exportaciones manuales:
+
+- Endpoint JSON: `GET /api/stats`
+- Página visual: `GET /estadisticas`
+
+Métricas incluidas:
+- Total de feedback y porcentaje de utilidad.
+- Votos sí/no.
+- Pendientes por sentimiento.
+- Evolución de feedback y pendientes (últimos 7 días).
+- Top temas consultados.
 
 ![Dashboard](dashboard.png)
 
