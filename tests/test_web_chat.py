@@ -60,6 +60,9 @@ class WebChatApiTests(unittest.TestCase):
         self.assertIn("feedback_reciente", body["detail"])
         self.assertIn("feedback_no_util", body["detail"])
         self.assertIn("no_util_total", body["kpis"])
+        self.assertIn("rrhh_abiertas", body["kpis"])
+        self.assertIn("rrhh_en_atencion", body["kpis"])
+        self.assertIn("rrhh_conversaciones", body["detail"])
 
     def test_reset_endpoint_includes_quick_actions(self):
         response = self.client.post("/api/reset")
@@ -111,6 +114,15 @@ class WebChatApiTests(unittest.TestCase):
         poll_body_2 = poll_resp_2.get_json()
         self.assertTrue(poll_body_2["ok"])
         self.assertEqual(len(poll_body_2["messages"]), 0)
+
+    def test_stats_reflects_rrhh_handoffs(self):
+        self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+        stats_resp = self.client.get("/api/stats")
+        self.assertEqual(stats_resp.status_code, 200)
+        stats_body = stats_resp.get_json()
+        self.assertTrue(stats_body["ok"])
+        self.assertGreaterEqual(stats_body["kpis"]["rrhh_total"], 1)
+        self.assertGreaterEqual(stats_body["kpis"]["rrhh_abiertas"], 1)
 
 
 if __name__ == "__main__":

@@ -49,13 +49,24 @@ def _ordenar_por_fecha_desc(items):
     return sorted(items, key=_key, reverse=True)
 
 
+def _normalizar_estado_handoff(estado):
+    estado_norm = _normalizar_texto(estado)
+    if estado_norm in {"en_atencion", "en atención", "activa"}:
+        return "en_atencion"
+    if estado_norm in {"cerrada", "cerrado"}:
+        return "cerrada"
+    return "pendiente"
+
+
 def build_statistics_from_records(
     feedback_records,
     pendientes_records,
+    rrhh_records=None,
     now=None,
     days=7,
     detail_limit=200,
 ):
+    rrhh_records = rrhh_records or []
     now = now or datetime.now(timezone.utc)
     labels = _labels_ultimos_dias(now, days)
     serie = _serie_vacia(labels)
@@ -69,6 +80,7 @@ def build_statistics_from_records(
     sentimientos_counter = Counter()
     feedback_reciente = []
     pendientes_recientes = []
+    rrhh_recientes = []
 
     for item in feedback_records:
         voto = _normalizar_texto(item.get("fue_util"))
@@ -148,6 +160,37 @@ def build_statistics_from_records(
         for idx, label in enumerate(labels)
     ]
 
+    rrhh_pendientes = 0
+    rrhh_en_atencion = 0
+    rrhh_cerradas = 0
+    for item in rrhh_records:
+        estado = _normalizar_estado_handoff(item.get("estado"))
+        if estado == "en_atencion":
+            rrhh_en_atencion += 1
+        elif estado == "cerrada":
+            rrhh_cerradas += 1
+        else:
+            rrhh_pendientes += 1
+
+        updated_at = _extraer_fecha(item.get("updated_at")) or _extraer_fecha(
+            item.get("created_at")
+        )
+        rrhh_recientes.append(
+            {
+                "conversation_id": str(
+                    item.get("conversation_id") or item.get("id") or "sin_id"
+                ),
+                "estado": estado,
+                "agente": str(item.get("rrhh_agente") or "sin asignar"),
+                "ultima_consulta": str(item.get("ultima_consulta") or ""),
+                "fecha": _formatear_fecha(updated_at),
+                "fecha_iso": updated_at.isoformat(timespec="seconds") if updated_at else "",
+            }
+        )
+
+    rrhh_recientes = _ordenar_por_fecha_desc(rrhh_recientes)[:detail_limit]
+    rrhh_abiertas = rrhh_pendientes + rrhh_en_atencion
+
     return {
         "available": True,
         "kpis": {
@@ -157,6 +200,11 @@ def build_statistics_from_records(
             "no_util_total": votos_no,
             "utilidad_pct": utilidad_pct,
             "total_pendientes": total_pendientes,
+            "rrhh_total": len(rrhh_records),
+            "rrhh_abiertas": rrhh_abiertas,
+            "rrhh_pendientes": rrhh_pendientes,
+            "rrhh_en_atencion": rrhh_en_atencion,
+            "rrhh_cerradas": rrhh_cerradas,
         },
         "top_temas": top_temas_todos[:8],
         "pendientes_por_sentimiento": sentimientos_todos,
@@ -169,6 +217,7 @@ def build_statistics_from_records(
             "ranking_temas": top_temas_todos,
             "ranking_sentimientos": sentimientos_todos,
             "desglose_diario": desglose_diario,
+            "rrhh_conversaciones": rrhh_recientes,
             "votos": {
                 "si": votos_si,
                 "no": votos_no,
@@ -178,8 +227,39 @@ def build_statistics_from_records(
     }
 
 
-def obtener_estadisticas(db, now=None, days=7):
+def obtener_estadisticas(db, now=None, days=7, rrhh_records=None):
+    rrhh_records = rrhh_records or []
     if db is None:
+        rrhh_pendientes = 0
+        rrhh_en_atencion = 0
+        rrhh_cerradas = 0
+        rrhh_conversaciones = []
+        for item in rrhh_records:
+            estado = _normalizar_estado_handoff(item.get("estado"))
+            if estado == "en_atencion":
+                rrhh_en_atencion += 1
+            elif estado == "cerrada":
+                rrhh_cerradas += 1
+            else:
+                rrhh_pendientes += 1
+            updated_at = _extraer_fecha(item.get("updated_at")) or _extraer_fecha(
+                item.get("created_at")
+            )
+            rrhh_conversaciones.append(
+                {
+                    "conversation_id": str(
+                        item.get("conversation_id") or item.get("id") or "sin_id"
+                    ),
+                    "estado": estado,
+                    "agente": str(item.get("rrhh_agente") or "sin asignar"),
+                    "ultima_consulta": str(item.get("ultima_consulta") or ""),
+                    "fecha": _formatear_fecha(updated_at),
+                    "fecha_iso": updated_at.isoformat(timespec="seconds") if updated_at else "",
+                }
+            )
+        rrhh_conversaciones = _ordenar_por_fecha_desc(rrhh_conversaciones)[:200]
+        rrhh_abiertas = rrhh_pendientes + rrhh_en_atencion
+
         current_time = now or datetime.now(timezone.utc)
         labels = _labels_ultimos_dias(current_time, days)
         return {
@@ -192,6 +272,11 @@ def obtener_estadisticas(db, now=None, days=7):
                 "no_util_total": 0,
                 "utilidad_pct": 0.0,
                 "total_pendientes": 0,
+                "rrhh_total": len(rrhh_records),
+                "rrhh_abiertas": rrhh_abiertas,
+                "rrhh_pendientes": rrhh_pendientes,
+                "rrhh_en_atencion": rrhh_en_atencion,
+                "rrhh_cerradas": rrhh_cerradas,
             },
             "top_temas": [],
             "pendientes_por_sentimiento": [],
@@ -207,6 +292,7 @@ def obtener_estadisticas(db, now=None, days=7):
                     {"fecha": label, "feedback": 0, "pendientes": 0}
                     for label in labels
                 ],
+                "rrhh_conversaciones": rrhh_conversaciones,
                 "votos": {"si": 0, "no": 0},
             },
             "updated_at": current_time.isoformat(timespec="seconds"),
@@ -214,9 +300,12 @@ def obtener_estadisticas(db, now=None, days=7):
 
     feedback_records = [doc.to_dict() for doc in db.collection("feedback_respuestas").stream()]
     pendientes_records = [doc.to_dict() for doc in db.collection("consultas_pendientes").stream()]
+    if not rrhh_records:
+        rrhh_records = [doc.to_dict() for doc in db.collection("rrhh_handoffs").stream()]
     return build_statistics_from_records(
         feedback_records=feedback_records,
         pendientes_records=pendientes_records,
+        rrhh_records=rrhh_records,
         now=now,
         days=days,
     )

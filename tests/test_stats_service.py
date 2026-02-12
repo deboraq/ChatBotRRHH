@@ -17,10 +17,34 @@ class StatsServiceTests(unittest.TestCase):
             {"sentimiento": "negativo/enojado", "fecha": now - timedelta(days=2)},
             {"sentimiento": "neutral", "fecha": now - timedelta(days=2)},
         ]
+        rrhh = [
+            {
+                "conversation_id": "conv-1",
+                "estado": "pendiente",
+                "rrhh_agente": "",
+                "ultima_consulta": "necesito hablar",
+                "updated_at": now - timedelta(hours=1),
+            },
+            {
+                "conversation_id": "conv-2",
+                "estado": "en_atencion",
+                "rrhh_agente": "Laura",
+                "ultima_consulta": "tema recibo",
+                "updated_at": now - timedelta(hours=2),
+            },
+            {
+                "conversation_id": "conv-3",
+                "estado": "cerrada",
+                "rrhh_agente": "Laura",
+                "ultima_consulta": "tema vacaciones",
+                "updated_at": now - timedelta(hours=3),
+            },
+        ]
 
         result = stats_service.build_statistics_from_records(
             feedback_records=feedback,
             pendientes_records=pendientes,
+            rrhh_records=rrhh,
             now=now,
             days=7,
         )
@@ -31,6 +55,11 @@ class StatsServiceTests(unittest.TestCase):
         self.assertEqual(result["kpis"]["votos_no"], 1)
         self.assertEqual(result["kpis"]["no_util_total"], 1)
         self.assertEqual(result["kpis"]["total_pendientes"], 3)
+        self.assertEqual(result["kpis"]["rrhh_total"], 3)
+        self.assertEqual(result["kpis"]["rrhh_abiertas"], 2)
+        self.assertEqual(result["kpis"]["rrhh_pendientes"], 1)
+        self.assertEqual(result["kpis"]["rrhh_en_atencion"], 1)
+        self.assertEqual(result["kpis"]["rrhh_cerradas"], 1)
         self.assertAlmostEqual(result["kpis"]["utilidad_pct"], 66.67, places=2)
         self.assertEqual(result["top_temas"][0]["tema"], "vacaciones")
         self.assertEqual(result["top_temas"][0]["cantidad"], 2)
@@ -44,20 +73,33 @@ class StatsServiceTests(unittest.TestCase):
         self.assertIn("ranking_temas", result["detail"])
         self.assertIn("desglose_diario", result["detail"])
         self.assertIn("feedback_no_util", result["detail"])
+        self.assertIn("rrhh_conversaciones", result["detail"])
         self.assertEqual(len(result["detail"]["feedback_no_util"]), 1)
+        self.assertEqual(len(result["detail"]["rrhh_conversaciones"]), 3)
         self.assertTrue(len(result["detail"]["feedback_reciente"]) > 0)
         self.assertEqual(len(result["detail"]["desglose_diario"]), 7)
 
     def test_obtener_estadisticas_sin_db(self):
-        result = stats_service.obtener_estadisticas(None, now=datetime(2026, 2, 12), days=7)
+        rrhh = [
+            {"conversation_id": "conv-x", "estado": "pendiente", "updated_at": datetime(2026, 2, 12)}
+        ]
+        result = stats_service.obtener_estadisticas(
+            None,
+            now=datetime(2026, 2, 12),
+            days=7,
+            rrhh_records=rrhh,
+        )
         self.assertFalse(result["available"])
         self.assertEqual(result["kpis"]["total_feedback"], 0)
         self.assertEqual(result["kpis"]["total_pendientes"], 0)
         self.assertEqual(result["kpis"]["no_util_total"], 0)
+        self.assertEqual(result["kpis"]["rrhh_total"], 1)
+        self.assertEqual(result["kpis"]["rrhh_abiertas"], 1)
         self.assertEqual(len(result["series_7_dias"]["labels"]), 7)
         self.assertIn("detail", result)
         self.assertEqual(result["detail"]["feedback_reciente"], [])
         self.assertEqual(result["detail"]["feedback_no_util"], [])
+        self.assertEqual(len(result["detail"]["rrhh_conversaciones"]), 1)
 
 
 if __name__ == "__main__":

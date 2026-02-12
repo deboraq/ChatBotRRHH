@@ -48,6 +48,16 @@
           <p id="kpi-pendientes">0</p>
           <small>Click para ver consultas</small>
         </article>
+        <article class="kpi-card actionable" id="card-rrhh-abiertas" data-drilldown="rrhh_abiertas">
+          <h3>RRHH abiertas</h3>
+          <p id="kpi-rrhh-abiertas">0</p>
+          <small>Pendientes + en atención</small>
+        </article>
+        <article class="kpi-card actionable" id="card-rrhh-atencion" data-drilldown="rrhh_en_atencion">
+          <h3>RRHH en atención</h3>
+          <p id="kpi-rrhh-atencion">0</p>
+          <small>Click para ver conversaciones</small>
+        </article>
       </section>
 
       <section class="charts-grid">
@@ -97,6 +107,8 @@
       const votosEl = document.getElementById("kpi-votos");
       const noUtilEl = document.getElementById("kpi-no-util");
       const pendientesEl = document.getElementById("kpi-pendientes");
+      const rrhhAbiertasEl = document.getElementById("kpi-rrhh-abiertas");
+      const rrhhAtencionEl = document.getElementById("kpi-rrhh-atencion");
       const topTemasBody = document.getElementById("top-temas-body");
       const refreshBtn = document.getElementById("btn-refresh");
       const detailTitleEl = document.getElementById("detail-title");
@@ -109,6 +121,7 @@
       let pieChart;
       let latestStats = null;
       let activeDetail = { type: "resumen", value: null };
+      let autoRefreshTimer = null;
 
       function setDetailTable(title, columns, rows, emptyMessage = "Sin datos.") {
         detailTitleEl.textContent = title;
@@ -179,6 +192,43 @@
               { label: "Estado", key: "estado" },
             ],
             detail.pendientes_recientes
+          );
+          return;
+        }
+
+        if (activeDetail.type === "rrhh_abiertas") {
+          const rows = (detail.rrhh_conversaciones || []).filter(
+            (row) => row.estado !== "cerrada"
+          );
+          setDetailTable(
+            "Conversaciones RRHH abiertas",
+            [
+              { label: "Conversación", key: "conversation_id" },
+              { label: "Estado", key: "estado" },
+              { label: "Agente", key: "agente" },
+              { label: "Última consulta", key: "ultima_consulta" },
+              { label: "Fecha", key: "fecha" },
+            ],
+            rows,
+            "No hay conversaciones RRHH abiertas."
+          );
+          return;
+        }
+
+        if (activeDetail.type === "rrhh_en_atencion") {
+          const rows = (detail.rrhh_conversaciones || []).filter(
+            (row) => row.estado === "en_atencion"
+          );
+          setDetailTable(
+            "Conversaciones RRHH en atención",
+            [
+              { label: "Conversación", key: "conversation_id" },
+              { label: "Agente", key: "agente" },
+              { label: "Última consulta", key: "ultima_consulta" },
+              { label: "Fecha", key: "fecha" },
+            ],
+            rows,
+            "No hay conversaciones en atención por RRHH."
           );
           return;
         }
@@ -420,7 +470,9 @@
       async function loadStats() {
         statusEl.textContent = "Cargando estadísticas...";
         try {
-          const response = await fetch("/api/stats");
+          const response = await fetch(`/api/stats?_=${Date.now()}`, {
+            cache: "no-store",
+          });
           const data = await response.json();
           if (!data.ok) {
             statusEl.textContent = "No se pudo obtener estadísticas.";
@@ -433,15 +485,17 @@
           votosEl.textContent = `${data.kpis.votos_si} / ${data.kpis.votos_no}`;
           noUtilEl.textContent = data.kpis.no_util_total ?? data.kpis.votos_no;
           pendientesEl.textContent = data.kpis.total_pendientes;
+          rrhhAbiertasEl.textContent = data.kpis.rrhh_abiertas ?? 0;
+          rrhhAtencionEl.textContent = data.kpis.rrhh_en_atencion ?? 0;
           renderTopTemas(data.top_temas);
           renderLineChart(data.series_7_dias);
           renderPieChart(data.pendientes_por_sentimiento);
           renderActiveDetail();
 
           if (data.available) {
-            statusEl.textContent = `Última actualización: ${data.updated_at}`;
+            statusEl.textContent = `Última actualización: ${data.updated_at} · Auto: cada 5s`;
           } else {
-            statusEl.textContent = `Modo local: ${data.reason}`;
+            statusEl.textContent = `Modo local: ${data.reason} · Auto: cada 5s`;
           }
         } catch (error) {
           statusEl.textContent = "Error de conexión con el servidor.";
@@ -457,6 +511,10 @@
       });
       btnDetailReset.addEventListener("click", () => setActiveDetail("resumen"));
       loadStats();
+      autoRefreshTimer = setInterval(loadStats, 5000);
+      window.addEventListener("beforeunload", () => {
+        if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+      });
     </script>
   </body>
 </html>
