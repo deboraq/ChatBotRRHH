@@ -7,6 +7,7 @@ class WebChatApiTests(unittest.TestCase):
     def setUp(self):
         web_chat.flask_app.config["TESTING"] = True
         self.client = web_chat.flask_app.test_client()
+        web_chat.reset_in_memory_handoffs()
 
     def test_menu_endpoint_response(self):
         response = self.client.post("/api/chat", json={"message": "menu"})
@@ -67,6 +68,42 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIn("quick_actions", body)
         self.assertTrue(len(body["quick_actions"]) > 0)
+
+    def test_rrhh_handoff_flow(self):
+        inicio = self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+        self.assertEqual(inicio.status_code, 200)
+        body_inicio = inicio.get_json()
+        self.assertTrue(body_inicio["ok"])
+        self.assertTrue(body_inicio["handoff_active"])
+
+        convs_resp = self.client.get("/api/rrhh/conversaciones")
+        self.assertEqual(convs_resp.status_code, 200)
+        convs_body = convs_resp.get_json()
+        self.assertTrue(convs_body["ok"])
+        self.assertTrue(len(convs_body["conversaciones"]) > 0)
+        conv_id = convs_body["conversaciones"][0]["conversation_id"]
+
+        tomar_resp = self.client.post(
+            f"/api/rrhh/conversaciones/{conv_id}/tomar",
+            json={"agente": "Laura"},
+        )
+        self.assertEqual(tomar_resp.status_code, 200)
+        self.assertTrue(tomar_resp.get_json()["ok"])
+
+        msg_resp = self.client.post(
+            f"/api/rrhh/conversaciones/{conv_id}/mensajes",
+            json={"agente": "Laura", "mensaje": "Hola, te atiende RRHH."},
+        )
+        self.assertEqual(msg_resp.status_code, 200)
+        self.assertTrue(msg_resp.get_json()["ok"])
+
+        poll_resp = self.client.get("/api/chat/poll")
+        self.assertEqual(poll_resp.status_code, 200)
+        poll_body = poll_resp.get_json()
+        self.assertTrue(poll_body["ok"])
+        self.assertTrue(poll_body["handoff_active"])
+        self.assertTrue(len(poll_body["messages"]) > 0)
+        self.assertTrue(any(m["remitente"] in {"rrhh", "sistema"} for m in poll_body["messages"]))
 
 
 if __name__ == "__main__":
