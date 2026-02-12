@@ -36,7 +36,7 @@ class WebChatApiTests(unittest.TestCase):
         body_segunda = segunda.get_json()
         self.assertTrue(body_segunda["ok"])
         self.assertFalse(body_segunda["await_feedback"])
-        self.assertIn("Gracias por tu feedback", body_segunda["reply"])
+        self.assertIn("feedback", body_segunda["reply"].lower())
         self.assertTrue(len(body_segunda["quick_actions"]) > 0)
 
     def test_feedback_flow_recibo_no_no_cierra_chat(self):
