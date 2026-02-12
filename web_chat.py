@@ -10,6 +10,7 @@ import stats_service
 
 flask_app = Flask(__name__)
 flask_app.config["SECRET_KEY"] = os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-secret")
+SERVER_BOOT_AT = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 HANDOFF_STATUS_PENDING = "pendiente"
 HANDOFF_STATUS_ACTIVE = "en_atencion"
@@ -374,6 +375,12 @@ def _payload(
     }
 
 
+def _firebase_project_id():
+    if chatbot.db is None:
+        return "modo_local_sin_firestore"
+    return str(getattr(chatbot.db, "project", "desconocido"))
+
+
 def _iniciar_handoff_rrhh(mensaje_usuario):
     active_id = _get_handoff_session_id()
     existing = _fetch_handoff(active_id) if active_id else None
@@ -621,6 +628,16 @@ def home():
     )
 
 
+@flask_app.after_request
+def add_no_cache_headers(response):
+    # Evita cache agresivo de Safari en páginas/API dinámicas.
+    if not request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 @flask_app.get("/rrhh")
 def rrhh_page():
     return render_template("rrhh.html")
@@ -750,8 +767,17 @@ def rrhh_responder_api(conversation_id):
 def stats_api():
     handoff_records = _all_handoff_records_for_stats()
     stats = stats_service.obtener_estadisticas(chatbot.db, rrhh_records=handoff_records)
-    response = jsonify({"ok": True, **stats})
+    response = jsonify(
+        {
+            "ok": True,
+            "source_project": _firebase_project_id(),
+            "server_boot_at": SERVER_BOOT_AT,
+            **stats,
+        }
+    )
     response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Server-Boot-At"] = SERVER_BOOT_AT
+    response.headers["X-Firebase-Project"] = _firebase_project_id()
     return response
 
 

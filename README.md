@@ -145,6 +145,9 @@ Métricas incluidas:
 - Drill-down interactivo: podés hacer click en KPIs, temas y gráficos para ver detalle.
 - Auto-refresco cada 5 segundos (sin cache del navegador).
 
+Tip de diagnóstico: en la parte superior del dashboard se muestra el `Proyecto` y `Server boot`.
+Si no cambian, probablemente seguís con una instancia vieja de `web_chat.py`.
+
 ![Dashboard](dashboard.png)
 
 
