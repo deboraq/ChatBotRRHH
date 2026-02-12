@@ -130,6 +130,7 @@ Métricas incluidas:
 - Pendientes por sentimiento.
 - Evolución de feedback y pendientes (últimos 7 días).
 - Top temas consultados.
+- Drill-down interactivo: podés hacer click en KPIs, temas y gráficos para ver detalle.
 
 ![Dashboard](dashboard.png)
 

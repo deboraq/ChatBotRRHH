@@ -23,21 +23,25 @@
       <section id="status" class="status"></section>
 
       <section class="kpis-grid">
-        <article class="kpi-card">
+        <article class="kpi-card actionable" id="card-feedback-total" data-drilldown="feedback">
           <h3>Feedback total</h3>
           <p id="kpi-feedback-total">0</p>
+          <small>Click para ver detalle</small>
         </article>
-        <article class="kpi-card">
+        <article class="kpi-card actionable" id="card-utilidad" data-drilldown="utilidad">
           <h3>Utilidad (%)</h3>
           <p id="kpi-utilidad">0%</p>
+          <small>Click para ver cálculo</small>
         </article>
-        <article class="kpi-card">
+        <article class="kpi-card actionable" id="card-votos" data-drilldown="votos">
           <h3>Votos Sí / No</h3>
           <p id="kpi-votos">0 / 0</p>
+          <small>Click para ver distribución</small>
         </article>
-        <article class="kpi-card">
+        <article class="kpi-card actionable" id="card-pendientes" data-drilldown="pendientes">
           <h3>Pendientes</h3>
           <p id="kpi-pendientes">0</p>
+          <small>Click para ver consultas</small>
         </article>
       </section>
 
@@ -68,6 +72,17 @@
           <tbody id="top-temas-body"></tbody>
         </table>
       </section>
+
+      <section class="panel detail-panel">
+        <div class="detail-header">
+          <h2 id="detail-title">Detalle</h2>
+          <button id="btn-detail-reset" type="button">Ver resumen</button>
+        </div>
+        <table>
+          <thead id="detail-head"></thead>
+          <tbody id="detail-body"></tbody>
+        </table>
+      </section>
     </main>
 
     <script>
@@ -78,9 +93,198 @@
       const pendientesEl = document.getElementById("kpi-pendientes");
       const topTemasBody = document.getElementById("top-temas-body");
       const refreshBtn = document.getElementById("btn-refresh");
+      const detailTitleEl = document.getElementById("detail-title");
+      const detailHeadEl = document.getElementById("detail-head");
+      const detailBodyEl = document.getElementById("detail-body");
+      const btnDetailReset = document.getElementById("btn-detail-reset");
+      const cards = document.querySelectorAll(".kpi-card.actionable");
 
       let lineChart;
       let pieChart;
+      let latestStats = null;
+      let activeDetail = { type: "resumen", value: null };
+
+      function setDetailTable(title, columns, rows, emptyMessage = "Sin datos.") {
+        detailTitleEl.textContent = title;
+
+        const headerRow = document.createElement("tr");
+        columns.forEach((col) => {
+          const th = document.createElement("th");
+          th.textContent = col.label;
+          headerRow.appendChild(th);
+        });
+        detailHeadEl.innerHTML = "";
+        detailHeadEl.appendChild(headerRow);
+
+        detailBodyEl.innerHTML = "";
+        if (!rows || rows.length === 0) {
+          const tr = document.createElement("tr");
+          const td = document.createElement("td");
+          td.colSpan = columns.length;
+          td.textContent = emptyMessage;
+          tr.appendChild(td);
+          detailBodyEl.appendChild(tr);
+          return;
+        }
+
+        rows.forEach((row) => {
+          const tr = document.createElement("tr");
+          columns.forEach((col) => {
+            const td = document.createElement("td");
+            const value = typeof col.render === "function" ? col.render(row) : row[col.key];
+            td.textContent = value ?? "-";
+            tr.appendChild(td);
+          });
+          detailBodyEl.appendChild(tr);
+        });
+      }
+
+      function setActiveDetail(type, value = null) {
+        activeDetail = { type, value };
+        renderActiveDetail();
+      }
+
+      function renderActiveDetail() {
+        if (!latestStats || !latestStats.detail) return;
+
+        const detail = latestStats.detail;
+        const kpis = latestStats.kpis;
+
+        if (activeDetail.type === "feedback") {
+          setDetailTable(
+            "Detalle de feedback reciente",
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Tema", key: "tema" },
+              { label: "Utilidad", key: "fue_util" },
+            ],
+            detail.feedback_reciente
+          );
+          return;
+        }
+
+        if (activeDetail.type === "pendientes") {
+          setDetailTable(
+            "Detalle de consultas pendientes",
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Pregunta", key: "pregunta" },
+              { label: "Sentimiento", key: "sentimiento" },
+              { label: "Estado", key: "estado" },
+            ],
+            detail.pendientes_recientes
+          );
+          return;
+        }
+
+        if (activeDetail.type === "votos") {
+          setDetailTable(
+            "Distribución de votos",
+            [
+              { label: "Tipo de voto", key: "tipo" },
+              { label: "Cantidad", key: "cantidad" },
+            ],
+            [
+              { tipo: "Sí", cantidad: detail.votos.si },
+              { tipo: "No", cantidad: detail.votos.no },
+            ]
+          );
+          return;
+        }
+
+        if (activeDetail.type === "utilidad") {
+          setDetailTable(
+            "Cómo se calcula utilidad",
+            [
+              { label: "Concepto", key: "concepto" },
+              { label: "Valor", key: "valor" },
+            ],
+            [
+              { concepto: "Votos Sí", valor: kpis.votos_si },
+              { concepto: "Votos No", valor: kpis.votos_no },
+              { concepto: "Feedback total", valor: kpis.total_feedback },
+              { concepto: "Utilidad (%)", valor: `${kpis.utilidad_pct}%` },
+            ]
+          );
+          return;
+        }
+
+        if (activeDetail.type === "tema" && activeDetail.value) {
+          const tema = activeDetail.value.toLowerCase();
+          const rows = detail.feedback_reciente.filter(
+            (item) => (item.tema || "").toLowerCase() === tema
+          );
+          setDetailTable(
+            `Feedback del tema: ${activeDetail.value}`,
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Tema", key: "tema" },
+              { label: "Utilidad", key: "fue_util" },
+            ],
+            rows
+          );
+          return;
+        }
+
+        if (activeDetail.type === "sentimiento" && activeDetail.value) {
+          const sentimiento = activeDetail.value.toLowerCase();
+          const rows = detail.pendientes_recientes.filter(
+            (item) => (item.sentimiento || "").toLowerCase() === sentimiento
+          );
+          setDetailTable(
+            `Pendientes con sentimiento: ${activeDetail.value}`,
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Pregunta", key: "pregunta" },
+              { label: "Sentimiento", key: "sentimiento" },
+            ],
+            rows
+          );
+          return;
+        }
+
+        if (activeDetail.type === "dia" && activeDetail.value) {
+          const dia = activeDetail.value;
+          const delDiaFeedback = detail.feedback_reciente
+            .filter((item) => (item.fecha_iso || "").startsWith(dia))
+            .map((item) => ({
+              tipo: "Feedback",
+              fecha: item.fecha,
+              detalle: `Tema: ${item.tema}`,
+              estado: item.fue_util,
+            }));
+          const delDiaPendientes = detail.pendientes_recientes
+            .filter((item) => (item.fecha_iso || "").startsWith(dia))
+            .map((item) => ({
+              tipo: "Pendiente",
+              fecha: item.fecha,
+              detalle: item.pregunta,
+              estado: item.sentimiento,
+            }));
+          const rows = [...delDiaFeedback, ...delDiaPendientes];
+          setDetailTable(
+            `Detalle del día ${dia}`,
+            [
+              { label: "Tipo", key: "tipo" },
+              { label: "Fecha", key: "fecha" },
+              { label: "Detalle", key: "detalle" },
+              { label: "Estado", key: "estado" },
+            ],
+            rows,
+            "No hubo eventos registrados ese día."
+          );
+          return;
+        }
+
+        setDetailTable(
+          "Resumen de temas (ranking completo)",
+          [
+            { label: "Tema", key: "tema" },
+            { label: "Cantidad", key: "cantidad" },
+          ],
+          detail.ranking_temas
+        );
+      }
 
       function renderTopTemas(items) {
         topTemasBody.innerHTML = "";
@@ -93,7 +297,19 @@
 
         for (const item of items) {
           const tr = document.createElement("tr");
-          tr.innerHTML = `<td>${item.tema}</td><td>${item.cantidad}</td>`;
+          const temaTd = document.createElement("td");
+          const temaBtn = document.createElement("button");
+          temaBtn.type = "button";
+          temaBtn.className = "table-link";
+          temaBtn.textContent = item.tema;
+          temaBtn.addEventListener("click", () => setActiveDetail("tema", item.tema));
+          temaTd.appendChild(temaBtn);
+
+          const cantTd = document.createElement("td");
+          cantTd.textContent = item.cantidad;
+
+          tr.appendChild(temaTd);
+          tr.appendChild(cantTd);
           topTemasBody.appendChild(tr);
         }
       }
@@ -131,6 +347,12 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            onClick: (_event, elements) => {
+              if (!elements || elements.length === 0) return;
+              const idx = elements[0].index;
+              const fecha = series.labels[idx];
+              setActiveDetail("dia", fecha);
+            },
           },
         });
       }
@@ -162,6 +384,14 @@
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            onClick: (_event, elements) => {
+              if (!elements || elements.length === 0) return;
+              const idx = elements[0].index;
+              const sentimiento = labels[idx];
+              if (sentimiento) {
+                setActiveDetail("sentimiento", sentimiento);
+              }
+            },
           },
         });
       }
@@ -176,6 +406,7 @@
             return;
           }
 
+          latestStats = data;
           feedbackTotalEl.textContent = data.kpis.total_feedback;
           utilidadEl.textContent = `${data.kpis.utilidad_pct}%`;
           votosEl.textContent = `${data.kpis.votos_si} / ${data.kpis.votos_no}`;
@@ -183,6 +414,7 @@
           renderTopTemas(data.top_temas);
           renderLineChart(data.series_7_dias);
           renderPieChart(data.pendientes_por_sentimiento);
+          renderActiveDetail();
 
           if (data.available) {
             statusEl.textContent = `Última actualización: ${data.updated_at}`;
@@ -195,6 +427,13 @@
       }
 
       refreshBtn.addEventListener("click", loadStats);
+      cards.forEach((card) => {
+        card.addEventListener("click", () => {
+          const type = card.dataset.drilldown || "resumen";
+          setActiveDetail(type);
+        });
+      });
+      btnDetailReset.addEventListener("click", () => setActiveDetail("resumen"));
       loadStats();
     </script>
   </body>

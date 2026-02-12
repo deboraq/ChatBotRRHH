@@ -23,7 +23,29 @@ def _labels_ultimos_dias(now, days):
     return [(inicio + timedelta(days=i)).isoformat() for i in range(days)]
 
 
-def build_statistics_from_records(feedback_records, pendientes_records, now=None, days=7):
+def _formatear_fecha(dt):
+    if not dt:
+        return "Sin fecha"
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
+def _ordenar_por_fecha_desc(items):
+    def _key(item):
+        fecha_iso = item.get("fecha_iso")
+        if not fecha_iso:
+            return ""
+        return fecha_iso
+
+    return sorted(items, key=_key, reverse=True)
+
+
+def build_statistics_from_records(
+    feedback_records,
+    pendientes_records,
+    now=None,
+    days=7,
+    detail_limit=200,
+):
     now = now or datetime.now(timezone.utc)
     labels = _labels_ultimos_dias(now, days)
     serie = _serie_vacia(labels)
@@ -35,6 +57,8 @@ def build_statistics_from_records(feedback_records, pendientes_records, now=None
     votos_no = 0
     temas_counter = Counter()
     sentimientos_counter = Counter()
+    feedback_reciente = []
+    pendientes_recientes = []
 
     for item in feedback_records:
         voto = _normalizar_texto(item.get("fue_util"))
@@ -48,6 +72,14 @@ def build_statistics_from_records(feedback_records, pendientes_records, now=None
             temas_counter[tema] += 1
 
         fecha = _extraer_fecha(item.get("fecha"))
+        feedback_reciente.append(
+            {
+                "fecha": _formatear_fecha(fecha),
+                "fecha_iso": fecha.isoformat(timespec="seconds") if fecha else "",
+                "tema": tema or "sin tema",
+                "fue_util": voto or "sin dato",
+            }
+        )
         if fecha:
             key = fecha.date().isoformat()
             if key in labels_set:
@@ -60,6 +92,15 @@ def build_statistics_from_records(feedback_records, pendientes_records, now=None
         sentimientos_counter[sentimiento] += 1
 
         fecha = _extraer_fecha(item.get("fecha"))
+        pendientes_recientes.append(
+            {
+                "fecha": _formatear_fecha(fecha),
+                "fecha_iso": fecha.isoformat(timespec="seconds") if fecha else "",
+                "pregunta": str(item.get("pregunta") or "sin pregunta"),
+                "sentimiento": sentimiento,
+                "estado": _normalizar_texto(item.get("estado")) or "sin estado",
+            }
+        )
         if fecha:
             key = fecha.date().isoformat()
             if key in labels_set:
@@ -70,6 +111,26 @@ def build_statistics_from_records(feedback_records, pendientes_records, now=None
     if total_feedback > 0:
         utilidad_pct = round((votos_si / total_feedback) * 100, 2)
 
+    top_temas_todos = [
+        {"tema": tema, "cantidad": cantidad}
+        for tema, cantidad in temas_counter.most_common()
+    ]
+    sentimientos_todos = [
+        {"sentimiento": sentimiento, "cantidad": cantidad}
+        for sentimiento, cantidad in sentimientos_counter.most_common()
+    ]
+
+    feedback_reciente = _ordenar_por_fecha_desc(feedback_reciente)[:detail_limit]
+    pendientes_recientes = _ordenar_por_fecha_desc(pendientes_recientes)[:detail_limit]
+    desglose_diario = [
+        {
+            "fecha": label,
+            "feedback": serie["feedback"][idx],
+            "pendientes": serie["pendientes"][idx],
+        }
+        for idx, label in enumerate(labels)
+    ]
+
     return {
         "available": True,
         "kpis": {
@@ -79,15 +140,20 @@ def build_statistics_from_records(feedback_records, pendientes_records, now=None
             "utilidad_pct": utilidad_pct,
             "total_pendientes": total_pendientes,
         },
-        "top_temas": [
-            {"tema": tema, "cantidad": cantidad}
-            for tema, cantidad in temas_counter.most_common(8)
-        ],
-        "pendientes_por_sentimiento": [
-            {"sentimiento": sentimiento, "cantidad": cantidad}
-            for sentimiento, cantidad in sentimientos_counter.most_common()
-        ],
+        "top_temas": top_temas_todos[:8],
+        "pendientes_por_sentimiento": sentimientos_todos,
         "series_7_dias": serie,
+        "detail": {
+            "feedback_reciente": feedback_reciente,
+            "pendientes_recientes": pendientes_recientes,
+            "ranking_temas": top_temas_todos,
+            "ranking_sentimientos": sentimientos_todos,
+            "desglose_diario": desglose_diario,
+            "votos": {
+                "si": votos_si,
+                "no": votos_no,
+            },
+        },
         "updated_at": now.isoformat(timespec="seconds"),
     }
 
@@ -109,6 +175,17 @@ def obtener_estadisticas(db, now=None, days=7):
             "top_temas": [],
             "pendientes_por_sentimiento": [],
             "series_7_dias": _serie_vacia(labels),
+            "detail": {
+                "feedback_reciente": [],
+                "pendientes_recientes": [],
+                "ranking_temas": [],
+                "ranking_sentimientos": [],
+                "desglose_diario": [
+                    {"fecha": label, "feedback": 0, "pendientes": 0}
+                    for label in labels
+                ],
+                "votos": {"si": 0, "no": 0},
+            },
             "updated_at": current_time.isoformat(timespec="seconds"),
         }
 
