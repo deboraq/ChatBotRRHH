@@ -19,6 +19,7 @@
         <button id="btn-menu" type="button">Ver menú</button>
         <button id="btn-rrhh" type="button">Hablar con RRHH</button>
         <a class="quick-link" href="/estadisticas" target="_blank" rel="noopener">Ver estadísticas</a>
+        <a class="quick-link secondary-link" href="/rrhh" target="_blank" rel="noopener">Panel RRHH</a>
         <button id="btn-reset" type="button" class="secondary">Reiniciar chat</button>
       </section>
 
@@ -48,6 +49,8 @@
       const btnReset = document.getElementById("btn-reset");
       const dynamicActions = document.getElementById("dynamic-actions");
       const initialQuickActions = {{ quick_actions_iniciales|tojson }};
+      let handoffActive = false;
+      let pollTimer = null;
 
       function addMessage(role, text) {
         const bubble = document.createElement("article");
@@ -71,6 +74,54 @@
           );
           dynamicActions.appendChild(btn);
         });
+      }
+
+      function formatIncomingHandoffMessage(msg) {
+        if (!msg || !msg.texto) return "";
+        const remitente = (msg.remitente || "").toLowerCase();
+        if (remitente === "rrhh") {
+          return `👩‍💼 RRHH${msg.agente ? ` (${msg.agente})` : ""}: ${msg.texto}`;
+        }
+        if (remitente === "sistema") {
+          return `ℹ️ ${msg.texto}`;
+        }
+        return msg.texto;
+      }
+
+      function setHandoffPolling(active) {
+        handoffActive = Boolean(active);
+        if (!handoffActive && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          return;
+        }
+
+        if (handoffActive && !pollTimer) {
+          pollTimer = setInterval(pollHandoffMessages, 3500);
+        }
+      }
+
+      async function pollHandoffMessages() {
+        if (!handoffActive) return;
+        try {
+          const response = await fetch("/api/chat/poll");
+          const data = await response.json();
+          if (!data.ok) return;
+
+          const incoming = Array.isArray(data.messages) ? data.messages : [];
+          incoming.forEach((msg) => {
+            const formatted = formatIncomingHandoffMessage(msg);
+            if (formatted) addMessage("bot", formatted);
+          });
+
+          if (incoming.length > 0 && Array.isArray(data.quick_actions)) {
+            renderQuickActions(data.quick_actions);
+          }
+
+          setHandoffPolling(Boolean(data.handoff_active));
+        } catch (error) {
+          // Si falla un poll puntual, no rompemos la UI.
+        }
       }
 
       async function sendMessage(message, options = {}) {
@@ -105,6 +156,7 @@
             ? "Esperando feedback: respondé si/no, o escribí otra consulta."
             : "";
           renderQuickActions(data.quick_actions || []);
+          setHandoffPolling(Boolean(data.handoff_active));
         } catch (error) {
           addMessage("bot", "No pude conectarme con el servidor del chatbot.");
           feedbackHint.textContent = "";
@@ -132,6 +184,7 @@
           addMessage("bot", data.reply);
           feedbackHint.textContent = "";
           renderQuickActions(data.quick_actions || initialQuickActions);
+          setHandoffPolling(Boolean(data.handoff_active));
         } catch (error) {
           addMessage("bot", "No se pudo reiniciar la sesión.");
         }
@@ -140,6 +193,7 @@
       addMessage("bot", "{{ bienvenida }}");
       addMessage("bot", "Escribí tu consulta o tocá 'Ver menú' para empezar.");
       renderQuickActions(initialQuickActions);
+      setHandoffPolling(false);
       messageInput.focus();
     </script>
   </body>

@@ -117,6 +117,16 @@ Funciones disponibles en la UI:
 - Atajos clickeables por número/tema y sugerencias de preguntas.
 - Vista de estadísticas en tiempo real: `http://localhost:5000/estadisticas`
 
+## 👩‍💼 Derivación y atención humana (RRHH)
+
+Cuando un colaborador pide “hablar con RRHH”, la conversación se deriva a una bandeja de atención humana.
+
+- Panel RRHH: `http://localhost:5000/rrhh`
+- Bandeja de conversaciones pendientes/activas.
+- Botón para tomar conversación por agente.
+- Respuesta en vivo desde RRHH al colaborador en el mismo chat.
+- Cierre de conversación por RRHH o colaborador.
+
 ## 📈 Dashboard Web (sin Google Sheets)
 
 El proyecto incluye una página de métricas conectada directo a Firestore para no depender de exportaciones manuales:

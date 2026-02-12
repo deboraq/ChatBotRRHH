@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panel RRHH - Conversaciones</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
+  </head>
+  <body>
+    <main class="rrhh-wrapper">
+      <header class="rrhh-header">
+        <div>
+          <h1>Panel RRHH</h1>
+          <p>Atención humana de conversaciones derivadas desde el chatbot.</p>
+        </div>
+        <div class="header-actions">
+          <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
+          <button id="btn-refresh" type="button">Actualizar</button>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <label class="field">
+          Agente RRHH
+          <input id="agent-name" type="text" value="RRHH" />
+        </label>
+        <label class="checkbox">
+          <input id="include-closed" type="checkbox" />
+          Mostrar conversaciones cerradas
+        </label>
+      </section>
+
+      <section class="rrhh-layout">
+        <aside class="panel queue-panel">
+          <h2>Conversaciones</h2>
+          <div id="queue-status" class="subtle"></div>
+          <div id="conversation-list" class="conversation-list"></div>
+        </aside>
+
+        <section class="panel chat-panel">
+          <div class="chat-top">
+            <div>
+              <h2 id="chat-title">Seleccioná una conversación</h2>
+              <p id="chat-meta" class="subtle"></p>
+            </div>
+            <div class="chat-top-actions">
+              <button id="btn-tomar" type="button">Tomar conversación</button>
+              <button id="btn-cerrar" type="button" class="danger">Cerrar conversación</button>
+            </div>
+          </div>
+
+          <div id="messages" class="messages"></div>
+
+          <form id="reply-form" class="reply-form">
+            <input
+              id="reply-input"
+              type="text"
+              placeholder="Escribí la respuesta para el colaborador..."
+              autocomplete="off"
+              required
+            />
+            <button type="submit">Enviar</button>
+          </form>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const refreshBtn = document.getElementById("btn-refresh");
+      const includeClosedEl = document.getElementById("include-closed");
+      const conversationListEl = document.getElementById("conversation-list");
+      const queueStatusEl = document.getElementById("queue-status");
+      const chatTitleEl = document.getElementById("chat-title");
+      const chatMetaEl = document.getElementById("chat-meta");
+      const messagesEl = document.getElementById("messages");
+      const replyForm = document.getElementById("reply-form");
+      const replyInput = document.getElementById("reply-input");
+      const btnTomar = document.getElementById("btn-tomar");
+      const btnCerrar = document.getElementById("btn-cerrar");
+      const agentNameEl = document.getElementById("agent-name");
+
+      let conversations = [];
+      let currentConversationId = null;
+      let pollTimer = null;
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function senderLabel(remitente, agente) {
+        const lower = (remitente || "").toLowerCase();
+        if (lower === "rrhh") return `RRHH${agente ? ` (${agente})` : ""}`;
+        if (lower === "colaborador") return "Colaborador";
+        return "Sistema";
+      }
+
+      function badgeClass(estado) {
+        const e = (estado || "").toLowerCase();
+        if (e === "en_atencion") return "badge active";
+        if (e === "cerrada") return "badge closed";
+        return "badge pending";
+      }
+
+      function renderConversations() {
+        conversationListEl.innerHTML = "";
+        if (!conversations.length) {
+          conversationListEl.innerHTML = "<p class='subtle'>No hay conversaciones para mostrar.</p>";
+          return;
+        }
+
+        conversations.forEach((conv) => {
+          const card = document.createElement("button");
+          card.type = "button";
+          card.className = `conv-card ${conv.conversation_id === currentConversationId ? "selected" : ""}`;
+          card.innerHTML = `
+            <div class="conv-head">
+              <strong>${escapeHtml(conv.conversation_id)}</strong>
+              <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
+            </div>
+            <div class="conv-line">${escapeHtml(conv.ultima_consulta || "Sin consulta")}</div>
+            <div class="conv-foot">Actualizado: ${escapeHtml(conv.updated_at || "-")}</div>
+          `;
+          card.addEventListener("click", () => seleccionarConversacion(conv.conversation_id));
+          conversationListEl.appendChild(card);
+        });
+      }
+
+      function renderMessages(mensajes) {
+        messagesEl.innerHTML = "";
+        if (!mensajes.length) {
+          messagesEl.innerHTML = "<p class='subtle'>Sin mensajes todavía.</p>";
+          return;
+        }
+
+        mensajes.forEach((msg) => {
+          const bubble = document.createElement("article");
+          bubble.className = `msg ${(msg.remitente || "").toLowerCase()}`;
+          bubble.innerHTML = `
+            <div class="msg-head">
+              <strong>${escapeHtml(senderLabel(msg.remitente, msg.agente))}</strong>
+              <span>${escapeHtml(msg.fecha || "-")}</span>
+            </div>
+            <p>${escapeHtml(msg.texto || "")}</p>
+          `;
+          messagesEl.appendChild(bubble);
+        });
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      async function cargarConversaciones() {
+        const includeClosed = includeClosedEl.checked ? "true" : "false";
+        const response = await fetch(`/api/rrhh/conversaciones?include_closed=${includeClosed}`);
+        const data = await response.json();
+        if (!data.ok) throw new Error("No se pudo cargar conversaciones");
+        conversations = data.conversaciones || [];
+        queueStatusEl.textContent = `${conversations.length} conversación(es)`;
+        renderConversations();
+      }
+
+      async function cargarMensajes(conversationId) {
+        const response = await fetch(`/api/rrhh/conversaciones/${conversationId}/mensajes`);
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cargar mensajes");
+        renderMessages(data.mensajes || []);
+        chatTitleEl.textContent = `Conversación ${conversationId}`;
+        chatMetaEl.textContent = `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
+      }
+
+      async function seleccionarConversacion(conversationId) {
+        currentConversationId = conversationId;
+        renderConversations();
+        await cargarMensajes(conversationId);
+      }
+
+      async function tomarConversacion() {
+        if (!currentConversationId) return;
+        const agente = agentNameEl.value.trim() || "RRHH";
+        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/tomar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agente }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo tomar la conversación");
+        await refrescarTodo(true);
+      }
+
+      async function cerrarConversacion() {
+        if (!currentConversationId) return;
+        const agente = agentNameEl.value.trim() || "RRHH";
+        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/cerrar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agente }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cerrar la conversación");
+        await refrescarTodo(true);
+      }
+
+      async function enviarRespuesta(mensaje) {
+        if (!currentConversationId) throw new Error("Seleccioná una conversación.");
+        const agente = agentNameEl.value.trim() || "RRHH";
+        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/mensajes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agente, mensaje }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo enviar la respuesta");
+        await cargarMensajes(currentConversationId);
+      }
+
+      async function refrescarTodo(keepSelected = true) {
+        const prevSelected = keepSelected ? currentConversationId : null;
+        await cargarConversaciones();
+        if (!prevSelected) return;
+        const stillExists = conversations.some((conv) => conv.conversation_id === prevSelected);
+        if (stillExists) {
+          await seleccionarConversacion(prevSelected);
+        } else {
+          currentConversationId = null;
+          chatTitleEl.textContent = "Seleccioná una conversación";
+          chatMetaEl.textContent = "";
+          messagesEl.innerHTML = "<p class='subtle'>Sin conversación seleccionada.</p>";
+        }
+      }
+
+      async function safeRefresh(keepSelected = true) {
+        try {
+          await refrescarTodo(keepSelected);
+        } catch (error) {
+          queueStatusEl.textContent = `Error: ${error.message}`;
+        }
+      }
+
+      refreshBtn.addEventListener("click", () => safeRefresh(true));
+      includeClosedEl.addEventListener("change", () => safeRefresh(false));
+      btnTomar.addEventListener("click", async () => {
+        try {
+          await tomarConversacion();
+          await safeRefresh(true);
+        } catch (error) {
+          queueStatusEl.textContent = `Error al tomar: ${error.message}`;
+        }
+      });
+      btnCerrar.addEventListener("click", async () => {
+        try {
+          await cerrarConversacion();
+          await safeRefresh(true);
+        } catch (error) {
+          queueStatusEl.textContent = `Error al cerrar: ${error.message}`;
+        }
+      });
+
+      replyForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const mensaje = replyInput.value.trim();
+        if (!mensaje) return;
+        try {
+          await enviarRespuesta(mensaje);
+          replyInput.value = "";
+          await safeRefresh(true);
+        } catch (error) {
+          queueStatusEl.textContent = `Error al responder: ${error.message}`;
+        }
+      });
+
+      async function init() {
+        await safeRefresh(false);
+        pollTimer = setInterval(() => safeRefresh(true), 4000);
+      }
+
+      window.addEventListener("beforeunload", () => {
+        if (pollTimer) clearInterval(pollTimer);
+      });
+
+      init();
+    </script>
+  </body>
+</html>

@@ -108,6 +108,10 @@ button:hover {
   opacity: 0.92;
 }
 
+.quick-link.secondary-link {
+  background: #475569;
+}
+
 .chat-form {
   margin-top: 12px;
   display: grid;
