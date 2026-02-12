@@ -100,6 +100,7 @@ button:hover {
   border-radius: 12px;
   background: #fff;
   padding: 12px;
+  overflow: hidden;
 }
 
 .panel h2 {
@@ -107,9 +108,22 @@ button:hover {
   font-size: 1rem;
 }
 
-canvas {
+.chart-box {
+  position: relative;
   width: 100%;
+}
+
+.line-chart-box {
   height: 320px;
+}
+
+.pie-chart-box {
+  height: 320px;
+}
+
+.chart-box canvas {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 table {
@@ -135,6 +149,11 @@ th {
 
   .charts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .line-chart-box,
+  .pie-chart-box {
+    height: 260px;
   }
 }
 
