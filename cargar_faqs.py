@@ -1,27 +1,7 @@
-try:
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-except ImportError:
-    firebase_admin = None
-    credentials = None
-    firestore = None
-
-def inicializar_firestore():
-    if not firebase_admin:
-        print("⚠️ firebase_admin no está instalado. No se puede cargar en Firestore.")
-        return None
-
-    try:
-        if not firebase_admin._apps:
-            cred = credentials.Certificate("claves.json")
-            firebase_admin.initialize_app(cred)
-        return firestore.client()
-    except Exception as exc:
-        print(f"❌ Error de conexión con Firebase: {exc}")
-        return None
+from firebase_config import inicializar_firestore
 
 
-db = inicializar_firestore()
+db = inicializar_firestore(verbose=False)
 
 # 2. LISTADO DE PREGUNTAS FRECUENTES (FAQS) PARA BACAR
 faqs_bacar = [
@@ -47,6 +27,7 @@ def normalizar_tema(tema):
 def cargar_datos():
     if not db:
         print("⚠️ No se puede cargar información porque no hay conexión a Firebase.")
+        print("ℹ️ Definí FIREBASE_CREDENTIALS=tu-clave.json y reintentá.")
         return
 
     print("🚀 Subiendo info oficial a Firestore...")

@@ -1,15 +1,15 @@
-import firebase_admin
-from firebase_admin import credentials, firestore
 import csv
-from datetime import datetime
+from firebase_config import inicializar_firestore
 
 # 1. Conexión con tus credenciales
-if not firebase_admin._apps:
-    cred = credentials.Certificate("claves.json")
-    firebase_admin.initialize_app(cred)
-db = firestore.client()
+db = inicializar_firestore(verbose=False)
 
 def exportar_datos():
+    if not db:
+        print("⚠️ No hay conexión a Firestore. No se puede exportar feedback.")
+        print("ℹ️ Definí FIREBASE_CREDENTIALS=tu-clave.json y reintentá.")
+        return
+
     print("⏳ Extrayendo datos de feedback desde Firebase...")
     
     # Referencia a tu colección de feedback

@@ -3,13 +3,7 @@ import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 
-try:
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-except ImportError:
-    firebase_admin = None
-    credentials = None
-    firestore = None
+from firebase_config import inicializar_firestore
 
 try:
     from textblob import TextBlob
@@ -95,27 +89,13 @@ FAQ_FALLBACK = {
     ),
 }
 
-
-def inicializar_firestore():
-    if not firebase_admin:
-        print("⚠️ firebase_admin no está instalado. Se activa modo local.\n")
-        return None
-
-    try:
-        if not firebase_admin._apps:
-            cred = credentials.Certificate("claves.json")
-            firebase_admin.initialize_app(cred)
-        cliente = firestore.client()
-        print("✅ SISTEMA BACAR: Conexión exitosa con la base de datos.")
-        print("🚀 El asistente virtual de RRHH está listo para operar.\n")
-        return cliente
-    except Exception as exc:
-        print(f"⚠️ No se pudo conectar con Firestore: {exc}")
-        print("🧪 Se activa modo local con respuestas de respaldo.\n")
-        return None
-
-
-db = inicializar_firestore()
+db = inicializar_firestore(verbose=False)
+if db:
+    print("✅ SISTEMA BACAR: Conexión exitosa con la base de datos.")
+    print("🚀 El asistente virtual de RRHH está listo para operar.\n")
+else:
+    print("🧪 Se activa modo local con respuestas de respaldo.")
+    print("ℹ️ Para usar Firebase, definí FIREBASE_CREDENTIALS con tu archivo JSON.\n")
 
 # ==========================================================
 # 2. DICCIONARIO DE INTELIGENCIA Y SINÓNIMOS

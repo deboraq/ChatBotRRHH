@@ -1,14 +1,15 @@
-import firebase_admin
-from firebase_admin import credentials, firestore
 import matplotlib.pyplot as plt
+from firebase_config import inicializar_firestore
 
 # 1. Conexión a tu Firebase
-if not firebase_admin._apps:
-    cred = credentials.Certificate("claves.json")
-    firebase_admin.initialize_app(cred)
-db = firestore.client()
+db = inicializar_firestore(verbose=False)
 
 def crear_grafico():
+    if not db:
+        print("⚠️ No hay conexión a Firestore. No se puede generar el gráfico.")
+        print("ℹ️ Definí FIREBASE_CREDENTIALS=tu-clave.json y reintentá.")
+        return
+
     # 2. Traer datos de la colección que vimos en tu captura
     docs = db.collection('feedback_respuestas').stream()
     
