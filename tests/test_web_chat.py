@@ -15,6 +15,9 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIn("Menú de temas disponibles", body["reply"])
         self.assertFalse(body["await_feedback"])
+        self.assertIn("quick_actions", body)
+        self.assertTrue(len(body["quick_actions"]) > 0)
+        self.assertIn("value", body["quick_actions"][0])
 
     def test_feedback_flow_recibo_si(self):
         primera = self.client.post("/api/chat", json={"message": "recibo"})
@@ -23,6 +26,9 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body_primera["ok"])
         self.assertTrue(body_primera["await_feedback"])
         self.assertIn("¿Esta información te fue de utilidad?", body_primera["reply"])
+        self.assertTrue(
+            any(action["value"] == "si" for action in body_primera["quick_actions"])
+        )
 
         segunda = self.client.post("/api/chat", json={"message": "si"})
         self.assertEqual(segunda.status_code, 200)
@@ -30,6 +36,7 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body_segunda["ok"])
         self.assertFalse(body_segunda["await_feedback"])
         self.assertIn("Gracias por tu feedback", body_segunda["reply"])
+        self.assertTrue(len(body_segunda["quick_actions"]) > 0)
 
     def test_pregunta_en_feedback_se_toma_como_consulta(self):
         self.client.post("/api/chat", json={"message": "vacaciones"})
@@ -48,6 +55,14 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIn("kpis", body)
         self.assertIn("series_7_dias", body)
+
+    def test_reset_endpoint_includes_quick_actions(self):
+        response = self.client.post("/api/reset")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertIn("quick_actions", body)
+        self.assertTrue(len(body["quick_actions"]) > 0)
 
 
 if __name__ == "__main__":
