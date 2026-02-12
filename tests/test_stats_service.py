@@ -37,6 +37,13 @@ class StatsServiceTests(unittest.TestCase):
         self.assertEqual(result["series_7_dias"]["labels"][-1], "2026-02-12")
         self.assertEqual(len(result["series_7_dias"]["feedback"]), 7)
         self.assertEqual(len(result["series_7_dias"]["pendientes"]), 7)
+        self.assertIn("detail", result)
+        self.assertIn("feedback_reciente", result["detail"])
+        self.assertIn("pendientes_recientes", result["detail"])
+        self.assertIn("ranking_temas", result["detail"])
+        self.assertIn("desglose_diario", result["detail"])
+        self.assertTrue(len(result["detail"]["feedback_reciente"]) > 0)
+        self.assertEqual(len(result["detail"]["desglose_diario"]), 7)
 
     def test_obtener_estadisticas_sin_db(self):
         result = stats_service.obtener_estadisticas(None, now=datetime(2026, 2, 12), days=7)
@@ -44,6 +51,8 @@ class StatsServiceTests(unittest.TestCase):
         self.assertEqual(result["kpis"]["total_feedback"], 0)
         self.assertEqual(result["kpis"]["total_pendientes"], 0)
         self.assertEqual(len(result["series_7_dias"]["labels"]), 7)
+        self.assertIn("detail", result)
+        self.assertEqual(result["detail"]["feedback_reciente"], [])
 
 
 if __name__ == "__main__":

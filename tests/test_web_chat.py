@@ -55,6 +55,8 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIn("kpis", body)
         self.assertIn("series_7_dias", body)
+        self.assertIn("detail", body)
+        self.assertIn("feedback_reciente", body["detail"])
 
     def test_reset_endpoint_includes_quick_actions(self):
         response = self.client.post("/api/reset")
