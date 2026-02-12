@@ -1,0 +1,8 @@
+# Dependencias opcionales para funcionalidades avanzadas.
+# Si solo querés probar la interfaz web local, alcanza con requirements.txt.
+
+firebase_admin>=7.0,<8
+textblob>=0.19,<1
+thefuzz>=0.22,<1
+python-Levenshtein>=0.27,<1
+matplotlib>=3.8,<4

@@ -45,10 +45,17 @@ cargar_faqs.py: Script para la gestión y carga de la base de conocimientos.
 
 Si querés probar el chatbot con una experiencia similar a un canal real (antes de WhatsApp), podés usar la UI web local.
 
-1) Instalá dependencias:
+1) Instalá dependencias mínimas (UI web):
 
 ```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+```
+
+Opcional (si querés todas las integraciones y reportes):
+
+```bash
+pip install -r requirements-full.txt
 ```
 
 2) Ejecutá la interfaz:
