@@ -493,9 +493,9 @@
           renderActiveDetail();
 
           if (data.available) {
-            statusEl.textContent = `Última actualización: ${data.updated_at} · Auto: cada 5s`;
+            statusEl.textContent = `Última actualización: ${data.updated_at} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 5s`;
           } else {
-            statusEl.textContent = `Modo local: ${data.reason} · Auto: cada 5s`;
+            statusEl.textContent = `Modo local: ${data.reason} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 5s`;
           }
         } catch (error) {
           statusEl.textContent = "Error de conexión con el servidor.";
