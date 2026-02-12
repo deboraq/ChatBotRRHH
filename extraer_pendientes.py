@@ -1,15 +1,15 @@
-import firebase_admin
-from firebase_admin import credentials, firestore
 import csv
-from datetime import datetime
+from firebase_config import inicializar_firestore
 
 # 1. Conexión a Firebase
-if not firebase_admin._apps:
-    cred = credentials.Certificate("claves.json")
-    firebase_admin.initialize_app(cred)
-db = firestore.client()
+db = inicializar_firestore(verbose=False)
 
 def exportar_pendientes():
+    if not db:
+        print("⚠️ No hay conexión a Firestore. No se puede exportar pendientes.")
+        print("ℹ️ Definí FIREBASE_CREDENTIALS=tu-clave.json y reintentá.")
+        return
+
     print("⏳ Extrayendo consultas no entendidas con Análisis de Sentimiento...")
     
     # Referencia a la colección de fallos

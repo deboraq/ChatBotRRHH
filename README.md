@@ -41,6 +41,46 @@ extraer_pendientes.py: Auditoría y análisis de dudas no resueltas.
 
 cargar_faqs.py: Script para la gestión y carga de la base de conocimientos.
 
+## 🔁 Cambio de proyecto Firebase (nuevo mail/cuenta)
+
+Para mover el chatbot al proyecto Firebase de `implementaciones.it@empresasa.com.ar`:
+
+1) En la consola del nuevo proyecto, creá una **Service Account Key** (JSON) y guardala localmente.
+   Ejemplo: `claves-empresa.json`
+
+2) Configurá el proyecto para usar esa clave:
+
+```bash
+export FIREBASE_CREDENTIALS=claves-empresa.json
+```
+
+3) Corré normalmente los scripts (`app.py`, `web_chat.py`, `cargar_faqs.py`, etc.).  
+   Ahora se conectarán al proyecto indicado por esa clave.
+
+### Migrar datos Firestore entre proyectos
+
+Si querés copiar los datos del Firebase viejo al nuevo, usá:
+
+```bash
+python migrar_firestore.py \
+  --source-credentials claves-viejo.json \
+  --target-credentials claves-empresa.json
+```
+
+Colecciones migradas por defecto:
+- `faq_rrhh`
+- `feedback_respuestas`
+- `consultas_pendientes`
+
+Modo simulación (sin escribir):
+
+```bash
+python migrar_firestore.py \
+  --source-credentials claves-viejo.json \
+  --target-credentials claves-empresa.json \
+  --dry-run
+```
+
 ## 💬 Interfaz Web de Pruebas
 
 Si querés probar el chatbot con una experiencia similar a un canal real (antes de WhatsApp), podés usar la UI web local.
