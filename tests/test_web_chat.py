@@ -105,6 +105,13 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(len(poll_body["messages"]) > 0)
         self.assertTrue(any(m["remitente"] in {"rrhh", "sistema"} for m in poll_body["messages"]))
 
+        # Segunda lectura no debe repetir mensajes ya vistos.
+        poll_resp_2 = self.client.get("/api/chat/poll")
+        self.assertEqual(poll_resp_2.status_code, 200)
+        poll_body_2 = poll_resp_2.get_json()
+        self.assertTrue(poll_body_2["ok"])
+        self.assertEqual(len(poll_body_2["messages"]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

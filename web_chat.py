@@ -35,6 +35,10 @@ def _utc_now():
     return datetime.now(timezone.utc)
 
 
+def _new_conversation_id():
+    return f"conv-{uuid.uuid4().hex[:12]}"
+
+
 def _as_utc_naive(dt):
     if not isinstance(dt, datetime):
         return None
@@ -48,15 +52,6 @@ def _fmt_fecha(dt):
     if not dt2:
         return "Sin fecha"
     return dt2.strftime("%Y-%m-%d %H:%M")
-
-
-def _session_conversation_id():
-    conversation_id = session.get("conversation_id")
-    if conversation_id:
-        return conversation_id
-    conversation_id = f"conv-{uuid.uuid4().hex[:12]}"
-    session["conversation_id"] = conversation_id
-    return conversation_id
 
 
 def _set_handoff_session(conversation_id):
@@ -78,14 +73,15 @@ def _get_last_seen_rrhh():
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(raw)
+        parsed = datetime.fromisoformat(raw)
+        return _as_utc_naive(parsed)
     except Exception:
         return None
 
 
 def _set_last_seen_rrhh(dt):
     dt2 = _as_utc_naive(dt)
-    session["last_rrhh_seen_iso"] = dt2.isoformat(timespec="seconds") if dt2 else ""
+    session["last_rrhh_seen_iso"] = dt2.isoformat() if dt2 else ""
 
 
 def _from_firestore_doc(snapshot):
@@ -142,13 +138,20 @@ def _list_handoffs(include_closed=False, limit=100):
     return filtered[:limit]
 
 
-def _add_handoff_message(conversation_id, remitente, texto, agente=""):
+def _add_handoff_message(
+    conversation_id,
+    remitente,
+    texto,
+    agente="",
+    visible_to_colaborador=True,
+):
     now = _utc_now()
     payload = {
         "remitente": remitente,
         "texto": str(texto).strip(),
         "agente": str(agente or "").strip(),
         "fecha": now,
+        "visible_to_colaborador": bool(visible_to_colaborador),
     }
 
     if chatbot.db:
@@ -262,6 +265,8 @@ def _collect_new_messages_for_collaborator(conversation_id):
         remitente = str(msg.get("remitente") or "").strip().lower()
         if remitente not in {"rrhh", "sistema"}:
             continue
+        if remitente == "sistema" and msg.get("visible_to_colaborador", True) is False:
+            continue
         fecha = _as_utc_naive(msg.get("fecha"))
         if last_seen is not None and fecha is not None and fecha <= last_seen:
             continue
@@ -359,9 +364,21 @@ def _payload(
 
 
 def _iniciar_handoff_rrhh(mensaje_usuario):
-    conversation_id = _session_conversation_id()
-    existing = _fetch_handoff(conversation_id)
+    active_id = _get_handoff_session_id()
+    existing = _fetch_handoff(active_id) if active_id else None
     now = _utc_now()
+
+    if existing is not None:
+        estado_actual = str(existing.get("estado") or "").strip().lower()
+        if estado_actual in {HANDOFF_STATUS_PENDING, HANDOFF_STATUS_ACTIVE}:
+            conversation_id = active_id
+        else:
+            _clear_handoff_session()
+            conversation_id = _new_conversation_id()
+            existing = None
+    else:
+        conversation_id = _new_conversation_id()
+
     if existing is None:
         _upsert_handoff(
             conversation_id,
@@ -380,19 +397,8 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             conversation_id,
             remitente="sistema",
             texto="El colaborador solicitó hablar con RRHH.",
+            visible_to_colaborador=False,
         )
-    else:
-        estado_actual = str(existing.get("estado") or "").strip().lower()
-        if estado_actual == HANDOFF_STATUS_CLOSED:
-            _upsert_handoff(
-                conversation_id,
-                {
-                    "estado": HANDOFF_STATUS_PENDING,
-                    "updated_at": now,
-                    "rrhh_agente": "",
-                },
-                merge=True,
-            )
 
     if mensaje_usuario.strip():
         _add_handoff_message(
