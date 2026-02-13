@@ -128,6 +128,41 @@ Cuando un colaborador pide “hablar con RRHH”, la conversación se deriva a u
 - Respuesta en vivo desde RRHH al colaborador en el mismo chat.
 - Cierre de conversación por RRHH o colaborador.
 
+### 🔐 Usuarios para panel RRHH e historial
+
+Ahora podés proteger `GET /rrhh`, `GET /historial` y sus APIs (`/api/rrhh/*`, `/api/historial`) con login.
+
+1) Activá autenticación:
+
+```bash
+export RRHH_AUTH_ENABLED=true
+```
+
+2) Elegí una de estas opciones de usuarios:
+
+- **Usuario admin por variables de entorno**:
+
+```bash
+export RRHH_ADMIN_USER=rrhh
+export RRHH_ADMIN_PASSWORD="cambiame-por-una-segura"
+```
+
+- **Archivo con múltiples usuarios** (`rrhh_users.json`):
+  - Tomá como base `rrhh_users.example.json`.
+  - Definí la ruta (opcional, por defecto busca `rrhh_users.json`):
+
+```bash
+export RRHH_USERS_FILE=rrhh_users.json
+```
+
+Para generar hash de contraseña (recomendado):
+
+```bash
+python auth_rrhh.py --hash "mi-clave-segura"
+```
+
+Luego pegá ese valor en `password_hash`.
+
 ## 🧾 Historial completo de conversaciones
 
 Se guarda cada mensaje en la colección `chat_historial`:

@@ -1,4 +1,8 @@
+import json
+import os
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import web_chat
 
@@ -163,6 +167,70 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(stats_body["ok"])
         self.assertGreaterEqual(stats_body["kpis"]["rrhh_total"], 1)
         self.assertGreaterEqual(stats_body["kpis"]["rrhh_abiertas"], 1)
+
+    def test_rrhh_endpoints_require_login_when_auth_enabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "laura",
+                                "display_name": "Laura",
+                                "password": "secreta123",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                api_resp = self.client.get("/api/rrhh/conversaciones")
+                self.assertEqual(api_resp.status_code, 401)
+                self.assertFalse(api_resp.get_json()["ok"])
+
+                page_resp = self.client.get("/rrhh")
+                self.assertEqual(page_resp.status_code, 302)
+                self.assertIn("/login", page_resp.headers.get("Location", ""))
+
+    def test_login_allows_rrhh_access_when_auth_enabled(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "laura",
+                                "display_name": "Laura",
+                                "password": "secreta123",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "laura", "password": "secreta123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                api_resp = self.client.get("/api/rrhh/conversaciones")
+                self.assertEqual(api_resp.status_code, 200)
+                body = api_resp.get_json()
+                self.assertTrue(body["ok"])
+                self.assertEqual(body["agente_actual"], "Laura")
 
 
 if __name__ == "__main__":

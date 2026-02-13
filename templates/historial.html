@@ -12,9 +12,15 @@
         <div>
           <h1>Historial completo</h1>
           <p>Incluye mensajes de colaborador, bot, RRHH y sistema.</p>
+          {% if auth_enabled and rrhh_user %}
+          <p>Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
+          {% endif %}
         </div>
         <div class="actions">
           <a href="/" class="btn">Ir al chat</a>
+          {% if auth_enabled %}
+          <a href="/logout" class="btn">Cerrar sesión</a>
+          {% endif %}
           <button id="btn-refresh" type="button">Actualizar</button>
         </div>
       </header>
@@ -140,6 +146,10 @@
       async function loadHistory() {
         try {
           const response = await fetch(`/api/historial?${buildQuery()}`, { cache: "no-store" });
+          if (response.status === 401) {
+            window.location.href = `/login?next=${encodeURIComponent("/historial")}`;
+            return;
+          }
           const data = await response.json();
           if (!data.ok) {
             totalEl.textContent = "Error cargando historial";

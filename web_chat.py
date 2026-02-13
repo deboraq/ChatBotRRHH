@@ -1,10 +1,12 @@
 import os
 import uuid
 from datetime import datetime, timezone
+from functools import wraps
 
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 import app as chatbot
+import auth_rrhh
 import stats_service
 
 
@@ -54,6 +56,82 @@ def _fmt_fecha(dt):
     if not dt2:
         return "Sin fecha"
     return dt2.strftime("%Y-%m-%d %H:%M")
+
+
+def _auth_enabled():
+    return auth_rrhh.is_auth_enabled()
+
+
+def _safe_next_path(next_path, fallback="/rrhh"):
+    raw = str(next_path or "").strip()
+    if not raw:
+        return fallback
+    if not raw.startswith("/") or raw.startswith("//"):
+        return fallback
+    return raw
+
+
+def _request_path_with_query():
+    path = request.path
+    if request.query_string:
+        path = f"{path}?{request.query_string.decode('utf-8', errors='ignore')}"
+    return _safe_next_path(path)
+
+
+def _current_rrhh_user():
+    username = str(session.get("rrhh_user") or "").strip()
+    if not username:
+        return None
+    return {
+        "username": username,
+        "display_name": str(session.get("rrhh_display_name") or username),
+        "role": str(session.get("rrhh_role") or "rrhh"),
+    }
+
+
+def _set_rrhh_user(user_payload):
+    session["rrhh_user"] = str(user_payload.get("username") or "").strip()
+    session["rrhh_display_name"] = str(
+        user_payload.get("display_name") or session["rrhh_user"]
+    ).strip()
+    session["rrhh_role"] = str(user_payload.get("role") or "rrhh").strip()
+
+
+def _clear_rrhh_user():
+    session.pop("rrhh_user", None)
+    session.pop("rrhh_display_name", None)
+    session.pop("rrhh_role", None)
+
+
+def _rrhh_agent_name(default="RRHH"):
+    current = _current_rrhh_user()
+    if not current:
+        return default
+    return str(current.get("display_name") or current.get("username") or default)
+
+
+def _resolve_rrhh_agent(payload):
+    if _auth_enabled():
+        return _rrhh_agent_name()
+    return str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
+
+
+def _auth_json_error():
+    return jsonify({"ok": False, "error": "No autorizado"}), 401
+
+
+def rrhh_auth_required(handler):
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        if not _auth_enabled():
+            return handler(*args, **kwargs)
+        if _current_rrhh_user() is not None:
+            return handler(*args, **kwargs)
+        if request.path.startswith("/api/"):
+            return _auth_json_error()
+        return redirect(url_for("login_page", next=_request_path_with_query()))
+
+    return wrapped
 
 
 def _session_chat_id():
@@ -740,13 +818,23 @@ def add_no_cache_headers(response):
 
 
 @flask_app.get("/rrhh")
+@rrhh_auth_required
 def rrhh_page():
-    return render_template("rrhh.html")
+    return render_template(
+        "rrhh.html",
+        auth_enabled=_auth_enabled(),
+        rrhh_user=_current_rrhh_user(),
+    )
 
 
 @flask_app.get("/historial")
+@rrhh_auth_required
 def historial_page():
-    return render_template("historial.html")
+    return render_template(
+        "historial.html",
+        auth_enabled=_auth_enabled(),
+        rrhh_user=_current_rrhh_user(),
+    )
 
 
 @flask_app.get("/estadisticas")
@@ -795,7 +883,54 @@ def chat_api():
     return jsonify({"ok": True, **payload})
 
 
+@flask_app.get("/login")
+def login_page():
+    if not _auth_enabled():
+        return redirect(url_for("rrhh_page"))
+    if _current_rrhh_user() is not None:
+        return redirect(_safe_next_path(request.args.get("next"), fallback="/rrhh"))
+    return render_template(
+        "login.html",
+        error="",
+        next_path=_safe_next_path(request.args.get("next"), fallback="/rrhh"),
+    )
+
+
+@flask_app.post("/login")
+def login_submit():
+    if not _auth_enabled():
+        return redirect(url_for("rrhh_page"))
+
+    data = request.get_json(silent=True) if request.is_json else request.form
+    username = str((data or {}).get("username") or "").strip()
+    password = str((data or {}).get("password") or "")
+    next_path = _safe_next_path((data or {}).get("next") or request.args.get("next"), "/rrhh")
+
+    ok, user_payload, error = auth_rrhh.authenticate(username, password)
+    if not ok:
+        if request.is_json:
+            return jsonify({"ok": False, "error": error}), 401
+        return (
+            render_template("login.html", error=error, next_path=next_path),
+            401,
+        )
+
+    _set_rrhh_user(user_payload)
+    if request.is_json:
+        return jsonify({"ok": True, "redirect_to": next_path, "user": user_payload})
+    return redirect(next_path)
+
+
+@flask_app.get("/logout")
+def logout_page():
+    _clear_rrhh_user()
+    if _auth_enabled():
+        return redirect(url_for("login_page"))
+    return redirect(url_for("rrhh_page"))
+
+
 @flask_app.get("/api/historial")
+@rrhh_auth_required
 def historial_api():
     try:
         limit = int(request.args.get("limit", "200"))
@@ -861,13 +996,21 @@ def chat_poll_api():
 
 
 @flask_app.get("/api/rrhh/conversaciones")
+@rrhh_auth_required
 def rrhh_conversaciones_api():
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
     convs = _list_handoffs(include_closed=include_closed, limit=150)
-    return jsonify({"ok": True, "conversaciones": [_serialize_handoff(c) for c in convs]})
+    return jsonify(
+        {
+            "ok": True,
+            "conversaciones": [_serialize_handoff(c) for c in convs],
+            "agente_actual": _rrhh_agent_name() if _auth_enabled() else "",
+        }
+    )
 
 
 @flask_app.get("/api/rrhh/conversaciones/<conversation_id>/mensajes")
+@rrhh_auth_required
 def rrhh_mensajes_api(conversation_id):
     conv = _fetch_handoff(conversation_id)
     if not conv:
@@ -885,28 +1028,31 @@ def rrhh_mensajes_api(conversation_id):
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/tomar")
+@rrhh_auth_required
 def rrhh_tomar_api(conversation_id):
     data = request.get_json(silent=True) or {}
-    agente = str(data.get("agente") or "RRHH").strip() or "RRHH"
+    agente = _resolve_rrhh_agent(data)
     if not _take_handoff(conversation_id, agente):
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_ACTIVE})
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/cerrar")
+@rrhh_auth_required
 def rrhh_cerrar_api(conversation_id):
     data = request.get_json(silent=True) or {}
-    agente = str(data.get("agente") or "RRHH").strip() or "RRHH"
+    agente = _resolve_rrhh_agent(data)
     if not _close_handoff(conversation_id, agente):
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_CLOSED})
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/mensajes")
+@rrhh_auth_required
 def rrhh_responder_api(conversation_id):
     data = request.get_json(silent=True) or {}
     mensaje = str(data.get("mensaje") or "").strip()
-    agente = str(data.get("agente") or "RRHH").strip() or "RRHH"
+    agente = _resolve_rrhh_agent(data)
     if not mensaje:
         return jsonify({"ok": False, "error": "Mensaje vacío"}), 400
 
