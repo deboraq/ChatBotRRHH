@@ -933,12 +933,14 @@ def login_submit():
     return redirect(next_path)
 
 
-@flask_app.get("/logout")
+@flask_app.route("/logout", methods=["GET", "POST"])
 def logout_page():
-    _clear_rrhh_user()
-    if _auth_enabled():
-        return redirect(url_for("login_page"))
-    return redirect(url_for("rrhh_page"))
+    session.clear()
+    redirect_target = "login_page" if _auth_enabled() else "rrhh_page"
+    response = redirect(url_for(redirect_target))
+    session_cookie_name = flask_app.config.get("SESSION_COOKIE_NAME", "session")
+    response.delete_cookie(session_cookie_name)
+    return response
 
 
 @flask_app.get("/api/historial")

@@ -39,6 +39,10 @@ body {
   gap: 8px;
 }
 
+.logout-form {
+  margin: 0;
+}
+
 .btn,
 button {
   border: none;

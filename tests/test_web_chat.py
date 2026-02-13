@@ -325,6 +325,45 @@ class WebChatApiTests(unittest.TestCase):
                 body = create_resp.get_json()
                 self.assertFalse(body["ok"])
 
+    def test_logout_clears_session_and_blocks_rrhh_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "admin", "password": "admin123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                api_ok = self.client.get("/api/rrhh/conversaciones")
+                self.assertEqual(api_ok.status_code, 200)
+
+                logout_resp = self.client.post("/logout")
+                self.assertEqual(logout_resp.status_code, 302)
+                self.assertIn("/login", logout_resp.headers.get("Location", ""))
+
+                api_blocked = self.client.get("/api/rrhh/conversaciones")
+                self.assertEqual(api_blocked.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
