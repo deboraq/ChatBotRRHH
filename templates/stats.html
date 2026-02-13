@@ -122,6 +122,7 @@
       let latestStats = null;
       let activeDetail = { type: "resumen", value: null };
       let autoRefreshTimer = null;
+      const AUTO_REFRESH_MS = 60 * 1000;
 
       function setDetailTable(title, columns, rows, emptyMessage = "Sin datos.") {
         detailTitleEl.textContent = title;
@@ -493,9 +494,9 @@
           renderActiveDetail();
 
           if (data.available) {
-            statusEl.textContent = `Última actualización: ${data.updated_at} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 5s`;
+            statusEl.textContent = `Última actualización: ${data.updated_at} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 1 min`;
           } else {
-            statusEl.textContent = `Modo local: ${data.reason} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 5s`;
+            statusEl.textContent = `Modo local: ${data.reason} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 1 min`;
           }
         } catch (error) {
           statusEl.textContent = "Error de conexión con el servidor.";
@@ -511,7 +512,7 @@
       });
       btnDetailReset.addEventListener("click", () => setActiveDetail("resumen"));
       loadStats();
-      autoRefreshTimer = setInterval(loadStats, 5000);
+      autoRefreshTimer = setInterval(loadStats, AUTO_REFRESH_MS);
       window.addEventListener("beforeunload", () => {
         if (autoRefreshTimer) clearInterval(autoRefreshTimer);
       });

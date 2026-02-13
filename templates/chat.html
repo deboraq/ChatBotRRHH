@@ -52,6 +52,7 @@
       const initialQuickActions = {{ quick_actions_iniciales|tojson }};
       let handoffActive = false;
       let pollTimer = null;
+      const HANDOFF_POLL_MS = 60 * 1000;
 
       function addMessage(role, text) {
         const bubble = document.createElement("article");
@@ -98,7 +99,7 @@
         }
 
         if (handoffActive && !pollTimer) {
-          pollTimer = setInterval(pollHandoffMessages, 3500);
+          pollTimer = setInterval(pollHandoffMessages, HANDOFF_POLL_MS);
         }
       }
 
