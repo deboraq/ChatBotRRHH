@@ -451,6 +451,31 @@ def clasificar_input_feedback(texto):
     return "consulta", texto_norm
 
 
+def manejar_feedback_interactivo(tema_id, texto_feedback):
+    tipo_feedback, feedback_norm = clasificar_input_feedback(texto_feedback)
+
+    if tipo_feedback == "feedback":
+        registrar_feedback(tema_id, feedback_norm)
+        print("\nBot: ¡Muchas gracias por tu feedback!")
+        print("Bot: ¿Tenés otra duda o preferís volver al 'menu' principal?")
+        print("👉 Escribí tu duda, la palabra 'menu' o 'salir'.")
+        return "continuar", None
+
+    if tipo_feedback == "menu":
+        return "menu", None
+
+    if tipo_feedback == "salir":
+        print("\nBot: Gracias por comunicarte con RRHH de Bacar. ¡Buen día!")
+        return "salir", None
+
+    if tipo_feedback == "consulta":
+        print("\nBot: Entiendo tu mensaje como una nueva consulta.")
+        return "consulta", texto_feedback
+
+    print("\nBot: Podés responder 'si' o 'no', o escribir una nueva consulta.")
+    return "continuar", None
+
+
 def obtener_respuesta(entrada, temas_map):
     entrada_norm = normalizar_texto(entrada)
     if not entrada_norm:
@@ -521,21 +546,14 @@ if __name__ == "__main__":
             if tema_id not in TEMAS_SIN_FEEDBACK:
                 print("-" * 45)
                 fdbk = input("Bot: ¿Esta información te fue de utilidad? (si/no): ").strip()
-                tipo_feedback, fdbk_norm = clasificar_input_feedback(fdbk)
+                accion_feedback, nueva_consulta = manejar_feedback_interactivo(tema_id, fdbk)
 
-                if tipo_feedback == "feedback":
-                    registrar_feedback(tema_id, fdbk_norm)
-                    print("\nBot: ¡Muchas gracias por tu feedback!")
-                    print("Bot: ¿Tenés otra duda o preferís volver al 'menu' principal?")
-                    print("👉 Escribí tu duda, la palabra 'menu' o 'salir'.")
-                elif tipo_feedback == "menu":
+                if accion_feedback == "menu":
                     dict_temas = mostrar_menu()
-                elif tipo_feedback == "salir":
-                    print("\nBot: Gracias por comunicarte con RRHH de Bacar. ¡Buen día!")
+                elif accion_feedback == "salir":
                     break
-                elif tipo_feedback == "consulta":
-                    print("\nBot: Entiendo tu mensaje como una nueva consulta.")
-                    consulta_pendiente = fdbk
+                elif accion_feedback == "consulta":
+                    consulta_pendiente = nueva_consulta
         else:
             print("\nBot: ⚠️ Lo siento, no tengo información registrada sobre eso.")
             print("👉 Para que pueda ayudarte, por favor intentá lo siguiente:")
