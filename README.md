@@ -116,6 +116,7 @@ Funciones disponibles en la UI:
 - Botones rápidos: menú, hablar con RRHH y reiniciar sesión.
 - Atajos clickeables por número/tema y sugerencias de preguntas.
 - Vista de estadísticas en tiempo real: `http://localhost:5000/estadisticas`
+- Historial completo de chats: `http://localhost:5000/historial`
 
 ## 👩‍💼 Derivación y atención humana (RRHH)
 
@@ -126,6 +127,18 @@ Cuando un colaborador pide “hablar con RRHH”, la conversación se deriva a u
 - Botón para tomar conversación por agente.
 - Respuesta en vivo desde RRHH al colaborador en el mismo chat.
 - Cierre de conversación por RRHH o colaborador.
+
+## 🧾 Historial completo de conversaciones
+
+Se guarda cada mensaje en la colección `chat_historial`:
+- colaborador
+- bot
+- rrhh
+- sistema
+
+Consultas disponibles:
+- Página visual: `GET /historial`
+- API: `GET /api/historial` (filtros por remitente/canal/conversación/texto)
 
 ## 📈 Dashboard Web (sin Google Sheets)
 

@@ -26,6 +26,7 @@ HANDOFF_END_COMMANDS = {
 HANDOFF_POLL_COMMANDS = {"__poll_rrhh__", "actualizar rrhh", "actualizar"}
 
 IN_MEMORY_HANDOFFS = {}
+IN_MEMORY_CHAT_HISTORY = []
 
 
 def _accion(label, value, variant="default"):
@@ -53,6 +54,79 @@ def _fmt_fecha(dt):
     if not dt2:
         return "Sin fecha"
     return dt2.strftime("%Y-%m-%d %H:%M")
+
+
+def _session_chat_id():
+    chat_id = session.get("chat_session_id")
+    if chat_id:
+        return chat_id
+    chat_id = _new_conversation_id()
+    session["chat_session_id"] = chat_id
+    return chat_id
+
+
+def _new_history_id():
+    return f"hist-{uuid.uuid4().hex[:14]}"
+
+
+def _add_chat_history(
+    conversation_id,
+    remitente,
+    texto,
+    canal="asistente",
+    agente="",
+    metadata=None,
+):
+    payload = {
+        "history_id": _new_history_id(),
+        "conversation_id": str(conversation_id or "sin_conversacion"),
+        "remitente": str(remitente or "desconocido"),
+        "texto": str(texto or "").strip(),
+        "canal": str(canal or "asistente"),
+        "agente": str(agente or "").strip(),
+        "fecha": _utc_now(),
+        "metadata": metadata or {},
+    }
+    if not payload["texto"]:
+        return
+
+    if chatbot.db:
+        chatbot.db.collection("chat_historial").add(payload)
+        return
+
+    IN_MEMORY_CHAT_HISTORY.append(payload)
+
+
+def _list_chat_history(limit=300):
+    if chatbot.db:
+        rows = []
+        for doc in chatbot.db.collection("chat_historial").stream():
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            rows.append(data)
+    else:
+        rows = list(IN_MEMORY_CHAT_HISTORY)
+
+    rows.sort(
+        key=lambda x: _as_utc_naive(x.get("fecha")) or datetime.min,
+        reverse=True,
+    )
+    return rows[:limit]
+
+
+def _serialize_history_item(item):
+    fecha = _as_utc_naive(item.get("fecha"))
+    return {
+        "id": str(item.get("id") or item.get("history_id") or ""),
+        "conversation_id": str(item.get("conversation_id") or ""),
+        "remitente": str(item.get("remitente") or ""),
+        "canal": str(item.get("canal") or ""),
+        "agente": str(item.get("agente") or ""),
+        "texto": str(item.get("texto") or ""),
+        "fecha": _fmt_fecha(fecha),
+        "fecha_iso": fecha.isoformat(timespec="seconds") if fecha else "",
+        "metadata": item.get("metadata") or {},
+    }
 
 
 def _set_handoff_session(conversation_id):
@@ -184,6 +258,14 @@ def _add_handoff_message(
             "ultimo_mensaje": payload["texto"],
         },
         merge=True,
+    )
+    _add_chat_history(
+        conversation_id=conversation_id,
+        remitente=remitente,
+        texto=payload["texto"],
+        canal="rrhh",
+        agente=payload["agente"],
+        metadata={"visible_to_colaborador": payload["visible_to_colaborador"]},
     )
 
 
@@ -382,6 +464,7 @@ def _firebase_project_id():
 
 
 def _iniciar_handoff_rrhh(mensaje_usuario):
+    chat_session_id = _session_chat_id()
     active_id = _get_handoff_session_id()
     existing = _fetch_handoff(active_id) if active_id else None
     now = _utc_now()
@@ -408,6 +491,7 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
                 "rrhh_agente": "",
                 "ultimo_mensaje": "",
                 "ultima_consulta": mensaje_usuario.strip() or "Solicitud de contacto RRHH",
+                "chat_session_id": chat_session_id,
             },
             merge=False,
         )
@@ -426,7 +510,11 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
         )
         _upsert_handoff(
             conversation_id,
-            {"ultima_consulta": mensaje_usuario.strip(), "updated_at": now},
+            {
+                "ultima_consulta": mensaje_usuario.strip(),
+                "updated_at": now,
+                "chat_session_id": chat_session_id,
+            },
             merge=True,
         )
 
@@ -628,6 +716,7 @@ def _serialize_messages(messages):
 
 def reset_in_memory_handoffs():
     IN_MEMORY_HANDOFFS.clear()
+    IN_MEMORY_CHAT_HISTORY.clear()
 
 
 @flask_app.get("/")
@@ -655,6 +744,11 @@ def rrhh_page():
     return render_template("rrhh.html")
 
 
+@flask_app.get("/historial")
+def historial_page():
+    return render_template("historial.html")
+
+
 @flask_app.get("/estadisticas")
 def stats_page():
     return render_template("stats.html")
@@ -668,8 +762,74 @@ def chat_api():
     if not isinstance(mensaje, str):
         return jsonify({"ok": False, "error": "Formato de mensaje inválido"}), 400
 
+    mensaje_norm = chatbot.normalizar_texto(mensaje)
+    handoff_before = bool(_get_handoff_session_id())
+    log_asistente_input = not (
+        handoff_before
+        and mensaje_norm not in HANDOFF_POLL_COMMANDS
+        and mensaje_norm not in HANDOFF_END_COMMANDS
+    )
+    if log_asistente_input:
+        input_conversation_id = _get_handoff_session_id() or _session_chat_id()
+        _add_chat_history(
+            conversation_id=input_conversation_id,
+            remitente="colaborador",
+            texto=mensaje,
+            canal="asistente",
+            metadata={"source": "api_chat"},
+        )
+
     payload = responder_chat(mensaje)
+    output_conversation_id = _get_handoff_session_id() or _session_chat_id()
+    _add_chat_history(
+        conversation_id=output_conversation_id,
+        remitente="bot",
+        texto=payload.get("reply", ""),
+        canal="asistente",
+        metadata={
+            "await_feedback": bool(payload.get("await_feedback")),
+            "handoff_active": bool(payload.get("handoff_active")),
+            "end_session": bool(payload.get("end_session")),
+        },
+    )
     return jsonify({"ok": True, **payload})
+
+
+@flask_app.get("/api/historial")
+def historial_api():
+    try:
+        limit = int(request.args.get("limit", "200"))
+    except Exception:
+        limit = 200
+    limit = max(1, min(limit, 1000))
+
+    remitente = str(request.args.get("remitente", "")).strip().lower()
+    canal = str(request.args.get("canal", "")).strip().lower()
+    conversation_id = str(request.args.get("conversation_id", "")).strip()
+    q = str(request.args.get("q", "")).strip().lower()
+
+    raw_items = _list_chat_history(limit=1500)
+    items = []
+    for item in raw_items:
+        serialized = _serialize_history_item(item)
+        if remitente and serialized["remitente"].lower() != remitente:
+            continue
+        if canal and serialized["canal"].lower() != canal:
+            continue
+        if conversation_id and serialized["conversation_id"] != conversation_id:
+            continue
+        if q and q not in serialized["texto"].lower():
+            continue
+        items.append(serialized)
+
+    return jsonify(
+        {
+            "ok": True,
+            "total": len(items),
+            "limit": limit,
+            "items": items[:limit],
+        }
+    )
 
 
 @flask_app.get("/api/chat/poll")
@@ -797,6 +957,7 @@ def stats_api():
 def reset_api():
     limpiar_estado_conversacion()
     _clear_handoff_session()
+    session["chat_session_id"] = _new_conversation_id()
     temas_map = construir_temas_map()
     return jsonify(
         {
