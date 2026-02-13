@@ -116,6 +116,17 @@ def _resolve_rrhh_agent(payload):
     return str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
 
 
+def _is_rrhh_admin():
+    current = _current_rrhh_user()
+    if not current:
+        return False
+    role = str(current.get("role") or "").strip().lower()
+    if role == "admin":
+        return True
+    admin_user = str(os.getenv("RRHH_ADMIN_USER", "")).strip().lower()
+    return bool(admin_user and current.get("username", "").lower() == admin_user)
+
+
 def _auth_json_error():
     return jsonify({"ok": False, "error": "No autorizado"}), 401
 
@@ -824,6 +835,7 @@ def rrhh_page():
         "rrhh.html",
         auth_enabled=_auth_enabled(),
         rrhh_user=_current_rrhh_user(),
+        can_manage_users=_is_rrhh_admin(),
     )
 
 
@@ -1007,6 +1019,52 @@ def rrhh_conversaciones_api():
             "agente_actual": _rrhh_agent_name() if _auth_enabled() else "",
         }
     )
+
+
+@flask_app.get("/api/rrhh/usuarios")
+@rrhh_auth_required
+def rrhh_usuarios_api():
+    if not _auth_enabled():
+        return jsonify({"ok": False, "error": "La autenticación está desactivada."}), 400
+    if not _is_rrhh_admin():
+        return jsonify({"ok": False, "error": "Solo admin puede gestionar usuarios."}), 403
+    users = auth_rrhh.list_file_users()
+    return jsonify(
+        {
+            "ok": True,
+            "users": users,
+            "users_file": auth_rrhh.users_file_path(),
+        }
+    )
+
+
+@flask_app.post("/api/rrhh/usuarios")
+@rrhh_auth_required
+def rrhh_crear_usuario_api():
+    if not _auth_enabled():
+        return jsonify({"ok": False, "error": "La autenticación está desactivada."}), 400
+    if not _is_rrhh_admin():
+        return jsonify({"ok": False, "error": "Solo admin puede crear usuarios."}), 403
+
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    password = str(data.get("password") or "")
+    display_name = str(data.get("display_name") or "").strip()
+    role = str(data.get("role") or "rrhh").strip().lower()
+    created_by = (_current_rrhh_user() or {}).get("username") or ""
+
+    ok, user, error = auth_rrhh.create_user(
+        username=username,
+        password=password,
+        display_name=display_name,
+        role=role,
+        created_by=created_by,
+    )
+    if not ok:
+        status_code = 409 if "existe" in error.lower() else 400
+        return jsonify({"ok": False, "error": error}), status_code
+
+    return jsonify({"ok": True, "user": user})
 
 
 @flask_app.get("/api/rrhh/conversaciones/<conversation_id>/mensajes")

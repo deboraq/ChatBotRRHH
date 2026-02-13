@@ -232,6 +232,99 @@ class WebChatApiTests(unittest.TestCase):
                 self.assertTrue(body["ok"])
                 self.assertEqual(body["agente_actual"], "Laura")
 
+    def test_admin_can_create_rrhh_users_via_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "admin", "password": "admin123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                create_resp = self.client.post(
+                    "/api/rrhh/usuarios",
+                    json={
+                        "username": "analista.rrhh",
+                        "display_name": "Analista RRHH",
+                        "password": "clave123",
+                        "role": "rrhh",
+                    },
+                )
+                self.assertEqual(create_resp.status_code, 200)
+                create_body = create_resp.get_json()
+                self.assertTrue(create_body["ok"])
+                self.assertEqual(create_body["user"]["username"], "analista.rrhh")
+
+                list_resp = self.client.get("/api/rrhh/usuarios")
+                self.assertEqual(list_resp.status_code, 200)
+                list_body = list_resp.get_json()
+                self.assertTrue(list_body["ok"])
+                usernames = {item["username"] for item in list_body["users"]}
+                self.assertIn("admin", usernames)
+                self.assertIn("analista.rrhh", usernames)
+
+    def test_non_admin_cannot_create_rrhh_users(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "laura",
+                                "display_name": "Laura",
+                                "password": "secreta123",
+                                "role": "rrhh",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "laura", "password": "secreta123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                create_resp = self.client.post(
+                    "/api/rrhh/usuarios",
+                    json={
+                        "username": "nuevo",
+                        "display_name": "Nuevo",
+                        "password": "clave123",
+                        "role": "rrhh",
+                    },
+                )
+                self.assertEqual(create_resp.status_code, 403)
+                body = create_resp.get_json()
+                self.assertFalse(body["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

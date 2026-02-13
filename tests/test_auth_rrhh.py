@@ -58,6 +58,51 @@ class AuthRrhhTests(unittest.TestCase):
                 self.assertTrue(ok)
                 self.assertEqual(user["username"], "analista")
 
+    def test_create_user_creates_and_authenticates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                },
+                clear=True,
+            ):
+                created, user, error = auth_rrhh.create_user(
+                    username="nuevo.rrhh",
+                    password="secreta123",
+                    display_name="Nuevo RRHH",
+                    role="rrhh",
+                    created_by="admin",
+                )
+                self.assertTrue(created)
+                self.assertEqual(error, "")
+                self.assertEqual(user["username"], "nuevo.rrhh")
+
+                users = auth_rrhh.list_file_users()
+                self.assertEqual(len(users), 1)
+                self.assertEqual(users[0]["display_name"], "Nuevo RRHH")
+
+                ok, payload, _ = auth_rrhh.authenticate("nuevo.rrhh", "secreta123")
+                self.assertTrue(ok)
+                self.assertEqual(payload["role"], "rrhh")
+
+    def test_create_user_rejects_duplicates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                },
+                clear=True,
+            ):
+                ok1, _, _ = auth_rrhh.create_user("laura", "secreta123")
+                ok2, _, err2 = auth_rrhh.create_user("laura", "otra-clave")
+                self.assertTrue(ok1)
+                self.assertFalse(ok2)
+                self.assertIn("existe", err2.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

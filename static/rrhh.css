@@ -245,8 +245,63 @@ button.danger {
   font-size: 0.88rem;
 }
 
+.error-text {
+  color: #b91c1c;
+}
+
+.users-panel {
+  margin-top: 12px;
+}
+
+.users-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.users-head h2 {
+  margin: 0;
+}
+
+.create-user-form {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr 140px auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.create-user-form input,
+.create-user-form select {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.users-table-wrap {
+  overflow-x: auto;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.users-table th,
+.users-table td {
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 8px 6px;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 980px) {
   .rrhh-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .create-user-form {
     grid-template-columns: 1fr;
   }
 }

@@ -1,12 +1,17 @@
 import json
 import os
+import re
 from hmac import compare_digest
+from datetime import datetime, timezone
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
 BOOL_TRUE = {"1", "true", "yes", "on", "si", "sí"}
 BOOL_FALSE = {"0", "false", "no", "off"}
+VALID_ROLES = {"rrhh", "admin"}
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
+MIN_PASSWORD_LENGTH = 6
 
 
 def _parse_bool_mode(value, default="auto"):
@@ -36,6 +41,11 @@ def _normalize_entry(entry):
         "password": password,
         "password_hash": password_hash,
     }
+
+
+def users_file_path():
+    path = str(os.getenv("RRHH_USERS_FILE", "rrhh_users.json")).strip()
+    return path or "rrhh_users.json"
 
 
 def _load_users_from_file(path):
@@ -74,7 +84,8 @@ def _load_admin_user_from_env():
         {
             "username": username,
             "display_name": os.getenv("RRHH_ADMIN_DISPLAY_NAME", username),
-            "role": os.getenv("RRHH_ADMIN_ROLE", "rrhh"),
+            # El admin por entorno queda con rol admin por defecto.
+            "role": os.getenv("RRHH_ADMIN_ROLE", "admin"),
             "password": password,
             "password_hash": password_hash,
         }
@@ -83,7 +94,7 @@ def _load_admin_user_from_env():
 
 
 def get_users():
-    users_file = os.getenv("RRHH_USERS_FILE", "rrhh_users.json")
+    users_file = users_file_path()
     users = {}
 
     for entry in _load_users_from_file(users_file) + _load_admin_user_from_env():
@@ -135,6 +146,117 @@ def authenticate(username, password):
         "role": entry.get("role") or "rrhh",
     }
     return True, user_payload, ""
+
+
+def _load_users_raw_entries(path):
+    if not path or not os.path.exists(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return []
+
+    if isinstance(data, dict):
+        entries = data.get("users", [])
+    elif isinstance(data, list):
+        entries = data
+    else:
+        entries = []
+
+    if not isinstance(entries, list):
+        return []
+    return [item for item in entries if isinstance(item, dict)]
+
+
+def _write_users_raw_entries(path, entries):
+    try:
+        abs_path = os.path.abspath(path)
+        base_dir = os.path.dirname(abs_path)
+        if base_dir and not os.path.exists(base_dir):
+            os.makedirs(base_dir, exist_ok=True)
+        payload = {"users": entries}
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        return True
+    except Exception:
+        return False
+
+
+def list_file_users(path=None):
+    source = path or users_file_path()
+    users = _load_users_from_file(source)
+    rows = []
+    for entry in users:
+        rows.append(
+            {
+                "username": entry["username"],
+                "display_name": entry.get("display_name") or entry["username"],
+                "role": entry.get("role") or "rrhh",
+            }
+        )
+    rows.sort(key=lambda row: row["username"].lower())
+    return rows
+
+
+def create_user(username, password, display_name="", role="rrhh", created_by="", path=None):
+    username_clean = str(username or "").strip()
+    if not USERNAME_RE.fullmatch(username_clean):
+        return (
+            False,
+            None,
+            "Usuario inválido. Usá 3-64 caracteres: letras, números, punto, guion o guion bajo.",
+        )
+
+    password_raw = str(password or "")
+    if len(password_raw) < MIN_PASSWORD_LENGTH:
+        return (
+            False,
+            None,
+            f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.",
+        )
+
+    role_clean = str(role or "rrhh").strip().lower()
+    if role_clean not in VALID_ROLES:
+        return False, None, "Rol inválido. Valores permitidos: rrhh, admin."
+
+    key = username_clean.lower()
+    existing = get_users()
+    if key in existing:
+        return False, None, "Ese usuario ya existe."
+
+    target_path = path or users_file_path()
+    raw_entries = _load_users_raw_entries(target_path)
+    for item in raw_entries:
+        raw_user = str(item.get("username") or "").strip().lower()
+        if raw_user == key:
+            return False, None, "Ese usuario ya existe."
+
+    entry = {
+        "username": username_clean,
+        "display_name": str(display_name or username_clean).strip() or username_clean,
+        "role": role_clean,
+        "password_hash": generate_password_hash(password_raw),
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    created_by_clean = str(created_by or "").strip()
+    if created_by_clean:
+        entry["created_by"] = created_by_clean
+
+    raw_entries.append(entry)
+    if not _write_users_raw_entries(target_path, raw_entries):
+        return False, None, "No pude guardar el usuario en el archivo de usuarios."
+
+    return (
+        True,
+        {
+            "username": entry["username"],
+            "display_name": entry["display_name"],
+            "role": entry["role"],
+        },
+        "",
+    )
 
 
 if __name__ == "__main__":
