@@ -12,9 +12,15 @@
         <div>
           <h1>Panel RRHH</h1>
           <p>Atención humana de conversaciones derivadas desde el chatbot.</p>
+          {% if auth_enabled and rrhh_user %}
+          <p class="subtle">Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
+          {% endif %}
         </div>
         <div class="header-actions">
           <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
+          {% if auth_enabled %}
+          <a class="btn" href="/logout">Cerrar sesión</a>
+          {% endif %}
           <button id="btn-refresh" type="button">Actualizar</button>
         </div>
       </header>
@@ -22,7 +28,12 @@
       <section class="toolbar">
         <label class="field">
           Agente RRHH
-          <input id="agent-name" type="text" value="RRHH" />
+          <input
+            id="agent-name"
+            type="text"
+            value="{{ rrhh_user.display_name if rrhh_user else 'RRHH' }}"
+            {% if auth_enabled %}readonly{% endif %}
+          />
         </label>
         <label class="checkbox">
           <input id="include-closed" type="checkbox" />
@@ -78,6 +89,8 @@
       const btnTomar = document.getElementById("btn-tomar");
       const btnCerrar = document.getElementById("btn-cerrar");
       const agentNameEl = document.getElementById("agent-name");
+      const authEnabled = {{ auth_enabled|tojson }};
+      const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
 
       let conversations = [];
       let currentConversationId = null;
@@ -155,8 +168,15 @@
       async function cargarConversaciones() {
         const includeClosed = includeClosedEl.checked ? "true" : "false";
         const response = await fetch(`/api/rrhh/conversaciones?include_closed=${includeClosed}`);
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+          return;
+        }
         const data = await response.json();
         if (!data.ok) throw new Error("No se pudo cargar conversaciones");
+        if (authEnabled && data.agente_actual) {
+          agentNameEl.value = data.agente_actual;
+        }
         conversations = data.conversaciones || [];
         queueStatusEl.textContent = `${conversations.length} conversación(es)`;
         renderConversations();
@@ -272,6 +292,9 @@
       });
 
       async function init() {
+        if (authEnabled) {
+          agentNameEl.value = currentAgentName;
+        }
         await safeRefresh(false);
         pollTimer = setInterval(() => safeRefresh(true), AUTO_REFRESH_MS);
       }
