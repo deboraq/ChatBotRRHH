@@ -163,6 +163,21 @@ python auth_rrhh.py --hash "mi-clave-segura"
 
 Luego pegá ese valor en `password_hash`.
 
+### Crear usuarios desde la interfaz web (sin editar JSON)
+
+Con autenticación activa:
+
+1) Ingresá con un usuario **admin** en `http://localhost:5000/login`.  
+   (si usás `RRHH_ADMIN_USER`, por defecto queda con rol `admin`)
+
+2) Entrá al panel `http://localhost:5000/rrhh`.
+
+3) En la sección **Usuarios RRHH**:
+   - completá usuario, nombre visible, contraseña y rol
+   - hacé click en **Crear usuario**
+
+Eso guarda automáticamente en `RRHH_USERS_FILE` (por defecto `rrhh_users.json`).
+
 ## 🧾 Historial completo de conversaciones
 
 Se guarda cada mensaje en la colección `chat_historial`:
