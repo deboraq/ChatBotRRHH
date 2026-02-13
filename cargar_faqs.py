@@ -1,6 +1,14 @@
 import argparse
 import json
+import os
 from pathlib import Path
+
+try:
+    from firebase_config import inicializar_firestore as inicializar_firestore_central
+except Exception:
+    inicializar_firestore_central = None
+
+DEFAULT_CREDENTIALS_PATH = "claves.json"
 
 # 1. LISTADO ORIGINAL DE PREGUNTAS FRECUENTES (FAQS) PARA BACAR
 FAQS_BACAR = [
@@ -66,7 +74,27 @@ PERFILES = {
 }
 
 
-def conectar_firestore():
+def obtener_ruta_credenciales(
+    env_var="FIREBASE_CREDENTIALS",
+    default_path=DEFAULT_CREDENTIALS_PATH,
+):
+    return os.getenv(env_var, default_path)
+
+
+def normalizar_tema(tema):
+    return str(tema).strip().lower().replace(" ", "_")
+
+
+def conectar_firestore(credentials_path=None, verbose=True):
+    if inicializar_firestore_central:
+        db = inicializar_firestore_central(
+            credentials_path=credentials_path,
+            verbose=verbose,
+        )
+        if db:
+            return db
+        raise ConnectionError("No se pudo conectar con Firestore usando firebase_config.")
+
     try:
         import firebase_admin
         from firebase_admin import credentials, firestore
@@ -75,8 +103,9 @@ def conectar_firestore():
             "No se encontro 'firebase_admin'. Instala dependencias o ejecuta con --dry-run."
         ) from error
 
+    ruta_clave = credentials_path or obtener_ruta_credenciales()
     if not firebase_admin._apps:
-        cred = credentials.Certificate("claves.json")
+        cred = credentials.Certificate(ruta_clave)
         firebase_admin.initialize_app(cred)
     return firestore.client()
 
@@ -103,7 +132,12 @@ def validar_faqs(faqs):
             raise ValueError(f"FAQ #{idx} invalida: requiere campos 'tema' y 'respuesta'.")
 
 
-def cargar_datos(perfil, coleccion_nombre="faq_rrhh", dry_run=False):
+def cargar_datos(
+    perfil,
+    coleccion_nombre="faq_rrhh",
+    dry_run=False,
+    credentials_path=None,
+):
     perfil_cfg = PERFILES[perfil]
     faqs = perfil_cfg.get("faqs")
     if faqs is None:
@@ -123,14 +157,16 @@ def cargar_datos(perfil, coleccion_nombre="faq_rrhh", dry_run=False):
             print(f"... y {len(faqs) - 5} mas")
         return
 
-    db = conectar_firestore()
+    db = conectar_firestore(credentials_path=credentials_path, verbose=True)
     coleccion = db.collection(coleccion_nombre)
     print("\nSubiendo FAQs a Firestore...")
 
     for faq in faqs:
-        # Usamos el tema como ID para evitar duplicados por tema
-        doc_id = faq["tema"].strip().lower().replace(" ", "_")
-        coleccion.document(doc_id).set(faq)
+        # Usamos el tema normalizado como ID para evitar duplicados y diferencias de casing.
+        doc_id = normalizar_tema(faq["tema"])
+        payload = dict(faq)
+        payload["tema"] = doc_id
+        coleccion.document(doc_id).set(payload)
         print(f"Categoria cargada: {faq['tema']} (id: {doc_id})")
 
     print("\nExito: la base de FAQs quedo actualizada.")
@@ -156,6 +192,13 @@ def parse_args():
         action="store_true",
         help="Valida y muestra vista previa sin escribir en Firestore.",
     )
+    parser.add_argument(
+        "--credentials",
+        help=(
+            "Ruta al JSON de Firebase. Si no se informa, usa FIREBASE_CREDENTIALS "
+            "o el archivo local claves.json."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -166,6 +209,7 @@ if __name__ == "__main__":
             perfil=args.perfil,
             coleccion_nombre=args.coleccion,
             dry_run=args.dry_run,
+            credentials_path=args.credentials,
         )
     except Exception as error:
         print(f"Error: {error}")
