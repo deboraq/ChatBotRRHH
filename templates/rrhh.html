@@ -82,6 +82,7 @@
       let conversations = [];
       let currentConversationId = null;
       let pollTimer = null;
+      const AUTO_REFRESH_MS = 60 * 1000;
 
       function escapeHtml(value) {
         return String(value)
@@ -272,7 +273,7 @@
 
       async function init() {
         await safeRefresh(false);
-        pollTimer = setInterval(() => safeRefresh(true), 4000);
+        pollTimer = setInterval(() => safeRefresh(true), AUTO_REFRESH_MS);
       }
 
       window.addEventListener("beforeunload", () => {

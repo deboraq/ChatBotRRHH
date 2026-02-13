@@ -57,7 +57,7 @@
 
         <label class="checkbox">
           <input id="f-auto" type="checkbox" checked />
-          Auto-refresh 5s
+          Auto-refresh 1 min
         </label>
       </section>
 
@@ -97,6 +97,7 @@
       const fAuto = document.getElementById("f-auto");
 
       let timer = null;
+      const AUTO_REFRESH_MS = 60 * 1000;
 
       function escapeHtml(value) {
         return String(value ?? "")
@@ -158,7 +159,7 @@
           timer = null;
         }
         if (fAuto.checked) {
-          timer = setInterval(loadHistory, 5000);
+          timer = setInterval(loadHistory, AUTO_REFRESH_MS);
         }
       }
 
