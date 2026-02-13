@@ -87,6 +87,25 @@ class WebChatApiTests(unittest.TestCase):
         self.assertIn("quick_actions", body)
         self.assertTrue(len(body["quick_actions"]) > 0)
 
+    def test_historial_endpoint_registers_colaborador_y_bot(self):
+        self.client.post("/api/chat", json={"message": "menu"})
+        historial_resp = self.client.get("/api/historial?limit=50")
+        self.assertEqual(historial_resp.status_code, 200)
+        historial_body = historial_resp.get_json()
+        self.assertTrue(historial_body["ok"])
+        self.assertGreaterEqual(historial_body["total"], 2)
+        remitentes = {item["remitente"] for item in historial_body["items"]}
+        self.assertIn("colaborador", remitentes)
+        self.assertIn("bot", remitentes)
+
+    def test_historial_endpoint_filter_by_remitente(self):
+        self.client.post("/api/chat", json={"message": "menu"})
+        only_bot_resp = self.client.get("/api/historial?remitente=bot&limit=20")
+        self.assertEqual(only_bot_resp.status_code, 200)
+        body = only_bot_resp.get_json()
+        self.assertTrue(body["ok"])
+        self.assertTrue(all(item["remitente"] == "bot" for item in body["items"]))
+
     def test_rrhh_handoff_flow(self):
         inicio = self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})
         self.assertEqual(inicio.status_code, 200)
@@ -129,6 +148,12 @@ class WebChatApiTests(unittest.TestCase):
         poll_body_2 = poll_resp_2.get_json()
         self.assertTrue(poll_body_2["ok"])
         self.assertEqual(len(poll_body_2["messages"]), 0)
+
+        historial_resp = self.client.get("/api/historial?canal=rrhh&limit=50")
+        self.assertEqual(historial_resp.status_code, 200)
+        historial_body = historial_resp.get_json()
+        self.assertTrue(historial_body["ok"])
+        self.assertTrue(any(item["remitente"] == "rrhh" for item in historial_body["items"]))
 
     def test_stats_reflects_rrhh_handoffs(self):
         self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})

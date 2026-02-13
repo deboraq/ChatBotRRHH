@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Historial completo de chats</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='historial.css') }}" />
+  </head>
+  <body>
+    <main class="history-wrapper">
+      <header class="history-header">
+        <div>
+          <h1>Historial completo</h1>
+          <p>Incluye mensajes de colaborador, bot, RRHH y sistema.</p>
+        </div>
+        <div class="actions">
+          <a href="/" class="btn">Ir al chat</a>
+          <button id="btn-refresh" type="button">Actualizar</button>
+        </div>
+      </header>
+
+      <section class="filters">
+        <label>
+          Remitente
+          <select id="f-remitente">
+            <option value="">Todos</option>
+            <option value="colaborador">Colaborador</option>
+            <option value="bot">Bot</option>
+            <option value="rrhh">RRHH</option>
+            <option value="sistema">Sistema</option>
+          </select>
+        </label>
+
+        <label>
+          Canal
+          <select id="f-canal">
+            <option value="">Todos</option>
+            <option value="asistente">Asistente</option>
+            <option value="rrhh">RRHH</option>
+          </select>
+        </label>
+
+        <label>
+          Conversación
+          <input id="f-conversation" type="text" placeholder="conv-..." />
+        </label>
+
+        <label>
+          Buscar texto
+          <input id="f-q" type="text" placeholder="palabra clave" />
+        </label>
+
+        <label>
+          Límite
+          <input id="f-limit" type="number" min="1" max="1000" value="200" />
+        </label>
+
+        <label class="checkbox">
+          <input id="f-auto" type="checkbox" checked />
+          Auto-refresh 5s
+        </label>
+      </section>
+
+      <section class="meta">
+        <span id="meta-total">0 resultados</span>
+        <span id="meta-updated">-</span>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Conversación</th>
+              <th>Canal</th>
+              <th>Remitente</th>
+              <th>Agente</th>
+              <th>Texto</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const bodyEl = document.getElementById("history-body");
+      const totalEl = document.getElementById("meta-total");
+      const updatedEl = document.getElementById("meta-updated");
+      const refreshBtn = document.getElementById("btn-refresh");
+
+      const fRemitente = document.getElementById("f-remitente");
+      const fCanal = document.getElementById("f-canal");
+      const fConversation = document.getElementById("f-conversation");
+      const fQ = document.getElementById("f-q");
+      const fLimit = document.getElementById("f-limit");
+      const fAuto = document.getElementById("f-auto");
+
+      let timer = null;
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function buildQuery() {
+        const params = new URLSearchParams();
+        if (fRemitente.value) params.set("remitente", fRemitente.value);
+        if (fCanal.value) params.set("canal", fCanal.value);
+        if (fConversation.value.trim()) params.set("conversation_id", fConversation.value.trim());
+        if (fQ.value.trim()) params.set("q", fQ.value.trim());
+        params.set("limit", String(fLimit.value || "200"));
+        params.set("_", String(Date.now()));
+        return params.toString();
+      }
+
+      function renderRows(items) {
+        bodyEl.innerHTML = "";
+        if (!items.length) {
+          bodyEl.innerHTML = "<tr><td colspan='6'>Sin resultados.</td></tr>";
+          return;
+        }
+        for (const row of items) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${escapeHtml(row.fecha)}</td>
+            <td><code>${escapeHtml(row.conversation_id)}</code></td>
+            <td>${escapeHtml(row.canal)}</td>
+            <td>${escapeHtml(row.remitente)}</td>
+            <td>${escapeHtml(row.agente || "-")}</td>
+            <td class="text-cell">${escapeHtml(row.texto)}</td>
+          `;
+          bodyEl.appendChild(tr);
+        }
+      }
+
+      async function loadHistory() {
+        try {
+          const response = await fetch(`/api/historial?${buildQuery()}`, { cache: "no-store" });
+          const data = await response.json();
+          if (!data.ok) {
+            totalEl.textContent = "Error cargando historial";
+            return;
+          }
+          renderRows(data.items || []);
+          totalEl.textContent = `${data.total || 0} resultados`;
+          updatedEl.textContent = `Actualizado: ${new Date().toLocaleTimeString()}`;
+        } catch (error) {
+          totalEl.textContent = "Error de conexión";
+        }
+      }
+
+      function updateAutoRefresh() {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+        if (fAuto.checked) {
+          timer = setInterval(loadHistory, 5000);
+        }
+      }
+
+      [fRemitente, fCanal, fConversation, fQ, fLimit].forEach((el) =>
+        el.addEventListener("change", loadHistory)
+      );
+      fQ.addEventListener("keyup", (event) => {
+        if (event.key === "Enter") loadHistory();
+      });
+      refreshBtn.addEventListener("click", loadHistory);
+      fAuto.addEventListener("change", updateAutoRefresh);
+
+      updateAutoRefresh();
+      loadHistory();
+    </script>
+  </body>
+</html>
