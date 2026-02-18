@@ -300,6 +300,18 @@ button.danger {
   font-size: 0.9rem;
 }
 
+.role-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  min-width: 110px;
+}
+
+.role-update-btn {
+  padding: 6px 10px;
+  font-size: 0.84rem;
+}
+
 @media (max-width: 980px) {
   .rrhh-layout {
     grid-template-columns: 1fr;

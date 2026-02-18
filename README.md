@@ -175,6 +175,7 @@ Con autenticación activa:
 3) En la sección **Usuarios RRHH**:
    - completá usuario, nombre visible, contraseña y rol
    - hacé click en **Crear usuario**
+   - para modificar rol, elegí el nuevo valor en la tabla y hacé click en **Actualizar rol**
 
 Eso guarda automáticamente en `RRHH_USERS_FILE` (por defecto `rrhh_users.json`).
 
