@@ -3,6 +3,7 @@ claves*.json
 serviceAccount*.json
 .env
 rrhh_users.json
+rrhh_roles.json
 venv/
 __pycache__/
 *.csv

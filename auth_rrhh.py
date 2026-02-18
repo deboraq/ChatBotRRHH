@@ -1,21 +1,48 @@
 import json
 import os
 import re
-from hmac import compare_digest
+from copy import deepcopy
 from datetime import datetime, timezone
+from hmac import compare_digest
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
 BOOL_TRUE = {"1", "true", "yes", "on", "si", "sí"}
 BOOL_FALSE = {"0", "false", "no", "off"}
-VALID_ROLES = {"rrhh", "admin"}
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
+ROLE_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
 MIN_PASSWORD_LENGTH = 6
 
+# Permisos disponibles para roles de RRHH.
+PERM_CONVERSATIONS_VIEW = "conversaciones_ver"
+PERM_CONVERSATIONS_MANAGE = "conversaciones_gestionar"
+PERM_HISTORY_VIEW = "historial_ver"
+PERM_USERS_MANAGE = "usuarios_gestionar"
+PERM_ROLES_MANAGE = "roles_gestionar"
 
-def available_roles():
-    return sorted(VALID_ROLES)
+PERMISSIONS_CATALOG = {
+    PERM_CONVERSATIONS_VIEW: "Ver conversaciones RRHH",
+    PERM_CONVERSATIONS_MANAGE: "Tomar, responder y cerrar conversaciones",
+    PERM_HISTORY_VIEW: "Ver historial completo",
+    PERM_USERS_MANAGE: "Crear y editar usuarios",
+    PERM_ROLES_MANAGE: "Crear y editar roles/permisos",
+}
+
+DEFAULT_ROLE_DEFINITIONS = {
+    "admin": {
+        "display_name": "Administrador",
+        "permissions": list(PERMISSIONS_CATALOG.keys()),
+    },
+    "rrhh": {
+        "display_name": "Agente RRHH",
+        "permissions": [
+            PERM_CONVERSATIONS_VIEW,
+            PERM_CONVERSATIONS_MANAGE,
+            PERM_HISTORY_VIEW,
+        ],
+    },
+}
 
 
 def _parse_bool_mode(value, default="auto"):
@@ -25,7 +52,48 @@ def _parse_bool_mode(value, default="auto"):
     return raw
 
 
-def _normalize_entry(entry):
+def _normalize_role(role, default="rrhh"):
+    raw = str(role or default).strip().lower()
+    return raw or default
+
+
+def _normalize_permissions(permissions):
+    if permissions is None:
+        return None
+    if not isinstance(permissions, list):
+        return []
+    valid = []
+    seen = set()
+    for perm in permissions:
+        key = str(perm or "").strip().lower()
+        if key in PERMISSIONS_CATALOG and key not in seen:
+            valid.append(key)
+            seen.add(key)
+    return valid
+
+
+def users_file_path():
+    path = str(os.getenv("RRHH_USERS_FILE", "rrhh_users.json")).strip()
+    return path or "rrhh_users.json"
+
+
+def roles_file_path():
+    path = str(os.getenv("RRHH_ROLES_FILE", "rrhh_roles.json")).strip()
+    return path or "rrhh_roles.json"
+
+
+def all_permissions():
+    return list(PERMISSIONS_CATALOG.keys())
+
+
+def permissions_catalog():
+    return [
+        {"key": key, "label": label}
+        for key, label in PERMISSIONS_CATALOG.items()
+    ]
+
+
+def _normalize_user_entry(entry):
     if not isinstance(entry, dict):
         return None
 
@@ -41,36 +109,55 @@ def _normalize_entry(entry):
     return {
         "username": username,
         "display_name": str(entry.get("display_name") or username),
-        "role": str(entry.get("role") or "rrhh"),
+        "role": _normalize_role(entry.get("role"), default="rrhh"),
         "password": password,
         "password_hash": password_hash,
     }
 
 
-def users_file_path():
-    path = str(os.getenv("RRHH_USERS_FILE", "rrhh_users.json")).strip()
-    return path or "rrhh_users.json"
+def _normalize_role_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    name = _normalize_role(entry.get("name"), default="")
+    if not name or not ROLE_RE.fullmatch(name):
+        return None
+    permissions = _normalize_permissions(entry.get("permissions"))
+    if permissions is None:
+        permissions = []
+    return {
+        "name": name,
+        "display_name": str(entry.get("display_name") or name).strip() or name,
+        "permissions": permissions,
+    }
 
 
-def _normalize_role(role):
-    return str(role or "rrhh").strip().lower()
-
-
-def _env_admin_username():
-    entries = _load_admin_user_from_env()
-    if not entries:
-        return ""
-    return str(entries[0].get("username") or "").strip().lower()
-
-
-def _load_users_from_file(path):
+def _read_json(path):
     if not path or not os.path.exists(path):
-        return []
-
+        return None
     try:
         with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
+            return json.load(fh)
     except Exception:
+        return None
+
+
+def _write_json(path, payload):
+    try:
+        abs_path = os.path.abspath(path)
+        base_dir = os.path.dirname(abs_path)
+        if base_dir and not os.path.exists(base_dir):
+            os.makedirs(base_dir, exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        return True
+    except Exception:
+        return False
+
+
+def _load_users_raw_entries(path):
+    data = _read_json(path)
+    if data is None:
         return []
 
     if isinstance(data, dict):
@@ -79,10 +166,39 @@ def _load_users_from_file(path):
         entries = data
     else:
         entries = []
+    if not isinstance(entries, list):
+        return []
+    return [item for item in entries if isinstance(item, dict)]
 
+
+def _load_roles_raw_entries(path):
+    data = _read_json(path)
+    if data is None:
+        return []
+
+    if isinstance(data, dict):
+        entries = data.get("roles", [])
+    elif isinstance(data, list):
+        entries = data
+    else:
+        entries = []
+    if not isinstance(entries, list):
+        return []
+    return [item for item in entries if isinstance(item, dict)]
+
+
+def _write_users_raw_entries(path, entries):
+    return _write_json(path, {"users": entries})
+
+
+def _write_roles_raw_entries(path, entries):
+    return _write_json(path, {"roles": entries})
+
+
+def _load_users_from_file(path):
     users = []
-    for item in entries:
-        normalized = _normalize_entry(item)
+    for item in _load_users_raw_entries(path):
+        normalized = _normalize_user_entry(item)
         if normalized:
             users.append(normalized)
     return users
@@ -92,14 +208,12 @@ def _load_admin_user_from_env():
     username = str(os.getenv("RRHH_ADMIN_USER", "")).strip()
     if not username:
         return []
-
     password = str(os.getenv("RRHH_ADMIN_PASSWORD", ""))
     password_hash = str(os.getenv("RRHH_ADMIN_PASSWORD_HASH", ""))
-    entry = _normalize_entry(
+    entry = _normalize_user_entry(
         {
             "username": username,
             "display_name": os.getenv("RRHH_ADMIN_DISPLAY_NAME", username),
-            # El admin por entorno queda con rol admin por defecto.
             "role": os.getenv("RRHH_ADMIN_ROLE", "admin"),
             "password": password,
             "password_hash": password_hash,
@@ -108,20 +222,104 @@ def _load_admin_user_from_env():
     return [entry] if entry else []
 
 
+def _build_roles_map(role_entries):
+    roles = {}
+    for name, payload in deepcopy(DEFAULT_ROLE_DEFINITIONS).items():
+        roles[name] = {
+            "name": name,
+            "display_name": str(payload.get("display_name") or name),
+            "permissions": _normalize_permissions(payload.get("permissions")) or [],
+        }
+    for item in role_entries:
+        normalized = _normalize_role_entry(item)
+        if not normalized:
+            continue
+        roles[normalized["name"]] = normalized
+    return roles
+
+
+def get_roles_map(path=None):
+    source = path or roles_file_path()
+    return _build_roles_map(_load_roles_raw_entries(source))
+
+
+def list_roles(path=None):
+    roles = []
+    for role in get_roles_map(path).values():
+        roles.append(
+            {
+                "name": role["name"],
+                "display_name": role.get("display_name") or role["name"],
+                "permissions": list(role.get("permissions") or []),
+            }
+        )
+    roles.sort(key=lambda item: item["name"])
+    return roles
+
+
+def available_roles(path=None):
+    return sorted(get_roles_map(path).keys())
+
+
+def role_permissions(role, path=None):
+    role_key = _normalize_role(role, default="")
+    roles = get_roles_map(path)
+    payload = roles.get(role_key)
+    if payload is None:
+        return []
+    return list(payload.get("permissions") or [])
+
+
+def role_has_permission(role, permission, path=None, roles_map=None):
+    perm = str(permission or "").strip().lower()
+    if perm not in PERMISSIONS_CATALOG:
+        return False
+    role_key = _normalize_role(role, default="")
+    roles = roles_map if roles_map is not None else get_roles_map(path)
+    payload = roles.get(role_key)
+    if payload is None:
+        return False
+    return perm in (payload.get("permissions") or [])
+
+
+def _merge_user_entries(file_entries, env_entries):
+    merged = {}
+    for entry in file_entries + env_entries:
+        username = str(entry.get("username") or "").strip()
+        if not username:
+            continue
+        key = username.lower()
+        merged[key] = {
+            "username": username,
+            "role": _normalize_role(entry.get("role"), default="rrhh"),
+        }
+    return list(merged.values())
+
+
+def _validate_management_access(user_entries, roles_map):
+    if not user_entries:
+        return True, ""
+    needed = [PERM_USERS_MANAGE, PERM_ROLES_MANAGE]
+    for perm in needed:
+        ok = any(
+            role_has_permission(entry.get("role"), perm, roles_map=roles_map)
+            for entry in user_entries
+        )
+        if not ok:
+            return False, f"Debe quedar al menos un usuario con permiso '{perm}'."
+    return True, ""
+
+
 def get_users():
-    users_file = users_file_path()
     users = {}
-
-    for entry in _load_users_from_file(users_file) + _load_admin_user_from_env():
+    for entry in _load_users_from_file(users_file_path()) + _load_admin_user_from_env():
         users[entry["username"].strip().lower()] = entry
-
     return users
 
 
 def is_auth_enabled():
     mode = _parse_bool_mode(os.getenv("RRHH_AUTH_ENABLED", "auto"))
     users = get_users()
-
     if mode in BOOL_TRUE:
         return bool(users)
     if mode in BOOL_FALSE:
@@ -133,7 +331,6 @@ def _check_password(entry, password):
     raw_password = str(password or "")
     password_hash = entry.get("password_hash") or ""
     password_plain = entry.get("password") or ""
-
     if password_hash:
         try:
             return check_password_hash(password_hash, raw_password)
@@ -151,52 +348,18 @@ def authenticate(username, password):
     entry = users.get(key)
     if not entry:
         return False, None, "Usuario o contraseña inválidos."
-
     if not _check_password(entry, password):
         return False, None, "Usuario o contraseña inválidos."
 
-    user_payload = {
-        "username": entry["username"],
-        "display_name": entry.get("display_name") or entry["username"],
-        "role": entry.get("role") or "rrhh",
-    }
-    return True, user_payload, ""
-
-
-def _load_users_raw_entries(path):
-    if not path or not os.path.exists(path):
-        return []
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except Exception:
-        return []
-
-    if isinstance(data, dict):
-        entries = data.get("users", [])
-    elif isinstance(data, list):
-        entries = data
-    else:
-        entries = []
-
-    if not isinstance(entries, list):
-        return []
-    return [item for item in entries if isinstance(item, dict)]
-
-
-def _write_users_raw_entries(path, entries):
-    try:
-        abs_path = os.path.abspath(path)
-        base_dir = os.path.dirname(abs_path)
-        if base_dir and not os.path.exists(base_dir):
-            os.makedirs(base_dir, exist_ok=True)
-        payload = {"users": entries}
-        with open(abs_path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        return True
-    except Exception:
-        return False
+    return (
+        True,
+        {
+            "username": entry["username"],
+            "display_name": entry.get("display_name") or entry["username"],
+            "role": _normalize_role(entry.get("role"), default="rrhh"),
+        },
+        "",
+    )
 
 
 def list_file_users(path=None):
@@ -204,15 +367,138 @@ def list_file_users(path=None):
     users = _load_users_from_file(source)
     rows = []
     for entry in users:
+        role = _normalize_role(entry.get("role"), default="rrhh")
         rows.append(
             {
                 "username": entry["username"],
                 "display_name": entry.get("display_name") or entry["username"],
-                "role": entry.get("role") or "rrhh",
+                "role": role,
+                "permissions": role_permissions(role),
             }
         )
     rows.sort(key=lambda row: row["username"].lower())
     return rows
+
+
+def create_role(name, display_name="", permissions=None, path=None):
+    role_name = _normalize_role(name, default="")
+    if not role_name or not ROLE_RE.fullmatch(role_name):
+        return (
+            False,
+            None,
+            "Nombre de rol inválido. Usá 2-64 caracteres: minúsculas, números, punto, guion o guion bajo.",
+        )
+
+    perms = _normalize_permissions(permissions)
+    if perms is None:
+        perms = []
+    if not perms:
+        return False, None, "El rol debe tener al menos un permiso."
+
+    roles_map = get_roles_map(path)
+    if role_name in roles_map:
+        return False, None, "Ese rol ya existe."
+
+    target_path = path or roles_file_path()
+    raw_entries = _load_roles_raw_entries(target_path)
+    raw_entries.append(
+        {
+            "name": role_name,
+            "display_name": str(display_name or role_name).strip() or role_name,
+            "permissions": perms,
+        }
+    )
+
+    prospective_roles = _build_roles_map(raw_entries)
+    user_entries = _merge_user_entries(_load_users_from_file(users_file_path()), _load_admin_user_from_env())
+    ok_access, error = _validate_management_access(user_entries, prospective_roles)
+    if not ok_access:
+        return False, None, error
+
+    if not _write_roles_raw_entries(target_path, raw_entries):
+        return False, None, "No pude guardar el rol en el archivo de roles."
+
+    return (
+        True,
+        {
+            "name": role_name,
+            "display_name": str(display_name or role_name).strip() or role_name,
+            "permissions": perms,
+        },
+        "",
+    )
+
+
+def update_role(name, display_name=None, permissions=None, path=None):
+    role_name = _normalize_role(name, default="")
+    if not role_name:
+        return False, None, "Nombre de rol requerido."
+    if not ROLE_RE.fullmatch(role_name):
+        return False, None, "Nombre de rol inválido."
+
+    target_path = path or roles_file_path()
+    raw_entries = _load_roles_raw_entries(target_path)
+    current_roles = _build_roles_map(raw_entries)
+    current = current_roles.get(role_name)
+    if current is None:
+        return False, None, "Rol no encontrado."
+
+    next_display = (
+        str(display_name).strip()
+        if display_name is not None
+        else str(current.get("display_name") or role_name)
+    )
+    if not next_display:
+        next_display = role_name
+
+    next_permissions = _normalize_permissions(permissions)
+    if next_permissions is None:
+        next_permissions = list(current.get("permissions") or [])
+    if not next_permissions:
+        return False, None, "El rol debe tener al menos un permiso."
+
+    updated = False
+    new_raw_entries = []
+    for item in raw_entries:
+        normalized = _normalize_role(item.get("name"), default="")
+        if normalized == role_name:
+            clone = dict(item)
+            clone["name"] = role_name
+            clone["display_name"] = next_display
+            clone["permissions"] = next_permissions
+            new_raw_entries.append(clone)
+            updated = True
+        else:
+            new_raw_entries.append(item)
+
+    if not updated:
+        # Si era un rol por defecto sin override, crea el override.
+        new_raw_entries.append(
+            {
+                "name": role_name,
+                "display_name": next_display,
+                "permissions": next_permissions,
+            }
+        )
+
+    prospective_roles = _build_roles_map(new_raw_entries)
+    user_entries = _merge_user_entries(_load_users_from_file(users_file_path()), _load_admin_user_from_env())
+    ok_access, error = _validate_management_access(user_entries, prospective_roles)
+    if not ok_access:
+        return False, None, error
+
+    if not _write_roles_raw_entries(target_path, new_raw_entries):
+        return False, None, "No pude actualizar el rol en el archivo de roles."
+
+    return (
+        True,
+        {
+            "name": role_name,
+            "display_name": next_display,
+            "permissions": next_permissions,
+        },
+        "",
+    )
 
 
 def create_user(username, password, display_name="", role="rrhh", created_by="", path=None):
@@ -232,13 +518,13 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
             f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.",
         )
 
-    role_clean = _normalize_role(role)
-    if role_clean not in VALID_ROLES:
-        return False, None, "Rol inválido. Valores permitidos: rrhh, admin."
+    role_clean = _normalize_role(role, default="rrhh")
+    roles = get_roles_map()
+    if role_clean not in roles:
+        return False, None, "Rol inválido. Crealo primero desde la sección de roles."
 
     key = username_clean.lower()
-    existing = get_users()
-    if key in existing:
+    if key in get_users():
         return False, None, "Ese usuario ya existe."
 
     target_path = path or users_file_path()
@@ -258,8 +544,8 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
     created_by_clean = str(created_by or "").strip()
     if created_by_clean:
         entry["created_by"] = created_by_clean
-
     raw_entries.append(entry)
+
     if not _write_users_raw_entries(target_path, raw_entries):
         return False, None, "No pude guardar el usuario en el archivo de usuarios."
 
@@ -269,6 +555,7 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
             "username": entry["username"],
             "display_name": entry["display_name"],
             "role": entry["role"],
+            "permissions": role_permissions(entry["role"]),
         },
         "",
     )
@@ -279,61 +566,47 @@ def update_user_role(username, role, updated_by="", path=None):
     if not username_clean:
         return False, None, "Usuario requerido."
 
-    role_clean = _normalize_role(role)
-    if role_clean not in VALID_ROLES:
-        return False, None, "Rol inválido. Valores permitidos: rrhh, admin."
+    role_clean = _normalize_role(role, default="")
+    roles = get_roles_map()
+    if role_clean not in roles:
+        return False, None, "Rol inválido. Crealo primero desde la sección de roles."
 
+    env_users = _load_admin_user_from_env()
+    env_usernames = {str(item.get("username") or "").strip().lower() for item in env_users}
     key = username_clean.lower()
-    env_admin_key = _env_admin_username()
-    if env_admin_key and key == env_admin_key:
+    if key in env_usernames:
         return (
             False,
             None,
-            "Ese usuario admin se gestiona por variables de entorno y no puede editarse desde el panel.",
+            "Ese usuario se gestiona por variables de entorno y no puede editarse desde el panel.",
         )
 
     target_path = path or users_file_path()
     raw_entries = _load_users_raw_entries(target_path)
     target_idx = -1
-    current_role = ""
     for idx, item in enumerate(raw_entries):
         current_key = str(item.get("username") or "").strip().lower()
         if current_key == key:
             target_idx = idx
-            current_role = _normalize_role(item.get("role") or "rrhh")
             break
-
     if target_idx < 0:
         return False, None, "Usuario no encontrado en archivo de usuarios."
 
-    if current_role == role_clean:
-        item = raw_entries[target_idx]
-        return (
-            True,
-            {
-                "username": str(item.get("username") or username_clean),
-                "display_name": str(item.get("display_name") or username_clean),
-                "role": role_clean,
-            },
-            "",
-        )
-
-    if current_role == "admin" and role_clean != "admin":
-        admins_file_restantes = 0
-        for idx, item in enumerate(raw_entries):
-            if idx == target_idx:
-                continue
-            if _normalize_role(item.get("role") or "rrhh") == "admin":
-                admins_file_restantes += 1
-        if admins_file_restantes == 0 and not env_admin_key:
-            return False, None, "Debe quedar al menos un usuario admin."
-
-    updated_by_clean = str(updated_by or "").strip()
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     raw_entries[target_idx]["role"] = role_clean
-    raw_entries[target_idx]["updated_at"] = now
+    raw_entries[target_idx]["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    updated_by_clean = str(updated_by or "").strip()
     if updated_by_clean:
         raw_entries[target_idx]["updated_by"] = updated_by_clean
+
+    file_users = _load_users_from_file(users_file_path())
+    for idx, item in enumerate(file_users):
+        if str(item.get("username") or "").strip().lower() == key:
+            file_users[idx]["role"] = role_clean
+            break
+    merged_users = _merge_user_entries(file_users, env_users)
+    ok_access, error = _validate_management_access(merged_users, roles)
+    if not ok_access:
+        return False, None, error
 
     if not _write_users_raw_entries(target_path, raw_entries):
         return False, None, "No pude actualizar el rol en el archivo de usuarios."
@@ -345,6 +618,7 @@ def update_user_role(username, role, updated_by="", path=None):
             "username": str(item.get("username") or username_clean),
             "display_name": str(item.get("display_name") or username_clean),
             "role": role_clean,
+            "permissions": role_permissions(role_clean),
         },
         "",
     )

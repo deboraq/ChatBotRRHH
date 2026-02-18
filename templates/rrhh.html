@@ -107,6 +107,7 @@
                 <th>Usuario</th>
                 <th>Nombre</th>
                 <th>Rol</th>
+                <th>Permisos</th>
                 <th>Acción</th>
               </tr>
             </thead>
@@ -120,6 +121,43 @@
         <p class="subtle">
           Tu usuario no tiene permisos de administración para crear usuarios.
         </p>
+      </section>
+      {% endif %}
+
+      {% if auth_enabled and can_manage_roles %}
+      <section class="panel roles-panel">
+        <div class="roles-head">
+          <div>
+            <h2>Roles y permisos</h2>
+            <p class="subtle">
+              Creá roles nuevos y definí qué puede ver/hacer cada uno.
+            </p>
+          </div>
+          <span id="roles-file" class="subtle"></span>
+        </div>
+
+        <form id="create-role-form" class="create-role-form">
+          <input id="new-role-name" type="text" placeholder="Rol (ej: analista_rrhh)" required />
+          <input id="new-role-display-name" type="text" placeholder="Nombre visible del rol" />
+          <div id="new-role-permissions" class="permissions-grid"></div>
+          <button type="submit">Crear rol</button>
+        </form>
+
+        <p id="roles-status" class="subtle"></p>
+
+        <div class="roles-table-wrap">
+          <table class="roles-table">
+            <thead>
+              <tr>
+                <th>Rol</th>
+                <th>Nombre</th>
+                <th>Permisos</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody id="roles-body"></tbody>
+          </table>
+        </div>
       </section>
       {% endif %}
     </main>
@@ -140,6 +178,7 @@
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
       const canManageUsers = {{ can_manage_users|tojson }};
+      const canManageRoles = {{ can_manage_roles|tojson }};
       const usersFileEl = document.getElementById("users-file");
       const usersStatusEl = document.getElementById("users-status");
       const usersBodyEl = document.getElementById("users-body");
@@ -148,12 +187,20 @@
       const newDisplayNameEl = document.getElementById("new-display-name");
       const newPasswordEl = document.getElementById("new-password");
       const newRoleEl = document.getElementById("new-role");
+      const rolesFileEl = document.getElementById("roles-file");
+      const rolesStatusEl = document.getElementById("roles-status");
+      const rolesBodyEl = document.getElementById("roles-body");
+      const createRoleForm = document.getElementById("create-role-form");
+      const newRoleNameEl = document.getElementById("new-role-name");
+      const newRoleDisplayNameEl = document.getElementById("new-role-display-name");
+      const newRolePermissionsEl = document.getElementById("new-role-permissions");
 
       let conversations = [];
       let currentConversationId = null;
       let pollTimer = null;
       const AUTO_REFRESH_MS = 60 * 1000;
       let validRoles = ["admin", "rrhh"];
+      let permissionsCatalog = [];
 
       function escapeHtml(value) {
         return String(value)
@@ -229,11 +276,27 @@
         usersStatusEl.classList.toggle("error-text", Boolean(isError));
       }
 
+      function setRolesStatus(text, isError = false) {
+        if (!rolesStatusEl) return;
+        rolesStatusEl.textContent = text || "";
+        rolesStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function permisosTexto(perms) {
+        const values = Array.isArray(perms) ? perms : [];
+        if (values.length === 0) return "Sin permisos";
+        const labels = values.map((perm) => {
+          const found = permissionsCatalog.find((item) => item.key === perm);
+          return found ? found.label : perm;
+        });
+        return labels.join(" · ");
+      }
+
       function renderUsers(users) {
         if (!usersBodyEl) return;
         usersBodyEl.innerHTML = "";
         if (!users || users.length === 0) {
-          usersBodyEl.innerHTML = "<tr><td colspan='4'>Sin usuarios creados en archivo.</td></tr>";
+          usersBodyEl.innerHTML = "<tr><td colspan='5'>Sin usuarios creados en archivo.</td></tr>";
           return;
         }
         users.forEach((user) => {
@@ -262,6 +325,10 @@
           });
           tdRole.appendChild(selectRole);
 
+          const tdPerms = document.createElement("td");
+          tdPerms.className = "permissions-cell";
+          tdPerms.textContent = permisosTexto(user.permissions);
+
           const tdAction = document.createElement("td");
           const btnUpdate = document.createElement("button");
           btnUpdate.type = "button";
@@ -279,8 +346,91 @@
           tr.appendChild(tdUsername);
           tr.appendChild(tdName);
           tr.appendChild(tdRole);
+          tr.appendChild(tdPerms);
           tr.appendChild(tdAction);
           usersBodyEl.appendChild(tr);
+        });
+      }
+
+      function getSelectedPermissions(containerEl) {
+        if (!containerEl) return [];
+        const selected = [];
+        containerEl.querySelectorAll("input[type='checkbox'][data-perm]").forEach((input) => {
+          if (input.checked) {
+            selected.push(input.dataset.perm);
+          }
+        });
+        return selected;
+      }
+
+      function renderPermissionsInputs(containerEl, selectedPermissions = []) {
+        if (!containerEl) return;
+        containerEl.innerHTML = "";
+        const selected = new Set((selectedPermissions || []).map((value) => String(value)));
+        permissionsCatalog.forEach((perm) => {
+          const label = document.createElement("label");
+          label.className = "perm-item";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.dataset.perm = perm.key;
+          checkbox.checked = selected.has(perm.key);
+          const text = document.createElement("span");
+          text.textContent = perm.label || perm.key;
+          label.appendChild(checkbox);
+          label.appendChild(text);
+          containerEl.appendChild(label);
+        });
+      }
+
+      function renderRoles(roles) {
+        if (!rolesBodyEl) return;
+        rolesBodyEl.innerHTML = "";
+        if (!roles || roles.length === 0) {
+          rolesBodyEl.innerHTML = "<tr><td colspan='4'>Sin roles configurados.</td></tr>";
+          return;
+        }
+        roles.forEach((role) => {
+          const tr = document.createElement("tr");
+
+          const tdName = document.createElement("td");
+          tdName.innerHTML = `<code>${escapeHtml(role.name || "-")}</code>`;
+
+          const tdDisplay = document.createElement("td");
+          const inputDisplay = document.createElement("input");
+          inputDisplay.type = "text";
+          inputDisplay.className = "role-display-input";
+          inputDisplay.value = role.display_name || role.name || "";
+          tdDisplay.appendChild(inputDisplay);
+
+          const tdPerms = document.createElement("td");
+          const permsContainer = document.createElement("div");
+          permsContainer.className = "permissions-grid compact";
+          renderPermissionsInputs(permsContainer, role.permissions || []);
+          tdPerms.appendChild(permsContainer);
+
+          const tdAction = document.createElement("td");
+          const btnSave = document.createElement("button");
+          btnSave.type = "button";
+          btnSave.className = "role-update-btn";
+          btnSave.textContent = "Guardar rol";
+          btnSave.addEventListener("click", async () => {
+            try {
+              await actualizarRolDefinicion(
+                role.name,
+                inputDisplay.value,
+                getSelectedPermissions(permsContainer)
+              );
+            } catch (error) {
+              setRolesStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnSave);
+
+          tr.appendChild(tdName);
+          tr.appendChild(tdDisplay);
+          tr.appendChild(tdPerms);
+          tr.appendChild(tdAction);
+          rolesBodyEl.appendChild(tr);
         });
       }
 
@@ -295,6 +445,9 @@
         if (!data.ok) throw new Error(data.error || "No se pudo cargar usuarios");
         if (Array.isArray(data.valid_roles) && data.valid_roles.length) {
           validRoles = data.valid_roles;
+        }
+        if (Array.isArray(data.permissions_catalog) && data.permissions_catalog.length) {
+          permissionsCatalog = data.permissions_catalog;
         }
         if (usersFileEl) usersFileEl.textContent = `Archivo: ${data.users_file || "-"}`;
         renderUsers(data.users || []);
@@ -328,6 +481,69 @@
         if (newPasswordEl) newPasswordEl.value = "";
         if (newRoleEl) newRoleEl.value = "rrhh";
         setUsersStatus(`Usuario ${data.user.username} creado correctamente.`);
+        await cargarUsuarios();
+      }
+
+      async function cargarRoles() {
+        if (!canManageRoles) return;
+        const response = await fetch("/api/rrhh/roles");
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cargar roles.");
+        if (Array.isArray(data.permissions_catalog) && data.permissions_catalog.length) {
+          permissionsCatalog = data.permissions_catalog;
+        }
+        if (rolesFileEl) rolesFileEl.textContent = `Archivo: ${data.roles_file || "-"}`;
+        renderPermissionsInputs(newRolePermissionsEl, []);
+        renderRoles(data.roles || []);
+        setRolesStatus(`${(data.roles || []).length} rol(es) cargado(s).`);
+      }
+
+      async function crearRol() {
+        if (!canManageRoles) return;
+        const name = (newRoleNameEl?.value || "").trim().toLowerCase();
+        const display_name = (newRoleDisplayNameEl?.value || "").trim();
+        const permissions = getSelectedPermissions(newRolePermissionsEl);
+        if (!name) throw new Error("Completá nombre de rol.");
+        if (permissions.length === 0) throw new Error("Seleccioná al menos un permiso.");
+
+        const response = await fetch("/api/rrhh/roles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, display_name, permissions }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo crear el rol.");
+        if (newRoleNameEl) newRoleNameEl.value = "";
+        if (newRoleDisplayNameEl) newRoleDisplayNameEl.value = "";
+        renderPermissionsInputs(newRolePermissionsEl, []);
+        setRolesStatus(`Rol ${data.role.name} creado correctamente.`);
+        await cargarRoles();
+        await cargarUsuarios();
+      }
+
+      async function actualizarRolDefinicion(roleName, displayName, permissions) {
+        if (!canManageRoles) return;
+        const response = await fetch(`/api/rrhh/roles/${encodeURIComponent(roleName)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: displayName, permissions }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
+        setRolesStatus(`Rol ${data.role.name} actualizado.`);
+        await cargarRoles();
         await cargarUsuarios();
       }
 
@@ -488,6 +704,17 @@
         });
       }
 
+      if (createRoleForm) {
+        createRoleForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          try {
+            await crearRol();
+          } catch (error) {
+            setRolesStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
       async function init() {
         if (authEnabled) {
           agentNameEl.value = currentAgentName;
@@ -498,6 +725,13 @@
             await cargarUsuarios();
           } catch (error) {
             setUsersStatus(`Error cargando usuarios: ${error.message}`, true);
+          }
+        }
+        if (canManageRoles) {
+          try {
+            await cargarRoles();
+          } catch (error) {
+            setRolesStatus(`Error cargando roles: ${error.message}`, true);
           }
         }
         pollTimer = setInterval(() => safeRefresh(true), AUTO_REFRESH_MS);

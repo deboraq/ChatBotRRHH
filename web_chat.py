@@ -126,19 +126,30 @@ def _resolve_rrhh_agent(payload):
     return str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
 
 
-def _is_rrhh_admin():
+def _default_landing_for_user(user_payload):
+    role = str((user_payload or {}).get("role") or "")
+    if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_CONVERSATIONS_VIEW):
+        return "/rrhh"
+    if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_HISTORY_VIEW):
+        return "/historial"
+    return "/"
+
+
+def _has_permission(permission):
+    if not _auth_enabled():
+        return True
     current = _current_rrhh_user()
     if not current:
         return False
-    role = str(current.get("role") or "").strip().lower()
-    if role == "admin":
-        return True
-    admin_user = str(os.getenv("RRHH_ADMIN_USER", "")).strip().lower()
-    return bool(admin_user and current.get("username", "").lower() == admin_user)
+    return auth_rrhh.role_has_permission(current.get("role"), permission)
 
 
 def _auth_json_error():
     return jsonify({"ok": False, "error": "No autorizado"}), 401
+
+
+def _forbidden_json_error(message="No tenés permisos para esta acción."):
+    return jsonify({"ok": False, "error": message}), 403
 
 
 def rrhh_auth_required(handler):
@@ -153,6 +164,27 @@ def rrhh_auth_required(handler):
         return redirect(url_for("login_page", next=_request_path_with_query()))
 
     return wrapped
+
+
+def rrhh_permission_required(permission, message="No tenés permisos para esta acción."):
+    def decorator(handler):
+        @wraps(handler)
+        def wrapped(*args, **kwargs):
+            if not _auth_enabled():
+                return handler(*args, **kwargs)
+            if _current_rrhh_user() is None:
+                if request.path.startswith("/api/"):
+                    return _auth_json_error()
+                return redirect(url_for("login_page", next=_request_path_with_query()))
+            if not _has_permission(permission):
+                if request.path.startswith("/api/"):
+                    return _forbidden_json_error(message)
+                return (message, 403)
+            return handler(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
 
 
 def _session_chat_id():
@@ -839,18 +871,25 @@ def add_no_cache_headers(response):
 
 
 @flask_app.get("/rrhh")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="No tenés permisos para ver el panel de conversaciones.",
+)
 def rrhh_page():
     return render_template(
         "rrhh.html",
         auth_enabled=_auth_enabled(),
         rrhh_user=_current_rrhh_user(),
-        can_manage_users=_is_rrhh_admin(),
+        can_manage_users=_has_permission(auth_rrhh.PERM_USERS_MANAGE),
+        can_manage_roles=_has_permission(auth_rrhh.PERM_ROLES_MANAGE),
     )
 
 
 @flask_app.get("/historial")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_HISTORY_VIEW,
+    message="No tenés permisos para ver el historial.",
+)
 def historial_page():
     return render_template(
         "historial.html",
@@ -954,7 +993,7 @@ def logout_page():
 
 
 @flask_app.get("/api/historial")
-@rrhh_auth_required
+@rrhh_permission_required(auth_rrhh.PERM_HISTORY_VIEW, message="Sin permiso para ver historial.")
 def historial_api():
     try:
         limit = int(request.args.get("limit", "200"))
@@ -1020,7 +1059,10 @@ def chat_poll_api():
 
 
 @flask_app.get("/api/rrhh/conversaciones")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="Sin permiso para ver conversaciones.",
+)
 def rrhh_conversaciones_api():
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
     convs = _list_handoffs(include_closed=include_closed, limit=150)
@@ -1034,12 +1076,11 @@ def rrhh_conversaciones_api():
 
 
 @flask_app.get("/api/rrhh/usuarios")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para gestionar usuarios.",
+)
 def rrhh_usuarios_api():
-    if not _auth_enabled():
-        return jsonify({"ok": False, "error": "La autenticación está desactivada."}), 400
-    if not _is_rrhh_admin():
-        return jsonify({"ok": False, "error": "Solo admin puede gestionar usuarios."}), 403
     users = auth_rrhh.list_file_users()
     return jsonify(
         {
@@ -1047,18 +1088,17 @@ def rrhh_usuarios_api():
             "users": users,
             "users_file": auth_rrhh.users_file_path(),
             "valid_roles": auth_rrhh.available_roles(),
+            "permissions_catalog": auth_rrhh.permissions_catalog(),
         }
     )
 
 
 @flask_app.post("/api/rrhh/usuarios")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para crear usuarios.",
+)
 def rrhh_crear_usuario_api():
-    if not _auth_enabled():
-        return jsonify({"ok": False, "error": "La autenticación está desactivada."}), 400
-    if not _is_rrhh_admin():
-        return jsonify({"ok": False, "error": "Solo admin puede crear usuarios."}), 403
-
     data = request.get_json(silent=True) or {}
     username = str(data.get("username") or "").strip()
     password = str(data.get("password") or "")
@@ -1080,14 +1120,75 @@ def rrhh_crear_usuario_api():
     return jsonify({"ok": True, "user": user})
 
 
-@flask_app.post("/api/rrhh/usuarios/<username>/rol")
-@rrhh_auth_required
-def rrhh_actualizar_rol_api(username):
-    if not _auth_enabled():
-        return jsonify({"ok": False, "error": "La autenticación está desactivada."}), 400
-    if not _is_rrhh_admin():
-        return jsonify({"ok": False, "error": "Solo admin puede editar roles."}), 403
+@flask_app.get("/api/rrhh/roles")
+@rrhh_permission_required(
+    auth_rrhh.PERM_ROLES_MANAGE,
+    message="Sin permiso para ver roles.",
+)
+def rrhh_roles_api():
+    return jsonify(
+        {
+            "ok": True,
+            "roles": auth_rrhh.list_roles(),
+            "roles_file": auth_rrhh.roles_file_path(),
+            "permissions_catalog": auth_rrhh.permissions_catalog(),
+        }
+    )
 
+
+@flask_app.post("/api/rrhh/roles")
+@rrhh_permission_required(
+    auth_rrhh.PERM_ROLES_MANAGE,
+    message="Sin permiso para crear roles.",
+)
+def rrhh_crear_rol_api():
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip().lower()
+    display_name = str(data.get("display_name") or "").strip()
+    permissions = data.get("permissions")
+    ok, role, error = auth_rrhh.create_role(
+        name=name,
+        display_name=display_name,
+        permissions=permissions,
+    )
+    if not ok:
+        status = 409 if "existe" in error.lower() else 400
+        return jsonify({"ok": False, "error": error}), status
+    return jsonify({"ok": True, "role": role})
+
+
+@flask_app.post("/api/rrhh/roles/<role_name>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_ROLES_MANAGE,
+    message="Sin permiso para editar roles.",
+)
+def rrhh_editar_rol_api(role_name):
+    data = request.get_json(silent=True) or {}
+    display_name = data.get("display_name")
+    permissions = data.get("permissions")
+    ok, role, error = auth_rrhh.update_role(
+        name=role_name,
+        display_name=display_name,
+        permissions=permissions,
+    )
+    if not ok:
+        msg = error.lower()
+        if "no encontrado" in msg:
+            status = 404
+        elif "debe quedar al menos un usuario con permiso" in msg:
+            status = 409
+        else:
+            status = 400
+        return jsonify({"ok": False, "error": error}), status
+    return jsonify({"ok": True, "role": role})
+
+
+@flask_app.post("/api/rrhh/usuarios/<username>/rol")
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para editar roles de usuarios.",
+)
+def rrhh_actualizar_rol_api(username):
     data = request.get_json(silent=True) or {}
     role = str(data.get("role") or "").strip().lower()
     updated_by = (_current_rrhh_user() or {}).get("username") or ""
@@ -1101,7 +1202,7 @@ def rrhh_actualizar_rol_api(username):
         msg = error.lower()
         if "no encontrado" in msg:
             status_code = 404
-        elif "al menos un usuario admin" in msg:
+        elif "debe quedar al menos un usuario con permiso" in msg:
             status_code = 409
         else:
             status_code = 400
@@ -1110,7 +1211,10 @@ def rrhh_actualizar_rol_api(username):
 
 
 @flask_app.get("/api/rrhh/conversaciones/<conversation_id>/mensajes")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="Sin permiso para ver conversaciones.",
+)
 def rrhh_mensajes_api(conversation_id):
     conv = _fetch_handoff(conversation_id)
     if not conv:
@@ -1128,7 +1232,10 @@ def rrhh_mensajes_api(conversation_id):
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/tomar")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para gestionar conversaciones.",
+)
 def rrhh_tomar_api(conversation_id):
     data = request.get_json(silent=True) or {}
     agente = _resolve_rrhh_agent(data)
@@ -1138,7 +1245,10 @@ def rrhh_tomar_api(conversation_id):
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/cerrar")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para gestionar conversaciones.",
+)
 def rrhh_cerrar_api(conversation_id):
     data = request.get_json(silent=True) or {}
     agente = _resolve_rrhh_agent(data)
@@ -1148,7 +1258,10 @@ def rrhh_cerrar_api(conversation_id):
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/mensajes")
-@rrhh_auth_required
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para gestionar conversaciones.",
+)
 def rrhh_responder_api(conversation_id):
     data = request.get_json(silent=True) or {}
     mensaje = str(data.get("mensaje") or "").strip()

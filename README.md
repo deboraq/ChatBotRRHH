@@ -176,8 +176,34 @@ Con autenticación activa:
    - completá usuario, nombre visible, contraseña y rol
    - hacé click en **Crear usuario**
    - para modificar rol, elegí el nuevo valor en la tabla y hacé click en **Actualizar rol**
+   - en la columna **Permisos** ves qué puede ver/hacer cada usuario según su rol
 
 Eso guarda automáticamente en `RRHH_USERS_FILE` (por defecto `rrhh_users.json`).
+
+### Roles personalizados y permisos
+
+Además de `admin` y `rrhh`, podés crear roles propios desde el panel:
+
+- Sección **Roles y permisos** en `http://localhost:5000/rrhh`
+- Crear rol nuevo con permisos
+- Editar permisos de roles existentes
+
+Permisos disponibles:
+- `conversaciones_ver`: ver panel/bandeja RRHH
+- `conversaciones_gestionar`: tomar, responder y cerrar conversaciones
+- `historial_ver`: acceder al historial completo
+- `usuarios_gestionar`: crear/editar usuarios
+- `roles_gestionar`: crear/editar roles y permisos
+
+Roles por defecto:
+- `admin`: todos los permisos
+- `rrhh`: conversaciones + historial (sin gestión de usuarios/roles)
+
+Archivo de roles (opcional):
+
+```bash
+export RRHH_ROLES_FILE=rrhh_roles.json
+```
 
 ## 🧾 Historial completo de conversaciones
 
