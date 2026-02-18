@@ -1,0 +1,15 @@
+.git
+.gitignore
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+claves.json
+claves*.json
+serviceAccount*.json
+rrhh_users.json
+rrhh_roles.json
+*.csv
+tests/

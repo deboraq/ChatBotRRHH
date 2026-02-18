@@ -161,6 +161,95 @@ RRHH_USERS_FILE=/var/data/rrhh_users.json
 RRHH_ROLES_FILE=/var/data/rrhh_roles.json
 ```
 
+## 🔥 Deploy en Firebase + Cloud Run (sin Render)
+
+Si te piden usar stack Google/Firebase completo, esta app se despliega así:
+
+- **Backend Python (Flask/Gunicorn)** en **Cloud Run**
+- **Base de datos** en **Firestore**
+- **(Opcional) dominio/capa web** en **Firebase Hosting** con rewrite a Cloud Run
+
+> Importante: Firebase Hosting **solo** no ejecuta Python.
+> Para este proyecto, el runtime va en Cloud Run.
+
+### 1) Preparar proyecto GCP/Firebase
+
+```bash
+gcloud auth login
+gcloud config set project TU_PROJECT_ID
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firestore.googleapis.com
+```
+
+### 2) (Recomendado) crear service account para Cloud Run
+
+```bash
+gcloud iam service-accounts create chatbot-rrhh-run --display-name="Cloud Run Chatbot RRHH"
+gcloud projects add-iam-policy-binding TU_PROJECT_ID \
+  --member="serviceAccount:chatbot-rrhh-run@TU_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/datastore.user"
+```
+
+Con eso la app puede leer/escribir Firestore sin `claves.json` manual.
+
+### 3) Deploy a Cloud Run (usa `Dockerfile` del repo)
+
+```bash
+gcloud run deploy chatbot-rrhh \
+  --source . \
+  --region southamerica-east1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --service-account chatbot-rrhh-run@TU_PROJECT_ID.iam.gserviceaccount.com \
+  --set-env-vars CHATBOT_WEB_SECRET=clave-larga-segura,RRHH_AUTH_ENABLED=true,RRHH_ADMIN_USER=admin,RRHH_ADMIN_PASSWORD=clave-segura
+```
+
+Al finalizar, Cloud Run te devuelve la URL pública.
+
+### 4) (Opcional) poner Firebase Hosting delante de Cloud Run
+
+1. Inicializá hosting:
+
+```bash
+firebase login
+firebase use --add
+firebase init hosting
+```
+
+2. En `firebase.json`, agregá rewrite al servicio de Cloud Run:
+
+```json
+{
+  "hosting": {
+    "public": "hosting",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "chatbot-rrhh",
+          "region": "southamerica-east1"
+        }
+      }
+    ]
+  }
+}
+```
+
+3. Deploy:
+
+```bash
+firebase deploy --only hosting
+```
+
+### 5) Nota importante sobre usuarios/roles en Cloud Run
+
+Cloud Run no ofrece disco persistente como Render Disk.  
+Por eso:
+
+- si usás `rrhh_users.json` / `rrhh_roles.json`, no garantizan persistencia entre reinicios
+- para producción en Cloud Run, usá al menos admin por variables de entorno (`RRHH_ADMIN_*`)
+- si necesitás multiusuario persistente desde el panel, conviene migrar usuarios/roles a Firestore
+
 ## 👩‍💼 Derivación y atención humana (RRHH)
 
 Cuando un colaborador pide “hablar con RRHH”, la conversación se deriva a una bandeja de atención humana.
