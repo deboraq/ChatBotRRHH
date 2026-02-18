@@ -13,6 +13,9 @@
   --border-soft: #e8edf5;
   --shadow: 0 16px 38px rgba(15, 23, 42, 0.12);
   --radius: 14px;
+  --title-main: #1d4ed8;
+  --title-accent: #7c3aed;
+  --title-section: #1f2a44;
 }
 
 * {
@@ -52,6 +55,10 @@ body {
   margin: 0;
   font-size: 1.55rem;
   letter-spacing: -0.02em;
+  background: linear-gradient(96deg, var(--title-main), var(--title-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .rrhh-header p {
@@ -88,6 +95,20 @@ button {
 button:hover {
   transform: translateY(-1px);
   background: var(--primary-strong);
+}
+
+.btn.ghost,
+button.ghost {
+  background: #eef2ff;
+  color: #1e40af;
+  border: 1px solid #c7d2fe;
+  box-shadow: none;
+}
+
+.btn.ghost:hover,
+button.ghost:hover {
+  background: #e0e7ff;
+  color: #1e3a8a;
 }
 
 button:disabled {
@@ -181,6 +202,23 @@ textarea:focus {
 .roles-head h2 {
   margin: 0 0 8px;
   font-size: 1.03rem;
+  color: var(--title-section);
+  position: relative;
+  padding-left: 12px;
+}
+
+.queue-panel h2::before,
+.chat-panel h2::before,
+.users-head h2::before,
+.roles-head h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--title-main), var(--title-accent));
 }
 
 .conversation-list {
@@ -498,6 +536,138 @@ code {
   border-radius: 7px;
   padding: 2px 6px;
   font-size: 0.8rem;
+}
+
+:root[data-theme="dark"] {
+  --bg: #070d18;
+  --surface: #101a2a;
+  --surface-soft: #132033;
+  --text: #e2e8f0;
+  --text-soft: #cbd5e1;
+  --text-muted: #94a3b8;
+  --primary: #3b82f6;
+  --primary-strong: #60a5fa;
+  --danger: #ef4444;
+  --danger-strong: #f87171;
+  --border: #2f3f58;
+  --border-soft: #26364f;
+  --shadow: 0 16px 36px rgba(2, 6, 23, 0.55);
+  --title-main: #93c5fd;
+  --title-accent: #c4b5fd;
+  --title-section: #e2e8f0;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 20% -10%, rgba(59, 130, 246, 0.25) 0%, transparent 45%),
+    radial-gradient(circle at 95% 10%, rgba(139, 92, 246, 0.22) 0%, transparent 40%),
+    var(--bg);
+}
+
+:root[data-theme="dark"] .rrhh-wrapper {
+  border-color: #1f2a44;
+}
+
+:root[data-theme="dark"] .toolbar {
+  background: #121f33;
+}
+
+:root[data-theme="dark"] .conv-card {
+  background: #12223a;
+  border-color: #2d476d;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .conv-card.selected {
+  background: #1a3150;
+  border-color: #60a5fa;
+}
+
+:root[data-theme="dark"] .conv-line,
+:root[data-theme="dark"] .msg-head,
+:root[data-theme="dark"] .permissions-cell,
+:root[data-theme="dark"] .perm-item {
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .conv-foot {
+  color: #9fb0c6;
+}
+
+:root[data-theme="dark"] .messages {
+  background: linear-gradient(180deg, rgba(19, 31, 50, 0.95), rgba(13, 24, 40, 0.95));
+}
+
+:root[data-theme="dark"] .msg.colaborador {
+  background: #1f3556;
+}
+
+:root[data-theme="dark"] .msg.rrhh {
+  background: #1e4f3e;
+}
+
+:root[data-theme="dark"] .msg.sistema {
+  background: #2a3547;
+}
+
+:root[data-theme="dark"] .btn.ghost,
+:root[data-theme="dark"] button.ghost {
+  background: #1b2a44;
+  color: #cfe0ff;
+  border-color: #3b4f73;
+}
+
+:root[data-theme="dark"] .btn.ghost:hover,
+:root[data-theme="dark"] button.ghost:hover {
+  background: #23385c;
+  color: #dbeafe;
+}
+
+:root[data-theme="dark"] #users-status,
+:root[data-theme="dark"] #roles-status {
+  background: #152238;
+  border-color: #334861;
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] #users-status.error-text,
+:root[data-theme="dark"] #roles-status.error-text {
+  background: #3a1f27;
+  border-color: #7f1d1d;
+}
+
+:root[data-theme="dark"] .users-table,
+:root[data-theme="dark"] .roles-table,
+:root[data-theme="dark"] .users-table-wrap,
+:root[data-theme="dark"] .roles-table-wrap {
+  background: #101a2a;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .users-table th,
+:root[data-theme="dark"] .roles-table th {
+  background: #1a273b;
+  color: #a9b7cc;
+}
+
+:root[data-theme="dark"] .users-table td,
+:root[data-theme="dark"] .roles-table td {
+  border-bottom-color: #24364e;
+}
+
+:root[data-theme="dark"] .permissions-grid {
+  background: #132033;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .perm-item:hover {
+  background: #1a2b45;
+}
+
+:root[data-theme="dark"] code {
+  background: #1b2a44;
+  border-color: #334155;
+  color: #e2e8f0;
 }
 
 @media (max-width: 1120px) {
