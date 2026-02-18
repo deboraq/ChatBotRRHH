@@ -138,7 +138,64 @@ class AuthRrhhTests(unittest.TestCase):
                 auth_rrhh.create_user("admin", "admin123", role="admin")
                 ok, _, error = auth_rrhh.update_user_role(username="admin", role="rrhh")
                 self.assertFalse(ok)
-                self.assertIn("al menos un usuario admin", error.lower())
+                self.assertIn("permiso", error.lower())
+
+    def test_create_custom_role_and_assign_user(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            roles_path = os.path.join(tmpdir, "rrhh_roles.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                    "RRHH_ROLES_FILE": roles_path,
+                },
+                clear=True,
+            ):
+                ok_role, role, err_role = auth_rrhh.create_role(
+                    name="auditor",
+                    display_name="Auditor RRHH",
+                    permissions=[auth_rrhh.PERM_HISTORY_VIEW],
+                )
+                self.assertTrue(ok_role)
+                self.assertEqual(err_role, "")
+                self.assertEqual(role["name"], "auditor")
+
+                ok_user, user, err_user = auth_rrhh.create_user(
+                    "auditor1",
+                    "auditor123",
+                    display_name="Usuario Auditor",
+                    role="auditor",
+                )
+                self.assertTrue(ok_user)
+                self.assertEqual(err_user, "")
+                self.assertEqual(user["role"], "auditor")
+                self.assertEqual(user["permissions"], [auth_rrhh.PERM_HISTORY_VIEW])
+
+    def test_update_role_permissions_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            roles_path = os.path.join(tmpdir, "rrhh_roles.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_ROLES_FILE": roles_path,
+                    "RRHH_USERS_FILE": os.path.join(tmpdir, "rrhh_users.json"),
+                    "RRHH_ADMIN_USER": "root",
+                    "RRHH_ADMIN_PASSWORD": "root123",
+                },
+                clear=True,
+            ):
+                ok, role, _ = auth_rrhh.update_role(
+                    name="rrhh",
+                    display_name="RRHH Operaciones",
+                    permissions=[
+                        auth_rrhh.PERM_CONVERSATIONS_VIEW,
+                        auth_rrhh.PERM_HISTORY_VIEW,
+                    ],
+                )
+                self.assertTrue(ok)
+                self.assertEqual(role["display_name"], "RRHH Operaciones")
+                self.assertIn(auth_rrhh.PERM_HISTORY_VIEW, role["permissions"])
 
 
 if __name__ == "__main__":

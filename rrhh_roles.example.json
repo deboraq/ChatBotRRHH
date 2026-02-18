@@ -1,0 +1,31 @@
+{
+  "roles": [
+    {
+      "name": "admin",
+      "display_name": "Administrador",
+      "permissions": [
+        "conversaciones_ver",
+        "conversaciones_gestionar",
+        "historial_ver",
+        "usuarios_gestionar",
+        "roles_gestionar"
+      ]
+    },
+    {
+      "name": "auditor",
+      "display_name": "Auditor",
+      "permissions": [
+        "historial_ver"
+      ]
+    },
+    {
+      "name": "supervisor_rrhh",
+      "display_name": "Supervisor RRHH",
+      "permissions": [
+        "conversaciones_ver",
+        "conversaciones_gestionar",
+        "historial_ver"
+      ]
+    }
+  ]
+}

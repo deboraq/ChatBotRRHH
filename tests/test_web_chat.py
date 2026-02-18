@@ -454,6 +454,121 @@ class WebChatApiTests(unittest.TestCase):
                 body = update_resp.get_json()
                 self.assertFalse(body["ok"])
 
+    def test_admin_can_create_custom_role_via_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            roles_path = os.path.join(tmpdir, "rrhh_roles.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_AUTH_ENABLED": "true",
+                    "RRHH_USERS_FILE": users_path,
+                    "RRHH_ROLES_FILE": roles_path,
+                },
+                clear=True,
+            ):
+                self.client.post(
+                    "/login",
+                    data={"username": "admin", "password": "admin123", "next": "/rrhh"},
+                )
+
+                create_role_resp = self.client.post(
+                    "/api/rrhh/roles",
+                    json={
+                        "name": "auditor",
+                        "display_name": "Auditor",
+                        "permissions": ["historial_ver"],
+                    },
+                )
+                self.assertEqual(create_role_resp.status_code, 200)
+                body = create_role_resp.get_json()
+                self.assertTrue(body["ok"])
+                self.assertEqual(body["role"]["name"], "auditor")
+
+                roles_resp = self.client.get("/api/rrhh/roles")
+                self.assertEqual(roles_resp.status_code, 200)
+                roles_body = roles_resp.get_json()
+                role_names = {item["name"] for item in roles_body["roles"]}
+                self.assertIn("auditor", role_names)
+
+    def test_custom_role_permissions_limit_access(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            roles_path = os.path.join(tmpdir, "rrhh_roles.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            },
+                            {
+                                "username": "auditor1",
+                                "display_name": "Auditor",
+                                "password": "auditor123",
+                                "role": "auditor",
+                            },
+                        ]
+                    },
+                    fh,
+                )
+            with open(roles_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "roles": [
+                            {
+                                "name": "auditor",
+                                "display_name": "Auditor",
+                                "permissions": ["historial_ver"],
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_AUTH_ENABLED": "true",
+                    "RRHH_USERS_FILE": users_path,
+                    "RRHH_ROLES_FILE": roles_path,
+                },
+                clear=True,
+            ):
+                self.client.post(
+                    "/login",
+                    data={"username": "auditor1", "password": "auditor123", "next": "/historial"},
+                )
+
+                historial_resp = self.client.get("/api/historial?limit=5")
+                self.assertEqual(historial_resp.status_code, 200)
+
+                convs_resp = self.client.get("/api/rrhh/conversaciones")
+                self.assertEqual(convs_resp.status_code, 403)
+                self.assertFalse(convs_resp.get_json()["ok"])
+
+                users_resp = self.client.get("/api/rrhh/usuarios")
+                self.assertEqual(users_resp.status_code, 403)
+                self.assertFalse(users_resp.get_json()["ok"])
+
     def test_logout_clears_session_and_blocks_rrhh_api(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             users_path = os.path.join(tmpdir, "rrhh_users.json")
