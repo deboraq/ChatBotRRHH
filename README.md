@@ -281,6 +281,8 @@ Métricas incluidas:
 Tip de diagnóstico: en la parte superior del dashboard se muestra el `Proyecto` y `Server boot`.
 Si no cambian, probablemente seguís con una instancia vieja de `web_chat.py`.
 
-![Dashboard](dashboard.png)
+![Dashboard](docs/images/dashboard.png)
+![Panel RRHH](docs/images/Panel-RRHH.png)
+![Panel RRHH - Usuarios y roles](docs/images/Panel-RRHH-Usuarios-roles.png)
 
 
