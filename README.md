@@ -117,6 +117,7 @@ Funciones disponibles en la UI:
 - Atajos clickeables por número/tema y sugerencias de preguntas.
 - Vista de estadísticas en tiempo real: `http://localhost:5000/estadisticas`
 - Historial completo de chats: `http://localhost:5000/historial`
+- Panel RRHH con temas de color mejorados y switch claro/oscuro.
 
 ## 👩‍💼 Derivación y atención humana (RRHH)
 

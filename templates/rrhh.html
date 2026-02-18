@@ -18,6 +18,7 @@
         </div>
         <div class="header-actions">
           <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
+          <button id="theme-toggle" class="ghost" type="button">Modo oscuro</button>
           {% if auth_enabled %}
           <form class="logout-form" method="post" action="/logout">
             <button type="submit">Cerrar sesión</button>
@@ -174,6 +175,7 @@
       const replyInput = document.getElementById("reply-input");
       const btnTomar = document.getElementById("btn-tomar");
       const btnCerrar = document.getElementById("btn-cerrar");
+      const themeToggleBtn = document.getElementById("theme-toggle");
       const agentNameEl = document.getElementById("agent-name");
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
@@ -201,6 +203,36 @@
       const AUTO_REFRESH_MS = 60 * 1000;
       let validRoles = ["admin", "rrhh"];
       let permissionsCatalog = [];
+      const THEME_STORAGE_KEY = "rrhh_panel_theme";
+
+      function getInitialTheme() {
+        try {
+          const stored = localStorage.getItem(THEME_STORAGE_KEY);
+          if (stored === "dark" || stored === "light") return stored;
+        } catch (error) {
+          // Ignora errores de storage (modo privado, etc.).
+        }
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        const normalized = theme === "dark" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", normalized);
+        if (themeToggleBtn) {
+          themeToggleBtn.textContent = normalized === "dark" ? "Modo claro" : "Modo oscuro";
+        }
+      }
+
+      function toggleTheme() {
+        const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        const next = current === "dark" ? "light" : "dark";
+        applyTheme(next);
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, next);
+        } catch (error) {
+          // Ignora errores de storage.
+        }
+      }
 
       function escapeHtml(value) {
         return String(value)
@@ -715,7 +747,12 @@
         });
       }
 
+      if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", toggleTheme);
+      }
+
       async function init() {
+        applyTheme(getInitialTheme());
         if (authEnabled) {
           agentNameEl.value = currentAgentName;
         }
