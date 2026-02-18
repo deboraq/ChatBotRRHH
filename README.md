@@ -119,6 +119,48 @@ Funciones disponibles en la UI:
 - Historial completo de chats: `http://localhost:5000/historial`
 - Panel RRHH con temas de color mejorados y switch claro/oscuro.
 
+## ☁️ Deploy en Render (producción)
+
+Para producción, usá Gunicorn en lugar del servidor de desarrollo de Flask:
+
+1) **Build Command**:
+
+```bash
+pip install -r requirements.txt -r requirements-full.txt
+```
+
+2) **Start Command**:
+
+```bash
+gunicorn web_chat:flask_app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+```
+
+3) **Variables de entorno mínimas**:
+
+```bash
+CHATBOT_WEB_SECRET=una-clave-larga-y-segura
+RRHH_AUTH_ENABLED=true
+RRHH_ADMIN_USER=admin
+RRHH_ADMIN_PASSWORD=una-clave-segura
+```
+
+4) **Firebase en Render (recomendado)**:
+- Cargá la clave como **Secret File** con nombre `claves.json`.
+- Configurá:
+
+```bash
+FIREBASE_CREDENTIALS=/etc/secrets/claves.json
+```
+
+5) **Persistencia de usuarios/roles RRHH** (opcional, recomendado):
+- Agregá un Persistent Disk y montalo, por ejemplo, en `/var/data`.
+- Configurá:
+
+```bash
+RRHH_USERS_FILE=/var/data/rrhh_users.json
+RRHH_ROLES_FILE=/var/data/rrhh_roles.json
+```
+
 ## 👩‍💼 Derivación y atención humana (RRHH)
 
 Cuando un colaborador pide “hablar con RRHH”, la conversación se deriva a una bandeja de atención humana.
