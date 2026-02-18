@@ -325,6 +325,135 @@ class WebChatApiTests(unittest.TestCase):
                 body = create_resp.get_json()
                 self.assertFalse(body["ok"])
 
+    def test_admin_can_update_user_role_via_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            },
+                            {
+                                "username": "laura",
+                                "display_name": "Laura",
+                                "password": "laura123",
+                                "role": "rrhh",
+                            },
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "admin", "password": "admin123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                update_resp = self.client.post(
+                    "/api/rrhh/usuarios/laura/rol",
+                    json={"role": "admin"},
+                )
+                self.assertEqual(update_resp.status_code, 200)
+                body = update_resp.get_json()
+                self.assertTrue(body["ok"])
+                self.assertEqual(body["user"]["role"], "admin")
+
+                list_resp = self.client.get("/api/rrhh/usuarios")
+                self.assertEqual(list_resp.status_code, 200)
+                listed = {item["username"]: item["role"] for item in list_resp.get_json()["users"]}
+                self.assertEqual(listed.get("laura"), "admin")
+
+    def test_non_admin_cannot_update_user_role(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            },
+                            {
+                                "username": "laura",
+                                "display_name": "Laura",
+                                "password": "laura123",
+                                "role": "rrhh",
+                            },
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "laura", "password": "laura123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                update_resp = self.client.post(
+                    "/api/rrhh/usuarios/admin/rol",
+                    json={"role": "rrhh"},
+                )
+                self.assertEqual(update_resp.status_code, 403)
+                body = update_resp.get_json()
+                self.assertFalse(body["ok"])
+
+    def test_cannot_demote_last_admin_via_api(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Administrador",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={"username": "admin", "password": "admin123", "next": "/rrhh"},
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                update_resp = self.client.post(
+                    "/api/rrhh/usuarios/admin/rol",
+                    json={"role": "rrhh"},
+                )
+                self.assertEqual(update_resp.status_code, 409)
+                body = update_resp.get_json()
+                self.assertFalse(body["ok"])
+
     def test_logout_clears_session_and_blocks_rrhh_api(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             users_path = os.path.join(tmpdir, "rrhh_users.json")

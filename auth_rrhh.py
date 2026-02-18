@@ -14,6 +14,10 @@ USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 MIN_PASSWORD_LENGTH = 6
 
 
+def available_roles():
+    return sorted(VALID_ROLES)
+
+
 def _parse_bool_mode(value, default="auto"):
     raw = str(value or "").strip().lower()
     if not raw:
@@ -46,6 +50,17 @@ def _normalize_entry(entry):
 def users_file_path():
     path = str(os.getenv("RRHH_USERS_FILE", "rrhh_users.json")).strip()
     return path or "rrhh_users.json"
+
+
+def _normalize_role(role):
+    return str(role or "rrhh").strip().lower()
+
+
+def _env_admin_username():
+    entries = _load_admin_user_from_env()
+    if not entries:
+        return ""
+    return str(entries[0].get("username") or "").strip().lower()
 
 
 def _load_users_from_file(path):
@@ -217,7 +232,7 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
             f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.",
         )
 
-    role_clean = str(role or "rrhh").strip().lower()
+    role_clean = _normalize_role(role)
     if role_clean not in VALID_ROLES:
         return False, None, "Rol inválido. Valores permitidos: rrhh, admin."
 
@@ -254,6 +269,82 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
             "username": entry["username"],
             "display_name": entry["display_name"],
             "role": entry["role"],
+        },
+        "",
+    )
+
+
+def update_user_role(username, role, updated_by="", path=None):
+    username_clean = str(username or "").strip()
+    if not username_clean:
+        return False, None, "Usuario requerido."
+
+    role_clean = _normalize_role(role)
+    if role_clean not in VALID_ROLES:
+        return False, None, "Rol inválido. Valores permitidos: rrhh, admin."
+
+    key = username_clean.lower()
+    env_admin_key = _env_admin_username()
+    if env_admin_key and key == env_admin_key:
+        return (
+            False,
+            None,
+            "Ese usuario admin se gestiona por variables de entorno y no puede editarse desde el panel.",
+        )
+
+    target_path = path or users_file_path()
+    raw_entries = _load_users_raw_entries(target_path)
+    target_idx = -1
+    current_role = ""
+    for idx, item in enumerate(raw_entries):
+        current_key = str(item.get("username") or "").strip().lower()
+        if current_key == key:
+            target_idx = idx
+            current_role = _normalize_role(item.get("role") or "rrhh")
+            break
+
+    if target_idx < 0:
+        return False, None, "Usuario no encontrado en archivo de usuarios."
+
+    if current_role == role_clean:
+        item = raw_entries[target_idx]
+        return (
+            True,
+            {
+                "username": str(item.get("username") or username_clean),
+                "display_name": str(item.get("display_name") or username_clean),
+                "role": role_clean,
+            },
+            "",
+        )
+
+    if current_role == "admin" and role_clean != "admin":
+        admins_file_restantes = 0
+        for idx, item in enumerate(raw_entries):
+            if idx == target_idx:
+                continue
+            if _normalize_role(item.get("role") or "rrhh") == "admin":
+                admins_file_restantes += 1
+        if admins_file_restantes == 0 and not env_admin_key:
+            return False, None, "Debe quedar al menos un usuario admin."
+
+    updated_by_clean = str(updated_by or "").strip()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    raw_entries[target_idx]["role"] = role_clean
+    raw_entries[target_idx]["updated_at"] = now
+    if updated_by_clean:
+        raw_entries[target_idx]["updated_by"] = updated_by_clean
+
+    if not _write_users_raw_entries(target_path, raw_entries):
+        return False, None, "No pude actualizar el rol en el archivo de usuarios."
+
+    item = raw_entries[target_idx]
+    return (
+        True,
+        {
+            "username": str(item.get("username") or username_clean),
+            "display_name": str(item.get("display_name") or username_clean),
+            "role": role_clean,
         },
         "",
     )

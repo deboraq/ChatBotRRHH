@@ -107,6 +107,7 @@
                 <th>Usuario</th>
                 <th>Nombre</th>
                 <th>Rol</th>
+                <th>Acción</th>
               </tr>
             </thead>
             <tbody id="users-body"></tbody>
@@ -152,6 +153,7 @@
       let currentConversationId = null;
       let pollTimer = null;
       const AUTO_REFRESH_MS = 60 * 1000;
+      let validRoles = ["admin", "rrhh"];
 
       function escapeHtml(value) {
         return String(value)
@@ -231,16 +233,53 @@
         if (!usersBodyEl) return;
         usersBodyEl.innerHTML = "";
         if (!users || users.length === 0) {
-          usersBodyEl.innerHTML = "<tr><td colspan='3'>Sin usuarios creados en archivo.</td></tr>";
+          usersBodyEl.innerHTML = "<tr><td colspan='4'>Sin usuarios creados en archivo.</td></tr>";
           return;
         }
         users.forEach((user) => {
           const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td><code>${escapeHtml(user.username || "-")}</code></td>
-            <td>${escapeHtml(user.display_name || "-")}</td>
-            <td>${escapeHtml(user.role || "-")}</td>
-          `;
+          const username = String(user.username || "");
+          const currentRole = String(user.role || "rrhh").toLowerCase();
+
+          const tdUsername = document.createElement("td");
+          tdUsername.innerHTML = `<code>${escapeHtml(username || "-")}</code>`;
+
+          const tdName = document.createElement("td");
+          tdName.textContent = user.display_name || "-";
+
+          const tdRole = document.createElement("td");
+          const selectRole = document.createElement("select");
+          selectRole.className = "role-select";
+          const roles = Array.isArray(validRoles) && validRoles.length ? validRoles : ["rrhh", "admin"];
+          roles.forEach((role) => {
+            const opt = document.createElement("option");
+            opt.value = role;
+            opt.textContent = role;
+            if (role.toLowerCase() === currentRole) {
+              opt.selected = true;
+            }
+            selectRole.appendChild(opt);
+          });
+          tdRole.appendChild(selectRole);
+
+          const tdAction = document.createElement("td");
+          const btnUpdate = document.createElement("button");
+          btnUpdate.type = "button";
+          btnUpdate.className = "role-update-btn";
+          btnUpdate.textContent = "Actualizar rol";
+          btnUpdate.addEventListener("click", async () => {
+            try {
+              await actualizarRol(username, selectRole.value);
+            } catch (error) {
+              setUsersStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnUpdate);
+
+          tr.appendChild(tdUsername);
+          tr.appendChild(tdName);
+          tr.appendChild(tdRole);
+          tr.appendChild(tdAction);
           usersBodyEl.appendChild(tr);
         });
       }
@@ -254,6 +293,9 @@
         }
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo cargar usuarios");
+        if (Array.isArray(data.valid_roles) && data.valid_roles.length) {
+          validRoles = data.valid_roles;
+        }
         if (usersFileEl) usersFileEl.textContent = `Archivo: ${data.users_file || "-"}`;
         renderUsers(data.users || []);
         setUsersStatus(`${(data.users || []).length} usuario(s) cargado(s).`);
@@ -286,6 +328,26 @@
         if (newPasswordEl) newPasswordEl.value = "";
         if (newRoleEl) newRoleEl.value = "rrhh";
         setUsersStatus(`Usuario ${data.user.username} creado correctamente.`);
+        await cargarUsuarios();
+      }
+
+      async function actualizarRol(username, role) {
+        if (!canManageUsers) return;
+        const response = await fetch(
+          `/api/rrhh/usuarios/${encodeURIComponent(username)}/rol`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role }),
+          }
+        );
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
+        setUsersStatus(`Rol actualizado para ${data.user.username}: ${data.user.role}.`);
         await cargarUsuarios();
       }
 

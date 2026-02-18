@@ -103,6 +103,43 @@ class AuthRrhhTests(unittest.TestCase):
                 self.assertFalse(ok2)
                 self.assertIn("existe", err2.lower())
 
+    def test_update_user_role_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                },
+                clear=True,
+            ):
+                auth_rrhh.create_user("admin", "admin123", role="admin")
+                auth_rrhh.create_user("laura", "secreta123", role="rrhh")
+
+                ok, user, error = auth_rrhh.update_user_role(
+                    username="laura",
+                    role="admin",
+                    updated_by="admin",
+                )
+                self.assertTrue(ok)
+                self.assertEqual(error, "")
+                self.assertEqual(user["role"], "admin")
+
+    def test_update_user_role_blocks_demoting_last_admin(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                },
+                clear=True,
+            ):
+                auth_rrhh.create_user("admin", "admin123", role="admin")
+                ok, _, error = auth_rrhh.update_user_role(username="admin", role="rrhh")
+                self.assertFalse(ok)
+                self.assertIn("al menos un usuario admin", error.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

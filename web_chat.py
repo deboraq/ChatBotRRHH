@@ -82,11 +82,21 @@ def _current_rrhh_user():
     username = str(session.get("rrhh_user") or "").strip()
     if not username:
         return None
-    return {
+    current = {
         "username": username,
         "display_name": str(session.get("rrhh_display_name") or username),
         "role": str(session.get("rrhh_role") or "rrhh"),
     }
+    if _auth_enabled():
+        # Si el rol/nombre cambian en archivo, sincroniza sesión en caliente.
+        entry = auth_rrhh.get_users().get(username.lower())
+        if not entry:
+            _clear_rrhh_user()
+            return None
+        current["display_name"] = str(entry.get("display_name") or username)
+        current["role"] = str(entry.get("role") or "rrhh")
+        _set_rrhh_user(current)
+    return current
 
 
 def _set_rrhh_user(user_payload):
@@ -1036,6 +1046,7 @@ def rrhh_usuarios_api():
             "ok": True,
             "users": users,
             "users_file": auth_rrhh.users_file_path(),
+            "valid_roles": auth_rrhh.available_roles(),
         }
     )
 
@@ -1066,6 +1077,35 @@ def rrhh_crear_usuario_api():
         status_code = 409 if "existe" in error.lower() else 400
         return jsonify({"ok": False, "error": error}), status_code
 
+    return jsonify({"ok": True, "user": user})
+
+
+@flask_app.post("/api/rrhh/usuarios/<username>/rol")
+@rrhh_auth_required
+def rrhh_actualizar_rol_api(username):
+    if not _auth_enabled():
+        return jsonify({"ok": False, "error": "La autenticación está desactivada."}), 400
+    if not _is_rrhh_admin():
+        return jsonify({"ok": False, "error": "Solo admin puede editar roles."}), 403
+
+    data = request.get_json(silent=True) or {}
+    role = str(data.get("role") or "").strip().lower()
+    updated_by = (_current_rrhh_user() or {}).get("username") or ""
+
+    ok, user, error = auth_rrhh.update_user_role(
+        username=username,
+        role=role,
+        updated_by=updated_by,
+    )
+    if not ok:
+        msg = error.lower()
+        if "no encontrado" in msg:
+            status_code = 404
+        elif "al menos un usuario admin" in msg:
+            status_code = 409
+        else:
+            status_code = 400
+        return jsonify({"ok": False, "error": error}), status_code
     return jsonify({"ok": True, "user": user})
 
 
