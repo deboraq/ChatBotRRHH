@@ -282,7 +282,7 @@ Tip de diagnóstico: en la parte superior del dashboard se muestra el `Proyecto`
 Si no cambian, probablemente seguís con una instancia vieja de `web_chat.py`.
 
 ![Dashboard](docs/images/dashboard.png)
-![Panel RRHH](docs/images/panel-rrhh.png)
-![Panel RRHH - Usuarios y roles](docs/images/panel-rrhh-usuarios-roles.png)
+![Panel RRHH](docs/images/Panel-RRHH.png)
+![Panel RRHH - Usuarios y roles](docs/images/Panel-RRHH-Usuarios-roles.png)
 
 
