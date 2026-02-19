@@ -32,10 +32,45 @@
       <div class="config-grid">
         {% if can_manage_general %}
         <section class="panel">
-          <h2>Empresa y branding</h2>
+          <h2>Empresas y branding</h2>
+          <div class="general-selector">
+            <label class="field">
+              Empresa activa de sesión
+              <select id="cfg-company-selector"></select>
+            </label>
+            <button id="company-switch" type="button" class="ghost">Usar empresa</button>
+            <button id="company-delete" type="button" class="danger">Eliminar empresa</button>
+          </div>
+
+          <form id="new-company-form" class="general-settings-form new-company-form">
+            <label class="field">
+              ID empresa (opcional)
+              <input id="new-company-id" type="text" placeholder="ej: bacar_norte" />
+            </label>
+            <label class="field">
+              Nombre empresa
+              <input id="new-company-name" type="text" placeholder="ej: Bacar Norte" required />
+            </label>
+            <label class="field">
+              Equipo RRHH
+              <input id="new-company-hr-team-name" type="text" placeholder="ej: RRHH" required />
+            </label>
+            <label class="field">
+              Contacto RRHH
+              <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
+            </label>
+            <label class="field">
+              Sucursales (coma)
+              <input id="new-company-branches" type="text" placeholder="ej: CABA, Rosario, Córdoba" />
+            </label>
+            <div class="form-actions">
+              <button type="submit">Agregar empresa</button>
+            </div>
+          </form>
+
           <form id="general-settings-form" class="general-settings-form">
             <label class="field">
-              Empresa
+              Empresa (nombre visible)
               <input
                 id="cfg-company-name"
                 type="text"
@@ -61,9 +96,13 @@
                 required
               />
             </label>
+            <label class="field">
+              Sucursales (separadas por coma)
+              <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
+            </label>
             <div class="form-actions">
-              <button type="submit">Guardar configuración</button>
-              <button id="general-refresh" type="button" class="ghost">Recargar</button>
+              <button type="submit">Guardar empresa activa</button>
+              <button id="general-refresh" type="button" class="ghost">Recargar empresa</button>
             </div>
           </form>
           <p id="general-status" class="subtle"></p>
@@ -88,6 +127,8 @@
               <option value="rrhh">rrhh</option>
               <option value="admin">admin</option>
             </select>
+            <select id="new-user-company"></select>
+            <input id="new-user-branch" type="text" placeholder="Sucursal (opcional)" />
             <button type="submit">Crear usuario</button>
           </form>
 
@@ -100,6 +141,7 @@
                   <th>Usuario</th>
                   <th>Nombre</th>
                   <th>Rol</th>
+                  <th>Empresa/Sucursal</th>
                   <th>Permisos</th>
                   <th>Acción</th>
                 </tr>
@@ -163,6 +205,8 @@
       const newDisplayNameEl = document.getElementById("new-display-name");
       const newPasswordEl = document.getElementById("new-password");
       const newRoleEl = document.getElementById("new-role");
+      const newUserCompanyEl = document.getElementById("new-user-company");
+      const newUserBranchEl = document.getElementById("new-user-branch");
 
       const rolesFileEl = document.getElementById("roles-file");
       const rolesStatusEl = document.getElementById("roles-status");
@@ -175,12 +219,24 @@
       const generalForm = document.getElementById("general-settings-form");
       const generalStatusEl = document.getElementById("general-status");
       const generalRefreshBtn = document.getElementById("general-refresh");
+      const companySelectorEl = document.getElementById("cfg-company-selector");
+      const companySwitchBtn = document.getElementById("company-switch");
+      const companyDeleteBtn = document.getElementById("company-delete");
+      const newCompanyForm = document.getElementById("new-company-form");
+      const newCompanyIdEl = document.getElementById("new-company-id");
+      const newCompanyNameEl = document.getElementById("new-company-name");
+      const newCompanyHrTeamNameEl = document.getElementById("new-company-hr-team-name");
+      const newCompanyHrContactEl = document.getElementById("new-company-hr-contact");
+      const newCompanyBranchesEl = document.getElementById("new-company-branches");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
       const cfgHrTeamNameEl = document.getElementById("cfg-hr-team-name");
       const cfgHrContactEl = document.getElementById("cfg-hr-contact");
+      const cfgCompanyBranchesEl = document.getElementById("cfg-company-branches");
 
       let validRoles = ["admin", "rrhh"];
       let permissionsCatalog = [];
+      let companies = {{ companies|tojson if companies is defined else [] }};
+      let selectedCompanyId = {{ selected_company_id|tojson if selected_company_id is defined else "null" }};
 
       function escapeHtml(value) {
         return String(value)
@@ -237,6 +293,96 @@
         rolesStatusEl.classList.toggle("error-text", Boolean(isError));
       }
 
+      function normalizeCompanyId(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replaceAll(" ", "-")
+          .replace(/[^a-z0-9._-]/g, "");
+      }
+
+      function parseBranchesText(value) {
+        const items = String(value || "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+        return [...new Set(items.map((item) => item.toLowerCase()))].map((key) => {
+          const found = items.find((item) => item.toLowerCase() === key);
+          return found || key;
+        });
+      }
+
+      function branchesToText(branches) {
+        return (Array.isArray(branches) ? branches : []).join(", ");
+      }
+
+      function assignmentsToText(assignments) {
+        const rows = Array.isArray(assignments) ? assignments : [];
+        if (!rows.length) return "todas:*";
+        return rows
+          .map((item) => {
+            const companyId = normalizeCompanyId(item.company_id || "");
+            const branch = String(item.branch || "").trim();
+            if (!companyId) return "";
+            return branch ? `${companyId}:${branch}` : `${companyId}:*`;
+          })
+          .filter(Boolean)
+          .join(", ");
+      }
+
+      function parseAssignmentsText(value) {
+        const tokens = String(value || "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+        const assignments = [];
+        const seen = new Set();
+        tokens.forEach((token) => {
+          let companyId = "";
+          let branch = "";
+          if (token.includes(":")) {
+            const parts = token.split(":");
+            companyId = normalizeCompanyId(parts.shift() || "");
+            branch = parts.join(":").trim();
+          } else {
+            companyId = normalizeCompanyId(token);
+          }
+          if (!companyId || companyId === "todas") return;
+          if (branch === "*" || branch.toLowerCase() === "todas") branch = "";
+          const key = `${companyId}|${branch.toLowerCase()}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          assignments.push({ company_id: companyId, branch });
+        });
+        return assignments;
+      }
+
+      function getCompanyById(companyId) {
+        const key = normalizeCompanyId(companyId);
+        return companies.find((item) => normalizeCompanyId(item.company_id) === key) || null;
+      }
+
+      function fillCompanySelect(selectEl, selectedId = "", includeEmpty = false) {
+        if (!selectEl) return;
+        const normalizedSelected = normalizeCompanyId(selectedId);
+        selectEl.innerHTML = "";
+        if (includeEmpty) {
+          const empty = document.createElement("option");
+          empty.value = "";
+          empty.textContent = "Sin restricción (todas)";
+          selectEl.appendChild(empty);
+        }
+        companies.forEach((company) => {
+          const option = document.createElement("option");
+          option.value = company.company_id;
+          option.textContent = company.company_name || company.company_id;
+          if (normalizeCompanyId(company.company_id) === normalizedSelected) {
+            option.selected = true;
+          }
+          selectEl.appendChild(option);
+        });
+      }
+
       function permisosTexto(perms) {
         const values = Array.isArray(perms) ? perms : [];
         if (values.length === 0) return "Sin permisos";
@@ -279,7 +425,7 @@
         if (!usersBodyEl) return;
         usersBodyEl.innerHTML = "";
         if (!users || users.length === 0) {
-          usersBodyEl.innerHTML = "<tr><td colspan='5'>Sin usuarios creados en archivo.</td></tr>";
+          usersBodyEl.innerHTML = "<tr><td colspan='6'>Sin usuarios creados en archivo.</td></tr>";
           return;
         }
 
@@ -307,11 +453,21 @@
           });
           tdRole.appendChild(selectRole);
 
+          const tdAssignments = document.createElement("td");
+          const assignmentsInput = document.createElement("input");
+          assignmentsInput.type = "text";
+          assignmentsInput.className = "role-display-input";
+          assignmentsInput.value = assignmentsToText(user.assignments || []);
+          assignmentsInput.placeholder = "empresa:sucursal, empresa2:*";
+          tdAssignments.appendChild(assignmentsInput);
+
           const tdPerms = document.createElement("td");
           tdPerms.className = "permissions-cell";
           tdPerms.textContent = permisosTexto(user.permissions);
 
           const tdAction = document.createElement("td");
+          tdAction.className = "config-actions-cell";
+
           const btnUpdate = document.createElement("button");
           btnUpdate.type = "button";
           btnUpdate.className = "role-update-btn";
@@ -325,9 +481,37 @@
           });
           tdAction.appendChild(btnUpdate);
 
+          const btnAssign = document.createElement("button");
+          btnAssign.type = "button";
+          btnAssign.className = "role-update-btn ghost";
+          btnAssign.textContent = "Guardar asignación";
+          btnAssign.addEventListener("click", async () => {
+            try {
+              const assignments = parseAssignmentsText(assignmentsInput.value);
+              await actualizarAsignacionesUsuario(username, assignments);
+            } catch (error) {
+              setUsersStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnAssign);
+
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "role-update-btn danger";
+          btnDelete.textContent = "Eliminar";
+          btnDelete.addEventListener("click", async () => {
+            try {
+              await eliminarUsuario(username);
+            } catch (error) {
+              setUsersStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnDelete);
+
           tr.appendChild(tdUsername);
           tr.appendChild(tdName);
           tr.appendChild(tdRole);
+          tr.appendChild(tdAssignments);
           tr.appendChild(tdPerms);
           tr.appendChild(tdAction);
           usersBodyEl.appendChild(tr);
@@ -361,6 +545,7 @@
           tdPerms.appendChild(permsContainer);
 
           const tdAction = document.createElement("td");
+          tdAction.className = "config-actions-cell";
           const btnSave = document.createElement("button");
           btnSave.type = "button";
           btnSave.className = "role-update-btn";
@@ -378,12 +563,57 @@
           });
           tdAction.appendChild(btnSave);
 
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "role-update-btn danger";
+          btnDelete.textContent = "Eliminar rol";
+          btnDelete.addEventListener("click", async () => {
+            try {
+              await eliminarRol(role.name);
+            } catch (error) {
+              setRolesStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnDelete);
+
           tr.appendChild(tdName);
           tr.appendChild(tdDisplay);
           tr.appendChild(tdPerms);
           tr.appendChild(tdAction);
           rolesBodyEl.appendChild(tr);
         });
+      }
+
+      function syncGeneralInputs(settings) {
+        if (!settings) return;
+        if (cfgCompanyNameEl) cfgCompanyNameEl.value = settings.company_name || "";
+        if (cfgHrTeamNameEl) cfgHrTeamNameEl.value = settings.hr_team_name || "";
+        if (cfgHrContactEl) cfgHrContactEl.value = settings.hr_contact || "";
+        if (cfgCompanyBranchesEl) {
+          cfgCompanyBranchesEl.value = branchesToText(settings.branches || []);
+        }
+      }
+
+      function refreshCompanySelectors() {
+        fillCompanySelect(companySelectorEl, selectedCompanyId);
+        fillCompanySelect(newUserCompanyEl, selectedCompanyId || "", false);
+      }
+
+      async function cargarEmpresas() {
+        if (!canManageGeneral) return;
+        const response = await fetch("/api/configuracion/empresas");
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cargar empresas.");
+        companies = Array.isArray(data.companies) ? data.companies : [];
+        selectedCompanyId = normalizeCompanyId(data.selected_company_id || selectedCompanyId);
+        if (!selectedCompanyId && companies.length) {
+          selectedCompanyId = normalizeCompanyId(companies[0].company_id);
+        }
+        refreshCompanySelectors();
       }
 
       async function cargarConfiguracionGeneral() {
@@ -395,20 +625,97 @@
         }
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo cargar configuración.");
-        cfgCompanyNameEl.value = data.settings.company_name || "";
-        cfgHrTeamNameEl.value = data.settings.hr_team_name || "";
-        cfgHrContactEl.value = data.settings.hr_contact || "";
-        setGeneralStatus("Configuración general cargada.");
+        selectedCompanyId = normalizeCompanyId(data.selected_company_id || data.settings.company_id || selectedCompanyId);
+        refreshCompanySelectors();
+        syncGeneralInputs(data.settings || {});
+        setGeneralStatus("Configuración de empresa cargada.");
+      }
+
+      async function seleccionarEmpresaActiva() {
+        if (!canManageGeneral) return;
+        const company_id = normalizeCompanyId(companySelectorEl?.value || "");
+        if (!company_id) throw new Error("Seleccioná una empresa.");
+        const response = await fetch("/api/configuracion/empresa/seleccionar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_id }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo seleccionar la empresa.");
+        selectedCompanyId = normalizeCompanyId(data.company.company_id);
+        refreshCompanySelectors();
+        syncGeneralInputs(data.settings || {});
+        setGeneralStatus(`Empresa activa: ${data.company.company_name}`);
+      }
+
+      async function crearEmpresa() {
+        if (!canManageGeneral) return;
+        const payload = {
+          company_id: (newCompanyIdEl?.value || "").trim(),
+          company_name: (newCompanyNameEl?.value || "").trim(),
+          hr_team_name: (newCompanyHrTeamNameEl?.value || "").trim(),
+          hr_contact: (newCompanyHrContactEl?.value || "").trim(),
+          branches: parseBranchesText(newCompanyBranchesEl?.value || ""),
+        };
+        if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
+          throw new Error("Completá nombre, equipo RRHH y contacto.");
+        }
+        const response = await fetch("/api/configuracion/empresas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo crear empresa.");
+        if (newCompanyIdEl) newCompanyIdEl.value = "";
+        if (newCompanyNameEl) newCompanyNameEl.value = "";
+        if (newCompanyHrTeamNameEl) newCompanyHrTeamNameEl.value = "";
+        if (newCompanyHrContactEl) newCompanyHrContactEl.value = "";
+        if (newCompanyBranchesEl) newCompanyBranchesEl.value = "";
+        await cargarEmpresas();
+        setGeneralStatus(`Empresa ${data.company.company_name} creada.`);
+      }
+
+      async function eliminarEmpresaActiva() {
+        if (!canManageGeneral) return;
+        const company_id = normalizeCompanyId(companySelectorEl?.value || selectedCompanyId);
+        const target = getCompanyById(company_id);
+        if (!company_id || !target) throw new Error("Seleccioná una empresa válida.");
+        const ok = window.confirm(`¿Eliminar la empresa ${target.company_name}?`);
+        if (!ok) return;
+        const response = await fetch(`/api/configuracion/empresas/${encodeURIComponent(company_id)}`, {
+          method: "DELETE",
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo eliminar empresa.");
+        await cargarEmpresas();
+        await cargarConfiguracionGeneral();
+        setGeneralStatus("Empresa eliminada correctamente.");
       }
 
       async function guardarConfiguracionGeneral() {
         if (!canManageGeneral) return;
+        const company_id = normalizeCompanyId(companySelectorEl?.value || selectedCompanyId);
         const payload = {
+          company_id,
           company_name: (cfgCompanyNameEl.value || "").trim(),
           hr_team_name: (cfgHrTeamNameEl.value || "").trim(),
           hr_contact: (cfgHrContactEl.value || "").trim(),
+          branches: parseBranchesText(cfgCompanyBranchesEl?.value || ""),
         };
-        if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
+        if (!payload.company_id || !payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
           throw new Error("Completá empresa, equipo RRHH y contacto.");
         }
         const response = await fetch("/api/configuracion/general", {
@@ -422,7 +729,8 @@
         }
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo guardar configuración.");
-        setGeneralStatus("Configuración general actualizada correctamente.");
+        await cargarEmpresas();
+        setGeneralStatus("Configuración de empresa actualizada correctamente.");
       }
 
       async function cargarUsuarios() {
@@ -440,6 +748,10 @@
         if (Array.isArray(data.permissions_catalog) && data.permissions_catalog.length) {
           permissionsCatalog = data.permissions_catalog;
         }
+        if (Array.isArray(data.companies) && data.companies.length) {
+          companies = data.companies;
+          refreshCompanySelectors();
+        }
         if (usersFileEl) usersFileEl.textContent = `Archivo: ${data.users_file || "-"}`;
         renderUsers(data.users || []);
         setUsersStatus(`${(data.users || []).length} usuario(s) cargado(s).`);
@@ -451,13 +763,16 @@
         const display_name = (newDisplayNameEl?.value || "").trim();
         const password = newPasswordEl?.value || "";
         const role = (newRoleEl?.value || "rrhh").trim();
+        const company_id = normalizeCompanyId(newUserCompanyEl?.value || "");
+        const branch = (newUserBranchEl?.value || "").trim();
+        const assignments = company_id ? [{ company_id, branch }] : [];
         if (!username || !password) {
           throw new Error("Completá usuario y contraseña.");
         }
         const response = await fetch("/api/rrhh/usuarios", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, display_name, password, role }),
+          body: JSON.stringify({ username, display_name, password, role, assignments }),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
@@ -469,6 +784,7 @@
         if (newDisplayNameEl) newDisplayNameEl.value = "";
         if (newPasswordEl) newPasswordEl.value = "";
         if (newRoleEl) newRoleEl.value = "rrhh";
+        if (newUserBranchEl) newUserBranchEl.value = "";
         setUsersStatus(`Usuario ${data.user.username} creado correctamente.`);
         await cargarUsuarios();
       }
@@ -487,6 +803,43 @@
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
         setUsersStatus(`Rol actualizado para ${data.user.username}: ${data.user.role}.`);
+        await cargarUsuarios();
+      }
+
+      async function actualizarAsignacionesUsuario(username, assignments) {
+        if (!canManageUsers) return;
+        const response = await fetch(
+          `/api/rrhh/usuarios/${encodeURIComponent(username)}/asignaciones`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ assignments }),
+          }
+        );
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar asignaciones.");
+        setUsersStatus(`Asignaciones actualizadas para ${data.user.username}.`);
+        await cargarUsuarios();
+      }
+
+      async function eliminarUsuario(username) {
+        if (!canManageUsers) return;
+        const ok = window.confirm(`¿Eliminar usuario ${username}?`);
+        if (!ok) return;
+        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}`, {
+          method: "DELETE",
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo eliminar usuario.");
+        setUsersStatus(`Usuario ${username} eliminado.`);
         await cargarUsuarios();
       }
 
@@ -552,8 +905,66 @@
         await cargarUsuarios();
       }
 
+      async function eliminarRol(roleName) {
+        if (!canManageRoles) return;
+        const ok = window.confirm(`¿Eliminar rol ${roleName}?`);
+        if (!ok) return;
+        const response = await fetch(`/api/rrhh/roles/${encodeURIComponent(roleName)}`, {
+          method: "DELETE",
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo eliminar el rol.");
+        setRolesStatus(`Rol ${roleName} eliminado.`);
+        await cargarRoles();
+        await cargarUsuarios();
+      }
+
       if (themeToggleBtn) {
         themeToggleBtn.addEventListener("click", toggleTheme);
+      }
+
+      if (newCompanyForm) {
+        newCompanyForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          try {
+            await crearEmpresa();
+            await cargarUsuarios();
+          } catch (error) {
+            setGeneralStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      if (companySwitchBtn) {
+        companySwitchBtn.addEventListener("click", async () => {
+          try {
+            await seleccionarEmpresaActiva();
+            await cargarUsuarios();
+          } catch (error) {
+            setGeneralStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      if (companySelectorEl) {
+        companySelectorEl.addEventListener("change", () => {
+          selectedCompanyId = normalizeCompanyId(companySelectorEl.value);
+        });
+      }
+
+      if (companyDeleteBtn) {
+        companyDeleteBtn.addEventListener("click", async () => {
+          try {
+            await eliminarEmpresaActiva();
+            await cargarUsuarios();
+          } catch (error) {
+            setGeneralStatus(`Error: ${error.message}`, true);
+          }
+        });
       }
 
       if (generalForm) {
@@ -561,6 +972,7 @@
           event.preventDefault();
           try {
             await guardarConfiguracionGeneral();
+            await cargarUsuarios();
           } catch (error) {
             setGeneralStatus(`Error: ${error.message}`, true);
           }
@@ -570,6 +982,7 @@
       if (generalRefreshBtn) {
         generalRefreshBtn.addEventListener("click", async () => {
           try {
+            await cargarEmpresas();
             await cargarConfiguracionGeneral();
           } catch (error) {
             setGeneralStatus(`Error: ${error.message}`, true);
@@ -603,6 +1016,7 @@
         applyTheme(getInitialTheme());
         if (canManageGeneral) {
           try {
+            await cargarEmpresas();
             await cargarConfiguracionGeneral();
           } catch (error) {
             setGeneralStatus(`Error cargando configuración: ${error.message}`, true);

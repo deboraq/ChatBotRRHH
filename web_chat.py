@@ -31,10 +31,12 @@ IN_MEMORY_HANDOFFS = {}
 IN_MEMORY_CHAT_HISTORY = []
 IN_MEMORY_ACTIVE_AGENTS = {}
 IN_MEMORY_GENERAL_SETTINGS = {}
+IN_MEMORY_COMPANIES = {}
 
 GENERAL_SETTINGS_COLLECTION = "chatbot_config"
 GENERAL_SETTINGS_DOC = "general"
 ACTIVE_AGENTS_COLLECTION = "rrhh_agentes"
+COMPANIES_COLLECTION = "chatbot_empresas"
 
 try:
     ACTIVE_AGENT_TTL_SECONDS = max(
@@ -88,6 +90,205 @@ def _default_general_settings():
     }
 
 
+def _normalize_company_id(value):
+    token = chatbot.normalizar_texto(value or "")
+    token = token.replace(" ", "-")
+    token = "".join(ch for ch in token if ch.isalnum() or ch in {"-", "_", "."})
+    token = token.strip("-_.")
+    if len(token) < 2:
+        return ""
+    return token[:64]
+
+
+def _default_company_id():
+    env_value = str(os.getenv("CHATBOT_DEFAULT_COMPANY_ID", "")).strip()
+    if env_value:
+        normalized = _normalize_company_id(env_value)
+        if normalized:
+            return normalized
+    return _normalize_company_id(_default_general_settings().get("company_name")) or "empresa"
+
+
+def _normalize_branches(raw_branches):
+    if raw_branches is None:
+        return []
+    values = raw_branches if isinstance(raw_branches, list) else [raw_branches]
+    cleaned = []
+    seen = set()
+    for item in values:
+        branch = str(item or "").strip()
+        if not branch:
+            continue
+        key = branch.lower()
+        if key in seen:
+            continue
+        cleaned.append(branch)
+        seen.add(key)
+    return cleaned
+
+
+def _normalize_company_entry(entry):
+    if not isinstance(entry, dict):
+        return None
+    company_name = str(entry.get("company_name") or "").strip()
+    if not company_name:
+        return None
+    company_id = _normalize_company_id(entry.get("company_id") or company_name)
+    if not company_id:
+        return None
+    hr_team_name = str(entry.get("hr_team_name") or "RRHH").strip() or "RRHH"
+    hr_contact = str(entry.get("hr_contact") or "").strip() or "interno 104"
+    branches = _normalize_branches(entry.get("branches"))
+    return {
+        "company_id": company_id,
+        "company_name": company_name,
+        "hr_team_name": hr_team_name,
+        "hr_contact": hr_contact,
+        "branches": branches,
+        "active": bool(entry.get("active", True)),
+    }
+
+
+def _default_company_entry():
+    defaults = _default_general_settings()
+    return {
+        "company_id": _default_company_id(),
+        "company_name": defaults.get("company_name") or "Empresa",
+        "hr_team_name": defaults.get("hr_team_name") or "RRHH",
+        "hr_contact": defaults.get("hr_contact") or "interno 104",
+        "branches": [],
+        "active": True,
+    }
+
+
+def _list_companies(include_inactive=False):
+    rows = []
+    if chatbot.db:
+        try:
+            for doc in chatbot.db.collection(COMPANIES_COLLECTION).stream():
+                payload = doc.to_dict() or {}
+                payload.setdefault("company_id", doc.id)
+                normalized = _normalize_company_entry(payload)
+                if normalized:
+                    rows.append(normalized)
+        except Exception:
+            rows = []
+    else:
+        rows = []
+        for company_id, payload in IN_MEMORY_COMPANIES.items():
+            clone = dict(payload or {})
+            clone.setdefault("company_id", company_id)
+            normalized = _normalize_company_entry(clone)
+            if normalized:
+                rows.append(normalized)
+
+    if not rows:
+        rows = [_default_company_entry()]
+
+    default_entry = _default_company_entry()
+    if not any(item.get("company_id") == default_entry.get("company_id") for item in rows):
+        rows.append(default_entry)
+
+    if not include_inactive:
+        rows = [item for item in rows if item.get("active", True)]
+        if not rows:
+            rows = [default_entry]
+
+    rows.sort(key=lambda item: (str(item.get("company_name") or "").lower(), item.get("company_id")))
+    return rows
+
+
+def _company_map(include_inactive=False):
+    return {item["company_id"]: item for item in _list_companies(include_inactive=include_inactive)}
+
+
+def _get_company(company_id, include_inactive=True):
+    key = _normalize_company_id(company_id)
+    if not key:
+        return None
+    return _company_map(include_inactive=include_inactive).get(key)
+
+
+def _upsert_company(payload):
+    normalized = _normalize_company_entry(payload)
+    if not normalized:
+        return False, None, "Empresa inválida. Completá nombre y datos básicos."
+
+    if chatbot.db:
+        try:
+            (
+                chatbot.db.collection(COMPANIES_COLLECTION)
+                .document(normalized["company_id"])
+                .set(normalized, merge=True)
+            )
+            return True, normalized, ""
+        except Exception as exc:
+            return False, None, f"No pude guardar empresa: {exc}"
+
+    IN_MEMORY_COMPANIES[normalized["company_id"]] = normalized
+    return True, normalized, ""
+
+
+def _delete_company(company_id):
+    key = _normalize_company_id(company_id)
+    if not key:
+        return False, "Empresa inválida."
+    if key == _default_company_id():
+        return False, "No podés eliminar la empresa por defecto."
+
+    companies = _list_companies(include_inactive=True)
+    if len(companies) <= 1:
+        return False, "Debe quedar al menos una empresa configurada."
+
+    for user in auth_rrhh.get_users().values():
+        assignments = user.get("assignments") if isinstance(user.get("assignments"), list) else []
+        if any(str(item.get("company_id") or "").strip().lower() == key for item in assignments if isinstance(item, dict)):
+            return False, "No podés eliminar una empresa asignada a usuarios."
+
+    if chatbot.db:
+        try:
+            chatbot.db.collection(COMPANIES_COLLECTION).document(key).delete()
+            return True, ""
+        except Exception as exc:
+            return False, f"No pude eliminar empresa: {exc}"
+
+    if key not in IN_MEMORY_COMPANIES:
+        return False, "Empresa no encontrada."
+    IN_MEMORY_COMPANIES.pop(key, None)
+    return True, ""
+
+
+def _set_company_session(company_id):
+    company = _get_company(company_id, include_inactive=False)
+    if company is None:
+        company = _list_companies(include_inactive=False)[0]
+    current_user = _current_rrhh_user()
+    if current_user and not _user_can_access_company(current_user, company.get("company_id")):
+        allowed = _companies_for_user(current_user)
+        if allowed:
+            company = allowed[0]
+    session["company_id"] = company["company_id"]
+    session["company_name"] = company["company_name"]
+    session["company_hr_team_name"] = company.get("hr_team_name") or "RRHH"
+    return company
+
+
+def _current_company():
+    selected = _normalize_company_id(session.get("company_id"))
+    company = _get_company(selected, include_inactive=False) if selected else None
+    if company is None:
+        if _list_companies(include_inactive=False):
+            company = _list_companies(include_inactive=False)[0]
+            session["company_id"] = company["company_id"]
+    current_user = _current_rrhh_user()
+    if current_user and not _user_can_access_company(current_user, company.get("company_id")):
+        allowed = _companies_for_user(current_user)
+        if allowed:
+            company = allowed[0]
+            session["company_id"] = company["company_id"]
+    return company or _default_company_entry()
+
+
 def _sanitize_general_settings(payload):
     defaults = _default_general_settings()
     data = dict(defaults)
@@ -102,40 +303,38 @@ def _sanitize_general_settings(payload):
 
 
 def _read_general_settings():
-    defaults = _default_general_settings()
-    if chatbot.db:
-        try:
-            doc = (
-                chatbot.db.collection(GENERAL_SETTINGS_COLLECTION)
-                .document(GENERAL_SETTINGS_DOC)
-                .get()
-            )
-            if doc.exists:
-                return _sanitize_general_settings(doc.to_dict() or {})
-        except Exception:
-            return defaults
-        return defaults
-
-    if IN_MEMORY_GENERAL_SETTINGS:
-        return _sanitize_general_settings(IN_MEMORY_GENERAL_SETTINGS)
-    return defaults
+    company = _current_company()
+    return {
+        "company_id": company.get("company_id"),
+        "company_name": company.get("company_name"),
+        "hr_team_name": company.get("hr_team_name"),
+        "hr_contact": company.get("hr_contact"),
+        "branches": list(company.get("branches") or []),
+    }
 
 
 def _write_general_settings(payload):
-    settings = _sanitize_general_settings(payload)
-    if chatbot.db:
-        try:
-            (
-                chatbot.db.collection(GENERAL_SETTINGS_COLLECTION)
-                .document(GENERAL_SETTINGS_DOC)
-                .set(settings, merge=True)
-            )
-            return True, settings, ""
-        except Exception as exc:
-            return False, None, f"No pude guardar configuración general: {exc}"
+    current = _current_company()
+    company_id = _normalize_company_id((payload or {}).get("company_id") or current.get("company_id"))
+    company_name = str((payload or {}).get("company_name") or current.get("company_name") or "").strip()
+    hr_team_name = str((payload or {}).get("hr_team_name") or current.get("hr_team_name") or "").strip()
+    hr_contact = str((payload or {}).get("hr_contact") or current.get("hr_contact") or "").strip()
+    branches = _normalize_branches((payload or {}).get("branches") or current.get("branches") or [])
 
-    IN_MEMORY_GENERAL_SETTINGS.update(settings)
-    return True, settings, ""
+    ok, company, error = _upsert_company(
+        {
+            "company_id": company_id or current.get("company_id"),
+            "company_name": company_name or current.get("company_name"),
+            "hr_team_name": hr_team_name or current.get("hr_team_name"),
+            "hr_contact": hr_contact or current.get("hr_contact"),
+            "branches": branches,
+            "active": True,
+        }
+    )
+    if not ok:
+        return False, None, error
+    _set_company_session(company.get("company_id"))
+    return True, _read_general_settings(), ""
 
 
 def _apply_company_branding(settings=None):
@@ -164,13 +363,15 @@ def _manual_agent_id(name):
     return f"manual:{normalized}"
 
 
-def _agent_payload(display_name, agent_id="", role="rrhh"):
+def _agent_payload(display_name, agent_id="", role="rrhh", company_id=""):
     shown = str(display_name or "RRHH").strip() or "RRHH"
     identifier = str(agent_id or "").strip().lower() or _manual_agent_id(shown)
+    company_key = _normalize_company_id(company_id)
     return {
         "agent_id": identifier,
         "display_name": shown,
         "role": str(role or "rrhh").strip().lower() or "rrhh",
+        "company_id": company_key,
     }
 
 
@@ -178,10 +379,12 @@ def _active_agent_from_current_user():
     current = _current_rrhh_user()
     if not current:
         return None
+    company_id = _selected_company_id_for_rrhh()
     return _agent_payload(
         display_name=current.get("display_name") or current.get("username") or "RRHH",
         agent_id=str(current.get("username") or "").strip().lower(),
         role=current.get("role") or "rrhh",
+        company_id=company_id,
     )
 
 
@@ -213,6 +416,7 @@ def _current_rrhh_user():
         "username": username,
         "display_name": str(session.get("rrhh_display_name") or username),
         "role": str(session.get("rrhh_role") or "rrhh"),
+        "assignments": session.get("rrhh_assignments") or [],
     }
     if _auth_enabled():
         # Si el rol/nombre cambian en archivo, sincroniza sesión en caliente.
@@ -222,6 +426,7 @@ def _current_rrhh_user():
             return None
         current["display_name"] = str(entry.get("display_name") or username)
         current["role"] = str(entry.get("role") or "rrhh")
+        current["assignments"] = list(entry.get("assignments") or [])
         _set_rrhh_user(current)
     return current
 
@@ -232,12 +437,14 @@ def _set_rrhh_user(user_payload):
         user_payload.get("display_name") or session["rrhh_user"]
     ).strip()
     session["rrhh_role"] = str(user_payload.get("role") or "rrhh").strip()
+    session["rrhh_assignments"] = list(user_payload.get("assignments") or [])
 
 
 def _clear_rrhh_user():
     session.pop("rrhh_user", None)
     session.pop("rrhh_display_name", None)
     session.pop("rrhh_role", None)
+    session.pop("rrhh_assignments", None)
 
 
 def _rrhh_agent_name(default="RRHH"):
@@ -253,7 +460,7 @@ def _resolve_rrhh_agent(payload):
         if current_agent:
             return current_agent
     fallback_name = str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
-    return _agent_payload(display_name=fallback_name)
+    return _agent_payload(display_name=fallback_name, company_id=_selected_company_id_for_rrhh())
 
 
 def _upsert_active_agent(agent, source="heartbeat"):
@@ -261,6 +468,7 @@ def _upsert_active_agent(agent, source="heartbeat"):
         display_name=agent.get("display_name") or "RRHH",
         agent_id=agent.get("agent_id") or "",
         role=agent.get("role") or "rrhh",
+        company_id=agent.get("company_id") or _selected_company_id_for_rrhh(),
     )
     payload["updated_at"] = _utc_now()
     payload["available"] = True
@@ -281,7 +489,7 @@ def _upsert_active_agent(agent, source="heartbeat"):
     return payload
 
 
-def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS):
+def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS, company_id=None):
     now = _as_utc_naive(_utc_now()) or datetime.utcnow()
     ttl = max(30, int(ttl_seconds or ACTIVE_AGENT_TTL_SECONDS))
     threshold = now - timedelta(seconds=ttl)
@@ -299,16 +507,27 @@ def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS):
         rows = [dict(value) for value in IN_MEMORY_ACTIVE_AGENTS.values()]
 
     active = []
+    target_company = _normalize_company_id(company_id)
     for item in rows:
         updated_at = _as_utc_naive(item.get("updated_at"))
         if updated_at is None or updated_at < threshold:
             continue
         if item.get("available") is False:
             continue
+        item_company = _normalize_company_id(item.get("company_id"))
+        if target_company and item_company != target_company:
+            continue
         role = str(item.get("role") or "").strip().lower()
         if role and not auth_rrhh.role_has_permission(role, auth_rrhh.PERM_CONVERSATIONS_MANAGE):
             continue
-        active.append(_agent_payload(item.get("display_name"), item.get("agent_id"), role))
+        active.append(
+            _agent_payload(
+                item.get("display_name"),
+                item.get("agent_id"),
+                role,
+                company_id=item_company,
+            )
+        )
         active[-1]["updated_at"] = item.get("updated_at")
 
     active.sort(key=lambda x: (str(x.get("display_name") or "").lower(), x.get("agent_id") or ""))
@@ -320,6 +539,7 @@ def _serialize_active_agent(agent):
         "agent_id": str(agent.get("agent_id") or ""),
         "display_name": str(agent.get("display_name") or ""),
         "role": str(agent.get("role") or ""),
+        "company_id": str(agent.get("company_id") or ""),
         "updated_at": _fmt_fecha(agent.get("updated_at")),
     }
 
@@ -337,9 +557,9 @@ def _heartbeat_current_agent(source="rrhh_panel"):
     return None
 
 
-def _open_handoff_load_by_agent():
+def _open_handoff_load_by_agent(company_id=None):
     counts = {}
-    for conv in _list_handoffs(include_closed=False, limit=1000):
+    for conv in _list_handoffs(include_closed=False, limit=1000, company_id=company_id):
         estado = str(conv.get("estado") or "").strip().lower()
         if estado == HANDOFF_STATUS_CLOSED:
             continue
@@ -350,11 +570,11 @@ def _open_handoff_load_by_agent():
     return counts
 
 
-def _select_auto_agent():
-    active_agents = _list_active_agents()
+def _select_auto_agent(company_id=None):
+    active_agents = _list_active_agents(company_id=company_id)
     if not active_agents:
         return None
-    load = _open_handoff_load_by_agent()
+    load = _open_handoff_load_by_agent(company_id=company_id)
     return sorted(
         active_agents,
         key=lambda agent: (
@@ -371,13 +591,16 @@ def _resolve_target_agent_for_reassignment(payload):
     requested_name = str(data.get("agente") or "").strip()
 
     if requested_id:
-        for agent in _list_active_agents():
+        for agent in _list_active_agents(company_id=_selected_company_id_for_rrhh()):
             if agent.get("agent_id") == requested_id:
                 return agent
         return None
 
     if requested_name:
-        return _agent_payload(display_name=requested_name)
+        return _agent_payload(
+            display_name=requested_name,
+            company_id=_selected_company_id_for_rrhh(),
+        )
 
     return _resolve_rrhh_agent(data)
 
@@ -388,6 +611,41 @@ def _can_manage_configuration():
     return _has_permission(auth_rrhh.PERM_USERS_MANAGE) or _has_permission(
         auth_rrhh.PERM_ROLES_MANAGE
     )
+
+
+def _companies_for_user(user_payload):
+    companies = _list_companies(include_inactive=False)
+    assignments = list((user_payload or {}).get("assignments") or [])
+    if not assignments:
+        return companies
+    allowed = {
+        str(item.get("company_id") or "").strip().lower()
+        for item in assignments
+        if isinstance(item, dict)
+    }
+    return [item for item in companies if item.get("company_id") in allowed]
+
+
+def _user_can_access_company(user_payload, company_id):
+    company_key = _normalize_company_id(company_id)
+    if not company_key:
+        return False
+    username = str((user_payload or {}).get("username") or "").strip()
+    if username:
+        return auth_rrhh.user_has_company_access(username, company_key)
+    assignments = list((user_payload or {}).get("assignments") or [])
+    if not assignments:
+        return True
+    return any(
+        str(item.get("company_id") or "").strip().lower() == company_key
+        for item in assignments
+        if isinstance(item, dict)
+    )
+
+
+def _selected_company_id_for_rrhh():
+    current = _current_company()
+    return current.get("company_id")
 
 
 def _default_landing_for_user(user_payload):
@@ -592,7 +850,7 @@ def _upsert_handoff(conversation_id, payload, merge=True):
     IN_MEMORY_HANDOFFS[conversation_id].setdefault("mensajes", [])
 
 
-def _list_handoffs(include_closed=False, limit=100):
+def _list_handoffs(include_closed=False, limit=100, company_id=None):
     if chatbot.db:
         docs = [
             _from_firestore_doc(doc)
@@ -602,10 +860,15 @@ def _list_handoffs(include_closed=False, limit=100):
         docs = [dict(value) for value in IN_MEMORY_HANDOFFS.values()]
 
     filtered = []
+    target_company = _normalize_company_id(company_id)
     for item in docs:
         estado = str(item.get("estado") or "").strip().lower()
         if not include_closed and estado == HANDOFF_STATUS_CLOSED:
             continue
+        if target_company:
+            item_company = _normalize_company_id(item.get("company_id"))
+            if item_company != target_company:
+                continue
         filtered.append(item)
 
     filtered.sort(key=lambda x: _as_utc_naive(x.get("updated_at")) or datetime.min, reverse=True)
@@ -716,6 +979,11 @@ def _take_handoff(conversation_id, agente, auto_taken=False):
         display_name=(agente or {}).get("display_name") if isinstance(agente, dict) else agente,
         agent_id=(agente or {}).get("agent_id") if isinstance(agente, dict) else "",
         role=(agente or {}).get("role") if isinstance(agente, dict) else "rrhh",
+        company_id=(
+            (agente or {}).get("company_id")
+            if isinstance(agente, dict)
+            else conv.get("company_id")
+        ),
     )
     _upsert_handoff(
         conversation_id,
@@ -777,6 +1045,11 @@ def _reassign_handoff(conversation_id, agente_destino, reasignado_por=""):
         role=(agente_destino or {}).get("role")
         if isinstance(agente_destino, dict)
         else "rrhh",
+        company_id=(
+            (agente_destino or {}).get("company_id")
+            if isinstance(agente_destino, dict)
+            else conv.get("company_id")
+        ),
     )
     if not target.get("display_name"):
         return False, "Agente destino inválido"
@@ -916,13 +1189,16 @@ def _firebase_project_id():
 
 def _iniciar_handoff_rrhh(mensaje_usuario):
     chat_session_id = _session_chat_id()
+    company = _current_company()
+    company_id = company.get("company_id")
     active_id = _get_handoff_session_id()
     existing = _fetch_handoff(active_id) if active_id else None
     now = _utc_now()
 
     if existing is not None:
         estado_actual = str(existing.get("estado") or "").strip().lower()
-        if estado_actual in {HANDOFF_STATUS_PENDING, HANDOFF_STATUS_ACTIVE}:
+        existing_company = _normalize_company_id(existing.get("company_id"))
+        if estado_actual in {HANDOFF_STATUS_PENDING, HANDOFF_STATUS_ACTIVE} and existing_company == company_id:
             conversation_id = active_id
         else:
             _clear_handoff_session()
@@ -932,12 +1208,14 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
         conversation_id = _new_conversation_id()
 
     if existing is None:
-        assigned_agent = _select_auto_agent()
+        assigned_agent = _select_auto_agent(company_id=company_id)
         estado_inicial = HANDOFF_STATUS_ACTIVE if assigned_agent else HANDOFF_STATUS_PENDING
         _upsert_handoff(
             conversation_id,
             {
                 "conversation_id": conversation_id,
+                "company_id": company_id,
+                "company_name": company.get("company_name"),
                 "estado": estado_inicial,
                 "created_at": now,
                 "updated_at": now,
@@ -1157,6 +1435,8 @@ def responder_chat(mensaje_usuario):
 def _serialize_handoff(conv):
     return {
         "conversation_id": conv.get("conversation_id") or conv.get("id"),
+        "company_id": conv.get("company_id") or "",
+        "company_name": conv.get("company_name") or "",
         "estado": conv.get("estado") or HANDOFF_STATUS_PENDING,
         "rrhh_agente": conv.get("rrhh_agente") or "",
         "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
@@ -1182,16 +1462,31 @@ def _serialize_messages(messages):
     return payload
 
 
+def _conversation_matches_selected_company(conv):
+    if not isinstance(conv, dict):
+        return False
+    selected_company = _selected_company_id_for_rrhh()
+    if not selected_company:
+        return True
+    return _normalize_company_id(conv.get("company_id")) == selected_company
+
+
 def reset_in_memory_handoffs():
     IN_MEMORY_HANDOFFS.clear()
     IN_MEMORY_CHAT_HISTORY.clear()
     IN_MEMORY_ACTIVE_AGENTS.clear()
     IN_MEMORY_GENERAL_SETTINGS.clear()
+    IN_MEMORY_COMPANIES.clear()
 
 
 @flask_app.get("/")
 def home():
-    settings = _apply_company_branding()
+    requested_company = _normalize_company_id(request.args.get("empresa"))
+    if requested_company and _get_company(requested_company, include_inactive=False):
+        _set_company_session(requested_company)
+    else:
+        _set_company_session(session.get("company_id") or _default_company_id())
+    settings = _apply_company_branding(_read_general_settings())
     temas_map = construir_temas_map()
     return render_template(
         "chat.html",
@@ -1218,7 +1513,8 @@ def add_no_cache_headers(response):
     message="No tenés permisos para ver el panel de conversaciones.",
 )
 def rrhh_page():
-    settings = _apply_company_branding()
+    company = _set_company_session(session.get("company_id") or _default_company_id())
+    settings = _apply_company_branding(_read_general_settings())
     return render_template(
         "rrhh.html",
         auth_enabled=_auth_enabled(),
@@ -1228,6 +1524,8 @@ def rrhh_page():
         can_manage_config=_can_manage_configuration(),
         company_name=settings.get("company_name"),
         hr_team_name=settings.get("hr_team_name"),
+        selected_company_id=company.get("company_id"),
+        selected_company_name=company.get("company_name"),
     )
 
 
@@ -1236,6 +1534,7 @@ def rrhh_page():
 def configuracion_page():
     if not _can_manage_configuration():
         return ("No tenés permisos para acceder a configuración.", 403)
+    company = _set_company_session(session.get("company_id") or _default_company_id())
     settings = _read_general_settings()
     return render_template(
         "configuracion.html",
@@ -1245,6 +1544,8 @@ def configuracion_page():
         can_manage_roles=_has_permission(auth_rrhh.PERM_ROLES_MANAGE),
         can_manage_general=_can_manage_configuration(),
         general_settings=settings,
+        companies=_list_companies(include_inactive=True),
+        selected_company_id=company.get("company_id"),
     )
 
 
@@ -1268,7 +1569,8 @@ def stats_page():
 
 @flask_app.post("/api/chat")
 def chat_api():
-    _apply_company_branding()
+    company = _set_company_session(session.get("company_id") or _default_company_id())
+    _apply_company_branding(_read_general_settings())
     data = request.get_json(silent=True) or {}
     mensaje = data.get("message", "")
 
@@ -1289,7 +1591,7 @@ def chat_api():
             remitente="colaborador",
             texto=mensaje,
             canal="asistente",
-            metadata={"source": "api_chat"},
+            metadata={"source": "api_chat", "company_id": company.get("company_id")},
         )
 
     payload = responder_chat(mensaje)
@@ -1303,6 +1605,7 @@ def chat_api():
             "await_feedback": bool(payload.get("await_feedback")),
             "handoff_active": bool(payload.get("handoff_active")),
             "end_session": bool(payload.get("end_session")),
+            "company_id": company.get("company_id"),
         },
     )
     return jsonify({"ok": True, **payload})
@@ -1314,10 +1617,18 @@ def login_page():
         return redirect(url_for("rrhh_page"))
     if _current_rrhh_user() is not None:
         return redirect(_safe_next_path(request.args.get("next"), fallback="/rrhh"))
+    companies = _list_companies(include_inactive=False)
+    selected_company = _normalize_company_id(
+        request.args.get("empresa") or session.get("company_id") or _default_company_id()
+    )
+    if not any(item.get("company_id") == selected_company for item in companies):
+        selected_company = companies[0]["company_id"] if companies else _default_company_id()
     return render_template(
         "login.html",
         error="",
         next_path=_safe_next_path(request.args.get("next"), fallback="/rrhh"),
+        companies=companies,
+        selected_company=selected_company,
     )
 
 
@@ -1329,20 +1640,73 @@ def login_submit():
     data = request.get_json(silent=True) if request.is_json else request.form
     username = str((data or {}).get("username") or "").strip()
     password = str((data or {}).get("password") or "")
+    company_id = _normalize_company_id((data or {}).get("company_id") or request.args.get("empresa"))
     next_path = _safe_next_path((data or {}).get("next") or request.args.get("next"), "/rrhh")
 
     ok, user_payload, error = auth_rrhh.authenticate(username, password)
     if not ok:
         if request.is_json:
             return jsonify({"ok": False, "error": error}), 401
+        companies = _list_companies(include_inactive=False)
+        selected_company = company_id or (companies[0]["company_id"] if companies else _default_company_id())
         return (
-            render_template("login.html", error=error, next_path=next_path),
+            render_template(
+                "login.html",
+                error=error,
+                next_path=next_path,
+                companies=companies,
+                selected_company=selected_company,
+            ),
             401,
         )
 
+    user_companies = _companies_for_user(user_payload)
+    if not user_companies:
+        message = "Tu usuario no tiene empresas asignadas o activas."
+        if request.is_json:
+            return jsonify({"ok": False, "error": message}), 403
+        return (
+            render_template(
+                "login.html",
+                error=message,
+                next_path=next_path,
+                companies=_list_companies(include_inactive=False),
+                selected_company=company_id or _default_company_id(),
+            ),
+            403,
+        )
+    chosen_company = company_id
+    if not chosen_company or not any(item.get("company_id") == chosen_company for item in user_companies):
+        chosen_company = user_companies[0]["company_id"] if user_companies else _default_company_id()
+    if not _user_can_access_company(user_payload, chosen_company):
+        message = "No tenés acceso a la empresa seleccionada."
+        if request.is_json:
+            return jsonify({"ok": False, "error": message}), 403
+        return (
+            render_template(
+                "login.html",
+                error=message,
+                next_path=next_path,
+                companies=user_companies,
+                selected_company=chosen_company,
+            ),
+            403,
+        )
+
+    company = _set_company_session(chosen_company)
     _set_rrhh_user(user_payload)
     if request.is_json:
-        return jsonify({"ok": True, "redirect_to": next_path, "user": user_payload})
+        return jsonify(
+            {
+                "ok": True,
+                "redirect_to": next_path,
+                "user": user_payload,
+                "company": {
+                    "company_id": company.get("company_id"),
+                    "company_name": company.get("company_name"),
+                },
+            }
+        )
     return redirect(next_path)
 
 
@@ -1428,7 +1792,7 @@ def configuracion_general_api():
     if not _can_manage_configuration():
         return _forbidden_json_error("Sin permiso para ver configuración.")
     settings = _read_general_settings()
-    return jsonify({"ok": True, "settings": settings})
+    return jsonify({"ok": True, "settings": settings, "selected_company_id": _current_company().get("company_id")})
 
 
 @flask_app.post("/api/configuracion/general")
@@ -1444,6 +1808,88 @@ def configuracion_general_update_api():
     return jsonify({"ok": True, "settings": settings})
 
 
+@flask_app.get("/api/configuracion/empresas")
+@rrhh_auth_required
+def configuracion_empresas_api():
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para ver empresas.")
+    companies = _list_companies(include_inactive=True)
+    return jsonify(
+        {
+            "ok": True,
+            "companies": companies,
+            "selected_company_id": _current_company().get("company_id"),
+        }
+    )
+
+
+@flask_app.post("/api/configuracion/empresas")
+@rrhh_auth_required
+def configuracion_crear_empresa_api():
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para crear empresas.")
+    data = request.get_json(silent=True) or {}
+    ok, company, error = _upsert_company(data)
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True, "company": company})
+
+
+@flask_app.post("/api/configuracion/empresas/<company_id>")
+@rrhh_auth_required
+def configuracion_editar_empresa_api(company_id):
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para editar empresas.")
+    current = _get_company(company_id, include_inactive=True)
+    if not current:
+        return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
+    data = request.get_json(silent=True) or {}
+    payload = {
+        "company_id": current.get("company_id"),
+        "company_name": data.get("company_name", current.get("company_name")),
+        "hr_team_name": data.get("hr_team_name", current.get("hr_team_name")),
+        "hr_contact": data.get("hr_contact", current.get("hr_contact")),
+        "branches": data.get("branches", current.get("branches") or []),
+        "active": bool(data.get("active", current.get("active", True))),
+    }
+    ok, company, error = _upsert_company(payload)
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 400
+    if _normalize_company_id(session.get("company_id")) == company.get("company_id"):
+        _set_company_session(company.get("company_id"))
+    return jsonify({"ok": True, "company": company})
+
+
+@flask_app.delete("/api/configuracion/empresas/<company_id>")
+@rrhh_auth_required
+def configuracion_eliminar_empresa_api(company_id):
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para eliminar empresas.")
+    ok, error = _delete_company(company_id)
+    if not ok:
+        status_code = 404 if "no encontrada" in error.lower() else 409
+        return jsonify({"ok": False, "error": error}), status_code
+    if _normalize_company_id(session.get("company_id")) == _normalize_company_id(company_id):
+        _set_company_session(_default_company_id())
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/configuracion/empresa/seleccionar")
+@rrhh_auth_required
+def configuracion_seleccionar_empresa_api():
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para cambiar empresa activa.")
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id"))
+    company = _get_company(company_id, include_inactive=False)
+    if not company:
+        return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
+    _set_company_session(company.get("company_id"))
+    settings = _read_general_settings()
+    _apply_company_branding(settings)
+    return jsonify({"ok": True, "company": company, "settings": settings})
+
+
 @flask_app.get("/api/rrhh/conversaciones")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_VIEW,
@@ -1452,15 +1898,23 @@ def configuracion_general_update_api():
 def rrhh_conversaciones_api():
     _heartbeat_current_agent()
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
-    convs = _list_handoffs(include_closed=include_closed, limit=150)
+    company = _current_company()
+    convs = _list_handoffs(
+        include_closed=include_closed,
+        limit=150,
+        company_id=company.get("company_id"),
+    )
     return jsonify(
         {
             "ok": True,
             "conversaciones": [_serialize_handoff(c) for c in convs],
             "agente_actual": _rrhh_agent_name() if _auth_enabled() else "",
             "agentes_activos": [
-                _serialize_active_agent(agent) for agent in _list_active_agents()
+                _serialize_active_agent(agent)
+                for agent in _list_active_agents(company_id=company.get("company_id"))
             ],
+            "selected_company_id": company.get("company_id"),
+            "selected_company_name": company.get("company_name"),
         }
     )
 
@@ -1479,6 +1933,7 @@ def rrhh_usuarios_api():
             "users_file": auth_rrhh.users_file_path(),
             "valid_roles": auth_rrhh.available_roles(),
             "permissions_catalog": auth_rrhh.permissions_catalog(),
+            "companies": _list_companies(include_inactive=False),
         }
     )
 
@@ -1494,6 +1949,7 @@ def rrhh_crear_usuario_api():
     password = str(data.get("password") or "")
     display_name = str(data.get("display_name") or "").strip()
     role = str(data.get("role") or "rrhh").strip().lower()
+    assignments = data.get("assignments")
     created_by = (_current_rrhh_user() or {}).get("username") or ""
 
     ok, user, error = auth_rrhh.create_user(
@@ -1502,6 +1958,7 @@ def rrhh_crear_usuario_api():
         display_name=display_name,
         role=role,
         created_by=created_by,
+        assignments=assignments,
     )
     if not ok:
         status_code = 409 if "existe" in error.lower() else 400
@@ -1600,6 +2057,56 @@ def rrhh_actualizar_rol_api(username):
     return jsonify({"ok": True, "user": user})
 
 
+@flask_app.post("/api/rrhh/usuarios/<username>/asignaciones")
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para editar asignaciones de usuarios.",
+)
+def rrhh_actualizar_asignaciones_api(username):
+    data = request.get_json(silent=True) or {}
+    assignments = data.get("assignments")
+    updated_by = (_current_rrhh_user() or {}).get("username") or ""
+    ok, user, error = auth_rrhh.update_user_assignments(
+        username=username,
+        assignments=assignments,
+        updated_by=updated_by,
+    )
+    if not ok:
+        msg = error.lower()
+        status_code = 404 if "no encontrado" in msg else 400
+        return jsonify({"ok": False, "error": error}), status_code
+    return jsonify({"ok": True, "user": user})
+
+
+@flask_app.delete("/api/rrhh/usuarios/<username>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para eliminar usuarios.",
+)
+def rrhh_eliminar_usuario_api(username):
+    deleted_by = (_current_rrhh_user() or {}).get("username") or ""
+    ok, error = auth_rrhh.delete_user(username=username, deleted_by=deleted_by)
+    if not ok:
+        msg = error.lower()
+        status_code = 404 if "no encontrado" in msg else 409 if "debe quedar" in msg else 400
+        return jsonify({"ok": False, "error": error}), status_code
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/rrhh/roles/<role_name>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_ROLES_MANAGE,
+    message="Sin permiso para eliminar roles.",
+)
+def rrhh_eliminar_rol_api(role_name):
+    ok, error = auth_rrhh.delete_role(role_name)
+    if not ok:
+        msg = error.lower()
+        status = 404 if "no encontrado" in msg else 409 if "no podés" in msg else 400
+        return jsonify({"ok": False, "error": error}), status
+    return jsonify({"ok": True})
+
+
 @flask_app.get("/api/rrhh/conversaciones/<conversation_id>/mensajes")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_VIEW,
@@ -1609,6 +2116,8 @@ def rrhh_mensajes_api(conversation_id):
     conv = _fetch_handoff(conversation_id)
     if not conv:
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
+    if not _conversation_matches_selected_company(conv):
+        return jsonify({"ok": False, "error": "Conversación no disponible para esta empresa."}), 404
     mensajes = _list_handoff_messages(conversation_id)
     return jsonify(
         {
@@ -1630,6 +2139,11 @@ def rrhh_mensajes_api(conversation_id):
 def rrhh_tomar_api(conversation_id):
     data = request.get_json(silent=True) or {}
     agente = _resolve_rrhh_agent(data)
+    conv = _fetch_handoff(conversation_id)
+    if not conv:
+        return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
+    if not _conversation_matches_selected_company(conv):
+        return jsonify({"ok": False, "error": "Conversación no disponible para esta empresa."}), 404
     if not _take_handoff(conversation_id, agente):
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_ACTIVE})
@@ -1641,6 +2155,11 @@ def rrhh_tomar_api(conversation_id):
     message="Sin permiso para gestionar conversaciones.",
 )
 def rrhh_reasignar_api(conversation_id):
+    conv = _fetch_handoff(conversation_id)
+    if not conv:
+        return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
+    if not _conversation_matches_selected_company(conv):
+        return jsonify({"ok": False, "error": "Conversación no disponible para esta empresa."}), 404
     data = request.get_json(silent=True) or {}
     target_agent = _resolve_target_agent_for_reassignment(data)
     if not target_agent:
@@ -1672,6 +2191,11 @@ def rrhh_reasignar_api(conversation_id):
 def rrhh_cerrar_api(conversation_id):
     data = request.get_json(silent=True) or {}
     agente = _resolve_rrhh_agent(data)
+    conv = _fetch_handoff(conversation_id)
+    if not conv:
+        return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
+    if not _conversation_matches_selected_company(conv):
+        return jsonify({"ok": False, "error": "Conversación no disponible para esta empresa."}), 404
     if not _close_handoff(conversation_id, agente.get("display_name")):
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_CLOSED})
@@ -1692,6 +2216,8 @@ def rrhh_responder_api(conversation_id):
     conv = _fetch_handoff(conversation_id)
     if not conv:
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
+    if not _conversation_matches_selected_company(conv):
+        return jsonify({"ok": False, "error": "Conversación no disponible para esta empresa."}), 404
 
     estado = str(conv.get("estado") or "").strip().lower()
     if estado == HANDOFF_STATUS_CLOSED:

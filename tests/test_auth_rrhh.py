@@ -197,6 +197,49 @@ class AuthRrhhTests(unittest.TestCase):
                 self.assertEqual(role["display_name"], "RRHH Operaciones")
                 self.assertIn(auth_rrhh.PERM_HISTORY_VIEW, role["permissions"])
 
+    def test_update_user_assignments_restricts_company_access(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                },
+                clear=True,
+            ):
+                auth_rrhh.create_user("laura", "secreta123", role="rrhh")
+                ok, user, error = auth_rrhh.update_user_assignments(
+                    username="laura",
+                    assignments=[{"company_id": "acme", "branch": "Centro"}],
+                )
+                self.assertTrue(ok)
+                self.assertEqual(error, "")
+                self.assertEqual(user["assignments"][0]["company_id"], "acme")
+                self.assertTrue(auth_rrhh.user_has_company_access("laura", "acme"))
+                self.assertFalse(auth_rrhh.user_has_company_access("laura", "bacar"))
+
+    def test_delete_role_blocked_when_assigned_to_user(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            roles_path = os.path.join(tmpdir, "rrhh_roles.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                    "RRHH_ROLES_FILE": roles_path,
+                },
+                clear=True,
+            ):
+                auth_rrhh.create_role(
+                    name="auditor",
+                    display_name="Auditor",
+                    permissions=[auth_rrhh.PERM_HISTORY_VIEW],
+                )
+                auth_rrhh.create_user("aud1", "auditor123", role="auditor")
+                ok, error = auth_rrhh.delete_role("auditor")
+                self.assertFalse(ok)
+                self.assertIn("asignado", error.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

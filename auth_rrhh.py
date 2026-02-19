@@ -12,6 +12,7 @@ BOOL_TRUE = {"1", "true", "yes", "on", "si", "sí"}
 BOOL_FALSE = {"0", "false", "no", "off"}
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 ROLE_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
+COMPANY_ID_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
 MIN_PASSWORD_LENGTH = 6
 
 # Permisos disponibles para roles de RRHH.
@@ -72,6 +73,62 @@ def _normalize_permissions(permissions):
     return valid
 
 
+def _normalize_company_id(value):
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    if COMPANY_ID_RE.fullmatch(raw):
+        return raw
+    raw = re.sub(r"\s+", "-", raw)
+    raw = re.sub(r"[^a-z0-9._-]", "", raw)
+    if not COMPANY_ID_RE.fullmatch(raw):
+        return ""
+    return raw
+
+
+def _normalize_assignments(assignments):
+    if assignments is None:
+        return []
+    if not isinstance(assignments, list):
+        return []
+
+    normalized = []
+    seen = set()
+    for item in assignments:
+        company_id = ""
+        branch = ""
+        if isinstance(item, dict):
+            company_id = _normalize_company_id(item.get("company_id"))
+            branch = str(item.get("branch") or "").strip()
+        elif isinstance(item, str):
+            token = str(item or "").strip()
+            if ":" in token:
+                left, right = token.split(":", 1)
+                company_id = _normalize_company_id(left)
+                branch = str(right or "").strip()
+            else:
+                company_id = _normalize_company_id(token)
+                branch = ""
+        if not company_id:
+            continue
+        key = f"{company_id}|{branch.lower()}"
+        if key in seen:
+            continue
+        normalized.append({"company_id": company_id, "branch": branch})
+        seen.add(key)
+    return normalized
+
+
+def assignment_matches_company(assignments, company_id):
+    company_key = _normalize_company_id(company_id)
+    if not company_key:
+        return False
+    items = _normalize_assignments(assignments)
+    if not items:
+        return True
+    return any(item.get("company_id") == company_key for item in items)
+
+
 def users_file_path():
     path = str(os.getenv("RRHH_USERS_FILE", "rrhh_users.json")).strip()
     return path or "rrhh_users.json"
@@ -106,12 +163,21 @@ def _normalize_user_entry(entry):
     if not password and not password_hash:
         return None
 
+    legacy_companies = entry.get("companies")
+    if not isinstance(legacy_companies, list):
+        legacy_companies = []
+    legacy_assignments = [{"company_id": value, "branch": ""} for value in legacy_companies]
+    assignments = _normalize_assignments(entry.get("assignments"))
+    if not assignments and legacy_assignments:
+        assignments = _normalize_assignments(legacy_assignments)
+
     return {
         "username": username,
         "display_name": str(entry.get("display_name") or username),
         "role": _normalize_role(entry.get("role"), default="rrhh"),
         "password": password,
         "password_hash": password_hash,
+        "assignments": assignments,
     }
 
 
@@ -210,6 +276,15 @@ def _load_admin_user_from_env():
         return []
     password = str(os.getenv("RRHH_ADMIN_PASSWORD", ""))
     password_hash = str(os.getenv("RRHH_ADMIN_PASSWORD_HASH", ""))
+    raw_companies = str(os.getenv("RRHH_ADMIN_COMPANIES", "")).strip()
+    assignments = []
+    if raw_companies:
+        assignments = [
+            {"company_id": part.strip(), "branch": ""}
+            for part in raw_companies.split(",")
+            if str(part or "").strip()
+        ]
+
     entry = _normalize_user_entry(
         {
             "username": username,
@@ -217,6 +292,7 @@ def _load_admin_user_from_env():
             "role": os.getenv("RRHH_ADMIN_ROLE", "admin"),
             "password": password,
             "password_hash": password_hash,
+            "assignments": assignments,
         }
     )
     return [entry] if entry else []
@@ -317,6 +393,16 @@ def get_users():
     return users
 
 
+def user_has_company_access(username, company_id):
+    key = str(username or "").strip().lower()
+    if not key:
+        return False
+    entry = get_users().get(key)
+    if not entry:
+        return False
+    return assignment_matches_company(entry.get("assignments"), company_id)
+
+
 def is_auth_enabled():
     mode = _parse_bool_mode(os.getenv("RRHH_AUTH_ENABLED", "auto"))
     users = get_users()
@@ -357,6 +443,7 @@ def authenticate(username, password):
             "username": entry["username"],
             "display_name": entry.get("display_name") or entry["username"],
             "role": _normalize_role(entry.get("role"), default="rrhh"),
+            "assignments": _normalize_assignments(entry.get("assignments")),
         },
         "",
     )
@@ -374,6 +461,7 @@ def list_file_users(path=None):
                 "display_name": entry.get("display_name") or entry["username"],
                 "role": role,
                 "permissions": role_permissions(role),
+                "assignments": _normalize_assignments(entry.get("assignments")),
             }
         )
     rows.sort(key=lambda row: row["username"].lower())
@@ -501,7 +589,15 @@ def update_role(name, display_name=None, permissions=None, path=None):
     )
 
 
-def create_user(username, password, display_name="", role="rrhh", created_by="", path=None):
+def create_user(
+    username,
+    password,
+    display_name="",
+    role="rrhh",
+    created_by="",
+    assignments=None,
+    path=None,
+):
     username_clean = str(username or "").strip()
     if not USERNAME_RE.fullmatch(username_clean):
         return (
@@ -522,6 +618,9 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
     roles = get_roles_map()
     if role_clean not in roles:
         return False, None, "Rol inválido. Crealo primero desde la sección de roles."
+    normalized_assignments = _normalize_assignments(assignments)
+    if isinstance(assignments, list) and assignments and not normalized_assignments:
+        return False, None, "Asignaciones inválidas. Usá empresa y sucursal válidas."
 
     key = username_clean.lower()
     if key in get_users():
@@ -538,6 +637,7 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
         "username": username_clean,
         "display_name": str(display_name or username_clean).strip() or username_clean,
         "role": role_clean,
+        "assignments": normalized_assignments,
         "password_hash": generate_password_hash(password_raw),
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -556,6 +656,7 @@ def create_user(username, password, display_name="", role="rrhh", created_by="",
             "display_name": entry["display_name"],
             "role": entry["role"],
             "permissions": role_permissions(entry["role"]),
+            "assignments": _normalize_assignments(entry.get("assignments")),
         },
         "",
     )
@@ -619,9 +720,138 @@ def update_user_role(username, role, updated_by="", path=None):
             "display_name": str(item.get("display_name") or username_clean),
             "role": role_clean,
             "permissions": role_permissions(role_clean),
+            "assignments": _normalize_assignments(item.get("assignments")),
         },
         "",
     )
+
+
+def update_user_assignments(username, assignments=None, updated_by="", path=None):
+    username_clean = str(username or "").strip()
+    if not username_clean:
+        return False, None, "Usuario requerido."
+
+    env_users = _load_admin_user_from_env()
+    env_usernames = {str(item.get("username") or "").strip().lower() for item in env_users}
+    key = username_clean.lower()
+    if key in env_usernames:
+        return (
+            False,
+            None,
+            "Ese usuario se gestiona por variables de entorno y no puede editarse desde el panel.",
+        )
+
+    target_path = path or users_file_path()
+    raw_entries = _load_users_raw_entries(target_path)
+    target_idx = -1
+    for idx, item in enumerate(raw_entries):
+        current_key = str(item.get("username") or "").strip().lower()
+        if current_key == key:
+            target_idx = idx
+            break
+    if target_idx < 0:
+        return False, None, "Usuario no encontrado en archivo de usuarios."
+
+    normalized_assignments = _normalize_assignments(assignments)
+    if isinstance(assignments, list) and assignments and not normalized_assignments:
+        return False, None, "Asignaciones inválidas. Verificá empresa/sucursal."
+
+    raw_entries[target_idx]["assignments"] = normalized_assignments
+    raw_entries[target_idx]["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    updated_by_clean = str(updated_by or "").strip()
+    if updated_by_clean:
+        raw_entries[target_idx]["updated_by"] = updated_by_clean
+
+    if not _write_users_raw_entries(target_path, raw_entries):
+        return False, None, "No pude actualizar asignaciones del usuario."
+
+    item = raw_entries[target_idx]
+    role_clean = _normalize_role(item.get("role"), default="rrhh")
+    return (
+        True,
+        {
+            "username": str(item.get("username") or username_clean),
+            "display_name": str(item.get("display_name") or username_clean),
+            "role": role_clean,
+            "permissions": role_permissions(role_clean),
+            "assignments": _normalize_assignments(item.get("assignments")),
+        },
+        "",
+    )
+
+
+def delete_user(username, deleted_by="", path=None):
+    username_clean = str(username or "").strip()
+    if not username_clean:
+        return False, "Usuario requerido."
+
+    env_users = _load_admin_user_from_env()
+    env_usernames = {str(item.get("username") or "").strip().lower() for item in env_users}
+    key = username_clean.lower()
+    if key in env_usernames:
+        return (
+            False,
+            "Ese usuario se gestiona por variables de entorno y no puede eliminarse desde el panel.",
+        )
+
+    target_path = path or users_file_path()
+    raw_entries = _load_users_raw_entries(target_path)
+    kept = []
+    removed = None
+    for item in raw_entries:
+        current_key = str(item.get("username") or "").strip().lower()
+        if current_key == key and removed is None:
+            removed = item
+            continue
+        kept.append(item)
+    if removed is None:
+        return False, "Usuario no encontrado en archivo de usuarios."
+
+    prospective_file_users = _load_users_from_file(target_path)
+    prospective_file_users = [
+        item
+        for item in prospective_file_users
+        if str(item.get("username") or "").strip().lower() != key
+    ]
+    merged_users = _merge_user_entries(prospective_file_users, env_users)
+    ok_access, error = _validate_management_access(merged_users, get_roles_map())
+    if not ok_access:
+        return False, error
+
+    if not _write_users_raw_entries(target_path, kept):
+        return False, "No pude eliminar el usuario del archivo."
+
+    return True, ""
+
+
+def delete_role(name, path=None):
+    role_name = _normalize_role(name, default="")
+    if not role_name:
+        return False, "Nombre de rol requerido."
+    if role_name in DEFAULT_ROLE_DEFINITIONS:
+        return False, "No se pueden eliminar los roles base del sistema."
+
+    target_path = path or roles_file_path()
+    raw_entries = _load_roles_raw_entries(target_path)
+    found = False
+    kept = []
+    for item in raw_entries:
+        item_name = _normalize_role(item.get("name"), default="")
+        if item_name == role_name and not found:
+            found = True
+            continue
+        kept.append(item)
+    if not found:
+        return False, "Rol no encontrado en archivo de roles."
+
+    # Impide borrar roles que estén asignados a usuarios actuales.
+    for user in get_users().values():
+        if _normalize_role(user.get("role"), default="rrhh") == role_name:
+            return False, "No podés eliminar un rol asignado a usuarios."
+
+    if not _write_roles_raw_entries(target_path, kept):
+        return False, "No pude eliminar el rol del archivo."
+    return True, ""
 
 
 if __name__ == "__main__":

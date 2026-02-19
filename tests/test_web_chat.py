@@ -314,6 +314,210 @@ class WebChatApiTests(unittest.TestCase):
             self.assertIn("Acme", page)
             self.assertIn("People Ops", page)
 
+    def test_login_validates_selected_company_against_user_assignments(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "ana",
+                                "display_name": "Ana",
+                                "password": "ana123",
+                                "role": "rrhh",
+                                "assignments": [{"company_id": "acme", "branch": "Centro"}],
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            web_chat.IN_MEMORY_COMPANIES.update(
+                {
+                    "acme": {
+                        "company_id": "acme",
+                        "company_name": "Acme",
+                        "hr_team_name": "People Ops",
+                        "hr_contact": "interno 200",
+                        "branches": ["Centro"],
+                        "active": True,
+                    },
+                    "bacar": {
+                        "company_id": "bacar",
+                        "company_name": "Bacar",
+                        "hr_team_name": "RRHH",
+                        "hr_contact": "interno 104",
+                        "branches": ["Casa Central"],
+                        "active": True,
+                    },
+                }
+            )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                blocked = self.client.post(
+                    "/login",
+                    data={
+                        "username": "ana",
+                        "password": "ana123",
+                        "company_id": "bacar",
+                        "next": "/rrhh",
+                    },
+                )
+                self.assertEqual(blocked.status_code, 403)
+
+                allowed = self.client.post(
+                    "/login",
+                    data={
+                        "username": "ana",
+                        "password": "ana123",
+                        "company_id": "acme",
+                        "next": "/rrhh",
+                    },
+                )
+                self.assertEqual(allowed.status_code, 302)
+
+    def test_rrhh_panel_filters_conversations_by_selected_company(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Admin",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            web_chat.IN_MEMORY_COMPANIES.update(
+                {
+                    "acme": {
+                        "company_id": "acme",
+                        "company_name": "Acme",
+                        "hr_team_name": "People Ops",
+                        "hr_contact": "interno 200",
+                        "branches": ["Centro"],
+                        "active": True,
+                    },
+                    "bacar": {
+                        "company_id": "bacar",
+                        "company_name": "Bacar",
+                        "hr_team_name": "RRHH",
+                        "hr_contact": "interno 104",
+                        "branches": ["Casa Central"],
+                        "active": True,
+                    },
+                }
+            )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                colaborador_acme = web_chat.flask_app.test_client()
+                colaborador_bacar = web_chat.flask_app.test_client()
+                rrhh_client = web_chat.flask_app.test_client()
+
+                colaborador_acme.get("/?empresa=acme")
+                colaborador_acme.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+
+                colaborador_bacar.get("/?empresa=bacar")
+                colaborador_bacar.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+
+                rrhh_client.post(
+                    "/login",
+                    data={
+                        "username": "admin",
+                        "password": "admin123",
+                        "company_id": "acme",
+                        "next": "/rrhh",
+                    },
+                )
+
+                convs_resp = rrhh_client.get("/api/rrhh/conversaciones")
+                self.assertEqual(convs_resp.status_code, 200)
+                convs_body = convs_resp.get_json()
+                self.assertTrue(convs_body["ok"])
+                self.assertGreaterEqual(len(convs_body["conversaciones"]), 1)
+                self.assertTrue(
+                    all(item.get("company_id") == "acme" for item in convs_body["conversaciones"])
+                )
+
+    def test_admin_can_delete_users_and_custom_roles(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            roles_path = os.path.join(tmpdir, "rrhh_roles.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Admin",
+                                "password": "admin123",
+                                "role": "admin",
+                            },
+                            {
+                                "username": "analista",
+                                "display_name": "Analista",
+                                "password": "analista123",
+                                "role": "rrhh",
+                            },
+                        ]
+                    },
+                    fh,
+                )
+            with open(roles_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "roles": [
+                            {
+                                "name": "auditor",
+                                "display_name": "Auditor",
+                                "permissions": ["historial_ver"],
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_AUTH_ENABLED": "true",
+                    "RRHH_USERS_FILE": users_path,
+                    "RRHH_ROLES_FILE": roles_path,
+                },
+                clear=True,
+            ):
+                self.client.post(
+                    "/login",
+                    data={
+                        "username": "admin",
+                        "password": "admin123",
+                        "next": "/rrhh",
+                    },
+                )
+
+                del_user_resp = self.client.delete("/api/rrhh/usuarios/analista")
+                self.assertEqual(del_user_resp.status_code, 200)
+                self.assertTrue(del_user_resp.get_json()["ok"])
+
+                del_role_resp = self.client.delete("/api/rrhh/roles/auditor")
+                self.assertEqual(del_role_resp.status_code, 200)
+                self.assertTrue(del_role_resp.get_json()["ok"])
+
     def test_rrhh_endpoints_require_login_when_auth_enabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             users_path = os.path.join(tmpdir, "rrhh_users.json")

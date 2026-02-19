@@ -46,11 +46,13 @@ body {
   font-weight: 600;
 }
 
-.login-card input {
+.login-card input,
+.login-card select {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 0.95rem;
+  background: #ffffff;
 }
 
 .login-card button {
