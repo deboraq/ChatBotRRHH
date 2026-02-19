@@ -1,3 +1,4 @@
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -18,10 +19,46 @@ except ImportError:
 # ==========================================================
 # 1. CONFIGURACIÓN INICIAL Y CONEXIÓN CON FIRESTORE
 # ==========================================================
+COMPANY_NAME = str(os.getenv("CHATBOT_COMPANY_NAME", "Bacar")).strip() or "Bacar"
+HR_TEAM_NAME = str(os.getenv("CHATBOT_HR_TEAM_NAME", "RRHH")).strip() or "RRHH"
+HR_CONTACT = str(os.getenv("CHATBOT_HR_CONTACT", "interno 104")).strip() or "interno 104"
+
+
+def construir_mensaje_bienvenida():
+    return f"👋 ¡Hola! Soy el asistente de {HR_TEAM_NAME} de {COMPANY_NAME}. ¿En qué puedo ayudarte hoy?"
+
+
+def construir_mensaje_contacto():
+    return f"📞 Para hablar con un representante, comunicate al {HR_CONTACT}."
+
+
+def construir_mensaje_despedida():
+    return f"Gracias por comunicarte con {HR_TEAM_NAME} de {COMPANY_NAME}. ¡Buen día!"
+
+
+def actualizar_configuracion_empresa(company_name=None, hr_team_name=None, hr_contact=None):
+    global COMPANY_NAME, HR_TEAM_NAME, HR_CONTACT, MENSAJE_BIENVENIDA, MENSAJE_CONTACTO
+
+    if company_name is not None:
+        COMPANY_NAME = str(company_name).strip() or COMPANY_NAME
+    if hr_team_name is not None:
+        HR_TEAM_NAME = str(hr_team_name).strip() or HR_TEAM_NAME
+    if hr_contact is not None:
+        HR_CONTACT = str(hr_contact).strip() or HR_CONTACT
+
+    MENSAJE_BIENVENIDA = construir_mensaje_bienvenida()
+    MENSAJE_CONTACTO = construir_mensaje_contacto()
+    if "capacitacion" in FAQ_FALLBACK:
+        FAQ_FALLBACK["capacitacion"] = (
+            f"Podés ver los cursos disponibles en la intranet de {COMPANY_NAME}, sección "
+            "'Mi Desarrollo'."
+        )
+
+
 MENSAJE_BIENVENIDA = (
-    "👋 ¡Hola! Soy el asistente de RRHH de Bacar. ¿En qué puedo ayudarte hoy?"
+    construir_mensaje_bienvenida()
 )
-MENSAJE_CONTACTO = "📞 Para hablar con un representante, comunicate al interno 104."
+MENSAJE_CONTACTO = construir_mensaje_contacto()
 MENSAJE_AYUDA = (
     "🆘 Puedo ayudarte con vacaciones, fraccionamiento, recibo, aguinaldo, ART y otros temas de RRHH.\n"
     "Escribí tu consulta o poné 'menu' para ver todas las opciones."
@@ -85,14 +122,14 @@ FAQ_FALLBACK = {
         "de antelación."
     ),
     "capacitacion": (
-        "Podés ver los cursos disponibles en la intranet de Bacar, sección "
+        f"Podés ver los cursos disponibles en la intranet de {COMPANY_NAME}, sección "
         "'Mi Desarrollo'."
     ),
 }
 
 db = inicializar_firestore(verbose=False)
 if db:
-    print("✅ SISTEMA BACAR: Conexión exitosa con la base de datos.")
+    print(f"✅ SISTEMA {COMPANY_NAME.upper()}: Conexión exitosa con la base de datos.")
     print("🚀 El asistente virtual de RRHH está listo para operar.\n")
 else:
     print("🧪 Se activa modo local con respuestas de respaldo.")
@@ -465,7 +502,7 @@ def manejar_feedback_interactivo(tema_id, texto_feedback):
         return "menu", None
 
     if tipo_feedback == "salir":
-        print("\nBot: Gracias por comunicarte con RRHH de Bacar. ¡Buen día!")
+        print(f"\nBot: {construir_mensaje_despedida()}")
         return "salir", None
 
     if tipo_feedback == "consulta":
@@ -531,7 +568,7 @@ if __name__ == "__main__":
         msj_norm = normalizar_texto(msj_usuario)
 
         if msj_norm in PALABRAS_SALIDA:
-            print("\nBot: Gracias por comunicarte con RRHH de Bacar. ¡Buen día!")
+            print(f"\nBot: {construir_mensaje_despedida()}")
             break
 
         if msj_norm == "menu":

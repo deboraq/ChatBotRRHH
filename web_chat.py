@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -29,6 +29,19 @@ HANDOFF_POLL_COMMANDS = {"__poll_rrhh__", "actualizar rrhh", "actualizar"}
 
 IN_MEMORY_HANDOFFS = {}
 IN_MEMORY_CHAT_HISTORY = []
+IN_MEMORY_ACTIVE_AGENTS = {}
+IN_MEMORY_GENERAL_SETTINGS = {}
+
+GENERAL_SETTINGS_COLLECTION = "chatbot_config"
+GENERAL_SETTINGS_DOC = "general"
+ACTIVE_AGENTS_COLLECTION = "rrhh_agentes"
+
+try:
+    ACTIVE_AGENT_TTL_SECONDS = max(
+        60, int(str(os.getenv("RRHH_AGENT_ACTIVE_TTL_SECONDS", "180")).strip())
+    )
+except Exception:
+    ACTIVE_AGENT_TTL_SECONDS = 180
 
 
 def _accion(label, value, variant="default"):
@@ -56,6 +69,120 @@ def _fmt_fecha(dt):
     if not dt2:
         return "Sin fecha"
     return dt2.strftime("%Y-%m-%d %H:%M")
+
+
+def _default_general_settings():
+    return {
+        "company_name": str(
+            os.getenv("CHATBOT_COMPANY_NAME", getattr(chatbot, "COMPANY_NAME", "Bacar"))
+        ).strip()
+        or "Bacar",
+        "hr_team_name": str(
+            os.getenv("CHATBOT_HR_TEAM_NAME", getattr(chatbot, "HR_TEAM_NAME", "RRHH"))
+        ).strip()
+        or "RRHH",
+        "hr_contact": str(
+            os.getenv("CHATBOT_HR_CONTACT", getattr(chatbot, "HR_CONTACT", "interno 104"))
+        ).strip()
+        or "interno 104",
+    }
+
+
+def _sanitize_general_settings(payload):
+    defaults = _default_general_settings()
+    data = dict(defaults)
+    if not isinstance(payload, dict):
+        return data
+
+    for key in defaults:
+        value = str(payload.get(key) or "").strip()
+        if value:
+            data[key] = value
+    return data
+
+
+def _read_general_settings():
+    defaults = _default_general_settings()
+    if chatbot.db:
+        try:
+            doc = (
+                chatbot.db.collection(GENERAL_SETTINGS_COLLECTION)
+                .document(GENERAL_SETTINGS_DOC)
+                .get()
+            )
+            if doc.exists:
+                return _sanitize_general_settings(doc.to_dict() or {})
+        except Exception:
+            return defaults
+        return defaults
+
+    if IN_MEMORY_GENERAL_SETTINGS:
+        return _sanitize_general_settings(IN_MEMORY_GENERAL_SETTINGS)
+    return defaults
+
+
+def _write_general_settings(payload):
+    settings = _sanitize_general_settings(payload)
+    if chatbot.db:
+        try:
+            (
+                chatbot.db.collection(GENERAL_SETTINGS_COLLECTION)
+                .document(GENERAL_SETTINGS_DOC)
+                .set(settings, merge=True)
+            )
+            return True, settings, ""
+        except Exception as exc:
+            return False, None, f"No pude guardar configuración general: {exc}"
+
+    IN_MEMORY_GENERAL_SETTINGS.update(settings)
+    return True, settings, ""
+
+
+def _apply_company_branding(settings=None):
+    cfg = settings or _read_general_settings()
+    if hasattr(chatbot, "actualizar_configuracion_empresa"):
+        chatbot.actualizar_configuracion_empresa(
+            company_name=cfg.get("company_name"),
+            hr_team_name=cfg.get("hr_team_name"),
+            hr_contact=cfg.get("hr_contact"),
+        )
+    return cfg
+
+
+def _farewell_message():
+    cfg = _apply_company_branding()
+    return (
+        f"Gracias por comunicarte con {cfg.get('hr_team_name', 'RRHH')} "
+        f"de {cfg.get('company_name', 'la empresa')}. ¡Buen día!"
+    )
+
+
+def _manual_agent_id(name):
+    normalized = chatbot.normalizar_texto(name)[:48]
+    if not normalized:
+        normalized = f"agente-{uuid.uuid4().hex[:8]}"
+    return f"manual:{normalized}"
+
+
+def _agent_payload(display_name, agent_id="", role="rrhh"):
+    shown = str(display_name or "RRHH").strip() or "RRHH"
+    identifier = str(agent_id or "").strip().lower() or _manual_agent_id(shown)
+    return {
+        "agent_id": identifier,
+        "display_name": shown,
+        "role": str(role or "rrhh").strip().lower() or "rrhh",
+    }
+
+
+def _active_agent_from_current_user():
+    current = _current_rrhh_user()
+    if not current:
+        return None
+    return _agent_payload(
+        display_name=current.get("display_name") or current.get("username") or "RRHH",
+        agent_id=str(current.get("username") or "").strip().lower(),
+        role=current.get("role") or "rrhh",
+    )
 
 
 def _auth_enabled():
@@ -122,8 +249,145 @@ def _rrhh_agent_name(default="RRHH"):
 
 def _resolve_rrhh_agent(payload):
     if _auth_enabled():
-        return _rrhh_agent_name()
-    return str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
+        current_agent = _active_agent_from_current_user()
+        if current_agent:
+            return current_agent
+    fallback_name = str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
+    return _agent_payload(display_name=fallback_name)
+
+
+def _upsert_active_agent(agent, source="heartbeat"):
+    payload = _agent_payload(
+        display_name=agent.get("display_name") or "RRHH",
+        agent_id=agent.get("agent_id") or "",
+        role=agent.get("role") or "rrhh",
+    )
+    payload["updated_at"] = _utc_now()
+    payload["available"] = True
+    payload["source"] = str(source or "heartbeat")
+
+    if chatbot.db:
+        try:
+            (
+                chatbot.db.collection(ACTIVE_AGENTS_COLLECTION)
+                .document(payload["agent_id"])
+                .set(payload, merge=True)
+            )
+        except Exception:
+            return payload
+        return payload
+
+    IN_MEMORY_ACTIVE_AGENTS[payload["agent_id"]] = payload
+    return payload
+
+
+def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS):
+    now = _as_utc_naive(_utc_now()) or datetime.utcnow()
+    ttl = max(30, int(ttl_seconds or ACTIVE_AGENT_TTL_SECONDS))
+    threshold = now - timedelta(seconds=ttl)
+
+    if chatbot.db:
+        rows = []
+        try:
+            for doc in chatbot.db.collection(ACTIVE_AGENTS_COLLECTION).stream():
+                data = doc.to_dict() or {}
+                data["agent_id"] = str(data.get("agent_id") or doc.id)
+                rows.append(data)
+        except Exception:
+            rows = []
+    else:
+        rows = [dict(value) for value in IN_MEMORY_ACTIVE_AGENTS.values()]
+
+    active = []
+    for item in rows:
+        updated_at = _as_utc_naive(item.get("updated_at"))
+        if updated_at is None or updated_at < threshold:
+            continue
+        if item.get("available") is False:
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role and not auth_rrhh.role_has_permission(role, auth_rrhh.PERM_CONVERSATIONS_MANAGE):
+            continue
+        active.append(_agent_payload(item.get("display_name"), item.get("agent_id"), role))
+        active[-1]["updated_at"] = item.get("updated_at")
+
+    active.sort(key=lambda x: (str(x.get("display_name") or "").lower(), x.get("agent_id") or ""))
+    return active
+
+
+def _serialize_active_agent(agent):
+    return {
+        "agent_id": str(agent.get("agent_id") or ""),
+        "display_name": str(agent.get("display_name") or ""),
+        "role": str(agent.get("role") or ""),
+        "updated_at": _fmt_fecha(agent.get("updated_at")),
+    }
+
+
+def _heartbeat_current_agent(source="rrhh_panel"):
+    if _auth_enabled():
+        current = _active_agent_from_current_user()
+        if not current:
+            return None
+        if not auth_rrhh.role_has_permission(
+            current.get("role"), auth_rrhh.PERM_CONVERSATIONS_MANAGE
+        ):
+            return None
+        return _upsert_active_agent(current, source=source)
+    return None
+
+
+def _open_handoff_load_by_agent():
+    counts = {}
+    for conv in _list_handoffs(include_closed=False, limit=1000):
+        estado = str(conv.get("estado") or "").strip().lower()
+        if estado == HANDOFF_STATUS_CLOSED:
+            continue
+        agent_id = str(conv.get("rrhh_agente_id") or "").strip().lower()
+        if not agent_id:
+            continue
+        counts[agent_id] = counts.get(agent_id, 0) + 1
+    return counts
+
+
+def _select_auto_agent():
+    active_agents = _list_active_agents()
+    if not active_agents:
+        return None
+    load = _open_handoff_load_by_agent()
+    return sorted(
+        active_agents,
+        key=lambda agent: (
+            load.get(agent.get("agent_id"), 0),
+            str(agent.get("display_name") or "").lower(),
+            str(agent.get("agent_id") or ""),
+        ),
+    )[0]
+
+
+def _resolve_target_agent_for_reassignment(payload):
+    data = payload or {}
+    requested_id = str(data.get("agente_id") or "").strip().lower()
+    requested_name = str(data.get("agente") or "").strip()
+
+    if requested_id:
+        for agent in _list_active_agents():
+            if agent.get("agent_id") == requested_id:
+                return agent
+        return None
+
+    if requested_name:
+        return _agent_payload(display_name=requested_name)
+
+    return _resolve_rrhh_agent(data)
+
+
+def _can_manage_configuration():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_USERS_MANAGE) or _has_permission(
+        auth_rrhh.PERM_ROLES_MANAGE
+    )
 
 
 def _default_landing_for_user(user_payload):
@@ -132,6 +396,10 @@ def _default_landing_for_user(user_payload):
         return "/rrhh"
     if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_HISTORY_VIEW):
         return "/historial"
+    if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_USERS_MANAGE) or auth_rrhh.role_has_permission(
+        role, auth_rrhh.PERM_ROLES_MANAGE
+    ):
+        return "/configuracion"
     return "/"
 
 
@@ -440,24 +708,38 @@ def _join_messages_for_user(messages):
     return "\n".join(lineas)
 
 
-def _take_handoff(conversation_id, agente):
+def _take_handoff(conversation_id, agente, auto_taken=False):
     conv = _fetch_handoff(conversation_id)
     if not conv:
         return False
+    agent = _agent_payload(
+        display_name=(agente or {}).get("display_name") if isinstance(agente, dict) else agente,
+        agent_id=(agente or {}).get("agent_id") if isinstance(agente, dict) else "",
+        role=(agente or {}).get("role") if isinstance(agente, dict) else "rrhh",
+    )
     _upsert_handoff(
         conversation_id,
         {
             "estado": HANDOFF_STATUS_ACTIVE,
-            "rrhh_agente": agente,
+            "rrhh_agente": agent["display_name"],
+            "rrhh_agente_id": agent["agent_id"],
             "updated_at": _utc_now(),
         },
         merge=True,
     )
-    _add_handoff_message(
-        conversation_id,
-        remitente="sistema",
-        texto=f"Tu conversación fue tomada por RRHH ({agente}).",
-    )
+    if auto_taken:
+        _add_handoff_message(
+            conversation_id,
+            remitente="sistema",
+            texto=f"Tu conversación fue asignada automáticamente a RRHH ({agent['display_name']}).",
+            visible_to_colaborador=False,
+        )
+    else:
+        _add_handoff_message(
+            conversation_id,
+            remitente="sistema",
+            texto=f"Tu conversación fue tomada por RRHH ({agent['display_name']}).",
+        )
     return True
 
 
@@ -479,6 +761,44 @@ def _close_handoff(conversation_id, quien):
         texto=f"La conversación fue cerrada por {quien}.",
     )
     return True
+
+
+def _reassign_handoff(conversation_id, agente_destino, reasignado_por=""):
+    conv = _fetch_handoff(conversation_id)
+    if not conv:
+        return False, "Conversación no encontrada"
+    target = _agent_payload(
+        display_name=(agente_destino or {}).get("display_name")
+        if isinstance(agente_destino, dict)
+        else agente_destino,
+        agent_id=(agente_destino or {}).get("agent_id")
+        if isinstance(agente_destino, dict)
+        else "",
+        role=(agente_destino or {}).get("role")
+        if isinstance(agente_destino, dict)
+        else "rrhh",
+    )
+    if not target.get("display_name"):
+        return False, "Agente destino inválido"
+
+    _upsert_handoff(
+        conversation_id,
+        {
+            "estado": HANDOFF_STATUS_ACTIVE,
+            "rrhh_agente": target["display_name"],
+            "rrhh_agente_id": target["agent_id"],
+            "updated_at": _utc_now(),
+        },
+        merge=True,
+    )
+    actor = str(reasignado_por or "").strip() or "sistema"
+    _add_handoff_message(
+        conversation_id,
+        remitente="sistema",
+        texto=f"Conversación reasignada a {target['display_name']} por {actor}.",
+        visible_to_colaborador=False,
+    )
+    return True, ""
 
 
 def _collect_new_messages_for_collaborator(conversation_id):
@@ -612,14 +932,17 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
         conversation_id = _new_conversation_id()
 
     if existing is None:
+        assigned_agent = _select_auto_agent()
+        estado_inicial = HANDOFF_STATUS_ACTIVE if assigned_agent else HANDOFF_STATUS_PENDING
         _upsert_handoff(
             conversation_id,
             {
                 "conversation_id": conversation_id,
-                "estado": HANDOFF_STATUS_PENDING,
+                "estado": estado_inicial,
                 "created_at": now,
                 "updated_at": now,
-                "rrhh_agente": "",
+                "rrhh_agente": assigned_agent.get("display_name", "") if assigned_agent else "",
+                "rrhh_agente_id": assigned_agent.get("agent_id", "") if assigned_agent else "",
                 "ultimo_mensaje": "",
                 "ultima_consulta": mensaje_usuario.strip() or "Solicitud de contacto RRHH",
                 "chat_session_id": chat_session_id,
@@ -632,6 +955,8 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             texto="El colaborador solicitó hablar con RRHH.",
             visible_to_colaborador=False,
         )
+        if assigned_agent:
+            _take_handoff(conversation_id, assigned_agent, auto_taken=True)
 
     if mensaje_usuario.strip():
         _add_handoff_message(
@@ -683,7 +1008,7 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map):
 
     if tipo == "salir":
         limpiar_estado_conversacion()
-        return _payload("Gracias por comunicarte con RRHH de Bacar. ¡Buen día!", end_session=True)
+        return _payload(_farewell_message(), end_session=True)
 
     if tipo == "consulta":
         limpiar_estado_conversacion()
@@ -711,7 +1036,7 @@ def responder_chat(mensaje_usuario):
         if handoff_id:
             _close_handoff(handoff_id, "colaborador")
             _clear_handoff_session()
-        return _payload("Gracias por comunicarte con RRHH de Bacar. ¡Buen día!", end_session=True)
+        return _payload(_farewell_message(), end_session=True)
 
     handoff_id = _get_handoff_session_id()
     if handoff_id:
@@ -779,9 +1104,20 @@ def responder_chat(mensaje_usuario):
 
     if chatbot.solicita_contacto_rrhh(mensaje_norm):
         conversation_id = _iniciar_handoff_rrhh(mensaje_usuario)
+        conv = _fetch_handoff(conversation_id) or {}
+        assigned = str(conv.get("rrhh_agente") or "").strip()
+        if assigned:
+            respuesta = (
+                "👩‍💼 Perfecto. Derivé tu consulta al equipo de RRHH.\n"
+                f"Te asigné automáticamente con {assigned}. Podés seguir escribiendo por este chat."
+            )
+        else:
+            respuesta = (
+                "👩‍💼 Perfecto. Derivé tu consulta al equipo de RRHH.\n"
+                "Te van a responder por este mismo chat. Podés seguir escribiendo aquí."
+            )
         return _payload(
-            "👩‍💼 Perfecto. Derivé tu consulta al equipo de RRHH.\n"
-            "Te van a responder por este mismo chat. Podés seguir escribiendo aquí.",
+            respuesta,
             handoff_active=True,
             quick_actions=construir_acciones_handoff(),
         )
@@ -823,6 +1159,7 @@ def _serialize_handoff(conv):
         "conversation_id": conv.get("conversation_id") or conv.get("id"),
         "estado": conv.get("estado") or HANDOFF_STATUS_PENDING,
         "rrhh_agente": conv.get("rrhh_agente") or "",
+        "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
         "ultima_consulta": conv.get("ultima_consulta") or "",
         "updated_at": _fmt_fecha(conv.get("updated_at")),
     }
@@ -848,15 +1185,20 @@ def _serialize_messages(messages):
 def reset_in_memory_handoffs():
     IN_MEMORY_HANDOFFS.clear()
     IN_MEMORY_CHAT_HISTORY.clear()
+    IN_MEMORY_ACTIVE_AGENTS.clear()
+    IN_MEMORY_GENERAL_SETTINGS.clear()
 
 
 @flask_app.get("/")
 def home():
+    settings = _apply_company_branding()
     temas_map = construir_temas_map()
     return render_template(
         "chat.html",
         bienvenida=chatbot.MENSAJE_BIENVENIDA,
         quick_actions_iniciales=construir_acciones_menu(temas_map, limite=6),
+        company_name=settings.get("company_name"),
+        hr_team_name=settings.get("hr_team_name"),
     )
 
 
@@ -876,12 +1218,33 @@ def add_no_cache_headers(response):
     message="No tenés permisos para ver el panel de conversaciones.",
 )
 def rrhh_page():
+    settings = _apply_company_branding()
     return render_template(
         "rrhh.html",
         auth_enabled=_auth_enabled(),
         rrhh_user=_current_rrhh_user(),
+        can_manage_users=False,
+        can_manage_roles=False,
+        can_manage_config=_can_manage_configuration(),
+        company_name=settings.get("company_name"),
+        hr_team_name=settings.get("hr_team_name"),
+    )
+
+
+@flask_app.get("/configuracion")
+@rrhh_auth_required
+def configuracion_page():
+    if not _can_manage_configuration():
+        return ("No tenés permisos para acceder a configuración.", 403)
+    settings = _read_general_settings()
+    return render_template(
+        "configuracion.html",
+        auth_enabled=_auth_enabled(),
+        rrhh_user=_current_rrhh_user(),
         can_manage_users=_has_permission(auth_rrhh.PERM_USERS_MANAGE),
         can_manage_roles=_has_permission(auth_rrhh.PERM_ROLES_MANAGE),
+        can_manage_general=_can_manage_configuration(),
+        general_settings=settings,
     )
 
 
@@ -905,6 +1268,7 @@ def stats_page():
 
 @flask_app.post("/api/chat")
 def chat_api():
+    _apply_company_branding()
     data = request.get_json(silent=True) or {}
     mensaje = data.get("message", "")
 
@@ -1058,12 +1422,35 @@ def chat_poll_api():
     )
 
 
+@flask_app.get("/api/configuracion/general")
+@rrhh_auth_required
+def configuracion_general_api():
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para ver configuración.")
+    settings = _read_general_settings()
+    return jsonify({"ok": True, "settings": settings})
+
+
+@flask_app.post("/api/configuracion/general")
+@rrhh_auth_required
+def configuracion_general_update_api():
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para editar configuración.")
+    data = request.get_json(silent=True) or {}
+    ok, settings, error = _write_general_settings(data)
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 400
+    _apply_company_branding(settings)
+    return jsonify({"ok": True, "settings": settings})
+
+
 @flask_app.get("/api/rrhh/conversaciones")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_VIEW,
     message="Sin permiso para ver conversaciones.",
 )
 def rrhh_conversaciones_api():
+    _heartbeat_current_agent()
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
     convs = _list_handoffs(include_closed=include_closed, limit=150)
     return jsonify(
@@ -1071,6 +1458,9 @@ def rrhh_conversaciones_api():
             "ok": True,
             "conversaciones": [_serialize_handoff(c) for c in convs],
             "agente_actual": _rrhh_agent_name() if _auth_enabled() else "",
+            "agentes_activos": [
+                _serialize_active_agent(agent) for agent in _list_active_agents()
+            ],
         }
     )
 
@@ -1226,6 +1616,7 @@ def rrhh_mensajes_api(conversation_id):
             "conversation_id": conversation_id,
             "estado": conv.get("estado") or HANDOFF_STATUS_PENDING,
             "rrhh_agente": conv.get("rrhh_agente") or "",
+            "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
             "mensajes": _serialize_messages(mensajes),
         }
     )
@@ -1244,6 +1635,35 @@ def rrhh_tomar_api(conversation_id):
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_ACTIVE})
 
 
+@flask_app.post("/api/rrhh/conversaciones/<conversation_id>/reasignar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para gestionar conversaciones.",
+)
+def rrhh_reasignar_api(conversation_id):
+    data = request.get_json(silent=True) or {}
+    target_agent = _resolve_target_agent_for_reassignment(data)
+    if not target_agent:
+        return jsonify({"ok": False, "error": "Agente destino no disponible."}), 400
+    actor = _resolve_rrhh_agent({})
+    ok, error = _reassign_handoff(
+        conversation_id,
+        target_agent,
+        reasignado_por=actor.get("display_name"),
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 404
+    return jsonify(
+        {
+            "ok": True,
+            "conversation_id": conversation_id,
+            "estado": HANDOFF_STATUS_ACTIVE,
+            "rrhh_agente": target_agent.get("display_name"),
+            "rrhh_agente_id": target_agent.get("agent_id"),
+        }
+    )
+
+
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/cerrar")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_MANAGE,
@@ -1252,7 +1672,7 @@ def rrhh_tomar_api(conversation_id):
 def rrhh_cerrar_api(conversation_id):
     data = request.get_json(silent=True) or {}
     agente = _resolve_rrhh_agent(data)
-    if not _close_handoff(conversation_id, agente):
+    if not _close_handoff(conversation_id, agente.get("display_name")):
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_CLOSED})
 
@@ -1284,11 +1704,15 @@ def rrhh_responder_api(conversation_id):
         conversation_id,
         remitente="rrhh",
         texto=mensaje,
-        agente=agente,
+        agente=agente.get("display_name"),
     )
     _upsert_handoff(
         conversation_id,
-        {"rrhh_agente": agente, "updated_at": _utc_now()},
+        {
+            "rrhh_agente": agente.get("display_name"),
+            "rrhh_agente_id": agente.get("agent_id"),
+            "updated_at": _utc_now(),
+        },
         merge=True,
     )
     return jsonify({"ok": True, "conversation_id": conversation_id})

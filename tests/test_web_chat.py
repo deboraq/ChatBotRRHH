@@ -168,6 +168,152 @@ class WebChatApiTests(unittest.TestCase):
         self.assertGreaterEqual(stats_body["kpis"]["rrhh_total"], 1)
         self.assertGreaterEqual(stats_body["kpis"]["rrhh_abiertas"], 1)
 
+    def test_rrhh_auto_assignment_distributes_active_agents(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "ana",
+                                "display_name": "Ana",
+                                "password": "ana123",
+                                "role": "rrhh",
+                            },
+                            {
+                                "username": "luis",
+                                "display_name": "Luis",
+                                "password": "luis123",
+                                "role": "rrhh",
+                            },
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                agente_ana = web_chat.flask_app.test_client()
+                agente_luis = web_chat.flask_app.test_client()
+                colaborador_1 = web_chat.flask_app.test_client()
+                colaborador_2 = web_chat.flask_app.test_client()
+
+                agente_ana.post(
+                    "/login",
+                    data={"username": "ana", "password": "ana123", "next": "/rrhh"},
+                )
+                agente_luis.post(
+                    "/login",
+                    data={"username": "luis", "password": "luis123", "next": "/rrhh"},
+                )
+
+                # Heartbeat de agentes activos.
+                agente_ana.get("/api/rrhh/conversaciones")
+                agente_luis.get("/api/rrhh/conversaciones")
+
+                colaborador_1.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+                colaborador_2.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+
+                convs_resp = agente_ana.get("/api/rrhh/conversaciones")
+                self.assertEqual(convs_resp.status_code, 200)
+                convs = convs_resp.get_json()["conversaciones"]
+                self.assertGreaterEqual(len(convs), 2)
+                agentes_asignados = {conv.get("rrhh_agente") for conv in convs[:2]}
+                self.assertIn("Ana", agentes_asignados)
+                self.assertIn("Luis", agentes_asignados)
+
+    def test_rrhh_reassign_conversation_keeps_trace_in_history(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Admin",
+                                "password": "admin123",
+                                "role": "admin",
+                            },
+                            {
+                                "username": "luis",
+                                "display_name": "Luis",
+                                "password": "luis123",
+                                "role": "rrhh",
+                            },
+                        ]
+                    },
+                    fh,
+                )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                admin_client = web_chat.flask_app.test_client()
+                luis_client = web_chat.flask_app.test_client()
+                colaborador = web_chat.flask_app.test_client()
+
+                admin_client.post(
+                    "/login",
+                    data={"username": "admin", "password": "admin123", "next": "/rrhh"},
+                )
+                luis_client.post(
+                    "/login",
+                    data={"username": "luis", "password": "luis123", "next": "/rrhh"},
+                )
+                luis_client.get("/api/rrhh/conversaciones")
+
+                colaborador.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+                convs_resp = admin_client.get("/api/rrhh/conversaciones")
+                conv_id = convs_resp.get_json()["conversaciones"][0]["conversation_id"]
+
+                reasignar_resp = admin_client.post(
+                    f"/api/rrhh/conversaciones/{conv_id}/reasignar",
+                    json={"agente_id": "luis", "agente": "Luis"},
+                )
+                self.assertEqual(reasignar_resp.status_code, 200)
+                reasignar_body = reasignar_resp.get_json()
+                self.assertTrue(reasignar_body["ok"])
+                self.assertEqual(reasignar_body["rrhh_agente"], "Luis")
+
+                mensajes_resp = admin_client.get(f"/api/rrhh/conversaciones/{conv_id}/mensajes")
+                self.assertEqual(mensajes_resp.status_code, 200)
+                textos = [item["texto"] for item in mensajes_resp.get_json()["mensajes"]]
+                self.assertTrue(any("reasignada a Luis" in texto for texto in textos))
+
+    def test_configuracion_general_updates_branding(self):
+        with patch.dict(os.environ, {}, clear=True):
+            save_resp = self.client.post(
+                "/api/configuracion/general",
+                json={
+                    "company_name": "Acme",
+                    "hr_team_name": "People Ops",
+                    "hr_contact": "interno 999",
+                },
+            )
+            self.assertEqual(save_resp.status_code, 200)
+            save_body = save_resp.get_json()
+            self.assertTrue(save_body["ok"])
+            self.assertEqual(save_body["settings"]["company_name"], "Acme")
+
+            fetch_resp = self.client.get("/api/configuracion/general")
+            self.assertEqual(fetch_resp.status_code, 200)
+            fetch_body = fetch_resp.get_json()
+            self.assertTrue(fetch_body["ok"])
+            self.assertEqual(fetch_body["settings"]["hr_team_name"], "People Ops")
+
+            home_resp = self.client.get("/")
+            self.assertEqual(home_resp.status_code, 200)
+            page = home_resp.get_data(as_text=True)
+            self.assertIn("Acme", page)
+            self.assertIn("People Ops", page)
+
     def test_rrhh_endpoints_require_login_when_auth_enabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             users_path = os.path.join(tmpdir, "rrhh_users.json")

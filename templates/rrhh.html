@@ -18,6 +18,9 @@
         </div>
         <div class="header-actions">
           <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
+          {% if can_manage_config %}
+          <a class="btn ghost" href="/configuracion">Configuración</a>
+          {% endif %}
           <button id="theme-toggle" class="ghost" type="button">Modo oscuro</button>
           {% if auth_enabled %}
           <form class="logout-form" method="post" action="/logout">
@@ -42,6 +45,7 @@
           <input id="include-closed" type="checkbox" />
           Mostrar conversaciones cerradas
         </label>
+        <span id="active-agents-status" class="subtle"></span>
       </section>
 
       <section class="rrhh-layout">
@@ -59,6 +63,8 @@
             </div>
             <div class="chat-top-actions">
               <button id="btn-tomar" type="button">Tomar conversación</button>
+              <select id="reassign-agent"></select>
+              <button id="btn-reasignar" type="button" class="ghost">Reasignar</button>
               <button id="btn-cerrar" type="button" class="danger">Cerrar conversación</button>
             </div>
           </div>
@@ -174,9 +180,12 @@
       const replyForm = document.getElementById("reply-form");
       const replyInput = document.getElementById("reply-input");
       const btnTomar = document.getElementById("btn-tomar");
+      const btnReasignar = document.getElementById("btn-reasignar");
+      const reassignAgentEl = document.getElementById("reassign-agent");
       const btnCerrar = document.getElementById("btn-cerrar");
       const themeToggleBtn = document.getElementById("theme-toggle");
       const agentNameEl = document.getElementById("agent-name");
+      const activeAgentsStatusEl = document.getElementById("active-agents-status");
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
       const canManageUsers = {{ can_manage_users|tojson }};
@@ -198,6 +207,7 @@
       const newRolePermissionsEl = document.getElementById("new-role-permissions");
 
       let conversations = [];
+      let activeAgents = [];
       let currentConversationId = null;
       let pollTimer = null;
       const AUTO_REFRESH_MS = 60 * 1000;
@@ -256,6 +266,26 @@
         return "badge pending";
       }
 
+      function renderActiveAgents() {
+        if (activeAgentsStatusEl) {
+          activeAgentsStatusEl.textContent = `${activeAgents.length} agente(s) activo(s)`;
+        }
+        if (!reassignAgentEl) return;
+
+        reassignAgentEl.innerHTML = "";
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Seleccioná agente";
+        reassignAgentEl.appendChild(placeholder);
+
+        activeAgents.forEach((agent) => {
+          const option = document.createElement("option");
+          option.value = agent.agent_id;
+          option.textContent = `${agent.display_name || agent.agent_id}`;
+          reassignAgentEl.appendChild(option);
+        });
+      }
+
       function renderConversations() {
         conversationListEl.innerHTML = "";
         if (!conversations.length) {
@@ -273,7 +303,9 @@
               <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
             </div>
             <div class="conv-line">${escapeHtml(conv.ultima_consulta || "Sin consulta")}</div>
-            <div class="conv-foot">Actualizado: ${escapeHtml(conv.updated_at || "-")}</div>
+            <div class="conv-foot">
+              Agente: ${escapeHtml(conv.rrhh_agente || "sin asignar")} · Actualizado: ${escapeHtml(conv.updated_at || "-")}
+            </div>
           `;
           card.addEventListener("click", () => seleccionarConversacion(conv.conversation_id));
           conversationListEl.appendChild(card);
@@ -612,6 +644,8 @@
           agentNameEl.value = data.agente_actual;
         }
         conversations = data.conversaciones || [];
+        activeAgents = Array.isArray(data.agentes_activos) ? data.agentes_activos : [];
+        renderActiveAgents();
         queueStatusEl.textContent = `${conversations.length} conversación(es)`;
         renderConversations();
       }
@@ -623,6 +657,9 @@
         renderMessages(data.mensajes || []);
         chatTitleEl.textContent = `Conversación ${conversationId}`;
         chatMetaEl.textContent = `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
+        if (reassignAgentEl && data.rrhh_agente_id) {
+          reassignAgentEl.value = data.rrhh_agente_id;
+        }
       }
 
       async function seleccionarConversacion(conversationId) {
@@ -641,6 +678,22 @@
         });
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo tomar la conversación");
+        await refrescarTodo(true);
+      }
+
+      async function reasignarConversacion() {
+        if (!currentConversationId) return;
+        const agentId = (reassignAgentEl?.value || "").trim();
+        if (!agentId) throw new Error("Seleccioná un agente activo para reasignar.");
+        const target = activeAgents.find((agent) => agent.agent_id === agentId);
+        if (!target) throw new Error("El agente seleccionado ya no está activo.");
+        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/reasignar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agente_id: target.agent_id, agente: target.display_name }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo reasignar la conversación");
         await refrescarTodo(true);
       }
 
@@ -703,6 +756,16 @@
           queueStatusEl.textContent = `Error al tomar: ${error.message}`;
         }
       });
+      if (btnReasignar) {
+        btnReasignar.addEventListener("click", async () => {
+          try {
+            await reasignarConversacion();
+            await safeRefresh(true);
+          } catch (error) {
+            queueStatusEl.textContent = `Error al reasignar: ${error.message}`;
+          }
+        });
+      }
       btnCerrar.addEventListener("click", async () => {
         try {
           await cerrarConversacion();

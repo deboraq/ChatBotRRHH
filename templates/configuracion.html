@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Configuración - Chatbot RRHH</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}" />
+  </head>
+  <body>
+    <main class="config-wrapper">
+      <header class="rrhh-header">
+        <div>
+          <h1>Configuración</h1>
+          <p>Administración de empresa, usuarios y roles para escalar el asistente.</p>
+          {% if auth_enabled and rrhh_user %}
+          <p class="subtle">Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
+          {% endif %}
+        </div>
+        <div class="header-actions">
+          <a class="btn ghost" href="/rrhh">Panel RRHH</a>
+          <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
+          <button id="theme-toggle" class="ghost" type="button">Modo oscuro</button>
+          {% if auth_enabled %}
+          <form class="logout-form" method="post" action="/logout">
+            <button type="submit">Cerrar sesión</button>
+          </form>
+          {% endif %}
+        </div>
+      </header>
+
+      <div class="config-grid">
+        {% if can_manage_general %}
+        <section class="panel">
+          <h2>Empresa y branding</h2>
+          <form id="general-settings-form" class="general-settings-form">
+            <label class="field">
+              Empresa
+              <input
+                id="cfg-company-name"
+                type="text"
+                value="{{ general_settings.company_name }}"
+                required
+              />
+            </label>
+            <label class="field">
+              Nombre del equipo (ej: RRHH)
+              <input
+                id="cfg-hr-team-name"
+                type="text"
+                value="{{ general_settings.hr_team_name }}"
+                required
+              />
+            </label>
+            <label class="field">
+              Contacto RRHH
+              <input
+                id="cfg-hr-contact"
+                type="text"
+                value="{{ general_settings.hr_contact }}"
+                required
+              />
+            </label>
+            <div class="form-actions">
+              <button type="submit">Guardar configuración</button>
+              <button id="general-refresh" type="button" class="ghost">Recargar</button>
+            </div>
+          </form>
+          <p id="general-status" class="subtle"></p>
+        </section>
+        {% endif %}
+
+        {% if can_manage_users %}
+        <section class="panel users-panel">
+          <div class="users-head">
+            <div>
+              <h2>Usuarios RRHH</h2>
+              <p class="subtle">Alta y edición de usuarios para panel e historial.</p>
+            </div>
+            <span id="users-file" class="subtle"></span>
+          </div>
+
+          <form id="create-user-form" class="create-user-form">
+            <input id="new-username" type="text" placeholder="Usuario (ej: laura.rrhh)" required />
+            <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
+            <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
+            <select id="new-role">
+              <option value="rrhh">rrhh</option>
+              <option value="admin">admin</option>
+            </select>
+            <button type="submit">Crear usuario</button>
+          </form>
+
+          <p id="users-status" class="subtle"></p>
+
+          <div class="users-table-wrap">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Usuario</th>
+                  <th>Nombre</th>
+                  <th>Rol</th>
+                  <th>Permisos</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody id="users-body"></tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+
+        {% if can_manage_roles %}
+        <section class="panel roles-panel">
+          <div class="roles-head">
+            <div>
+              <h2>Roles y permisos</h2>
+              <p class="subtle">Creá y editá roles para distintas empresas/equipos.</p>
+            </div>
+            <span id="roles-file" class="subtle"></span>
+          </div>
+
+          <form id="create-role-form" class="create-role-form">
+            <input id="new-role-name" type="text" placeholder="Rol (ej: supervisor_rrhh)" required />
+            <input id="new-role-display-name" type="text" placeholder="Nombre visible del rol" />
+            <div id="new-role-permissions" class="permissions-grid"></div>
+            <button type="submit">Crear rol</button>
+          </form>
+
+          <p id="roles-status" class="subtle"></p>
+
+          <div class="roles-table-wrap">
+            <table class="roles-table">
+              <thead>
+                <tr>
+                  <th>Rol</th>
+                  <th>Nombre</th>
+                  <th>Permisos</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody id="roles-body"></tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
+      </div>
+    </main>
+
+    <script>
+      const canManageUsers = {{ can_manage_users|tojson }};
+      const canManageRoles = {{ can_manage_roles|tojson }};
+      const canManageGeneral = {{ can_manage_general|tojson }};
+
+      const themeToggleBtn = document.getElementById("theme-toggle");
+      const THEME_STORAGE_KEY = "rrhh_panel_theme";
+
+      const usersFileEl = document.getElementById("users-file");
+      const usersStatusEl = document.getElementById("users-status");
+      const usersBodyEl = document.getElementById("users-body");
+      const createUserForm = document.getElementById("create-user-form");
+      const newUsernameEl = document.getElementById("new-username");
+      const newDisplayNameEl = document.getElementById("new-display-name");
+      const newPasswordEl = document.getElementById("new-password");
+      const newRoleEl = document.getElementById("new-role");
+
+      const rolesFileEl = document.getElementById("roles-file");
+      const rolesStatusEl = document.getElementById("roles-status");
+      const rolesBodyEl = document.getElementById("roles-body");
+      const createRoleForm = document.getElementById("create-role-form");
+      const newRoleNameEl = document.getElementById("new-role-name");
+      const newRoleDisplayNameEl = document.getElementById("new-role-display-name");
+      const newRolePermissionsEl = document.getElementById("new-role-permissions");
+
+      const generalForm = document.getElementById("general-settings-form");
+      const generalStatusEl = document.getElementById("general-status");
+      const generalRefreshBtn = document.getElementById("general-refresh");
+      const cfgCompanyNameEl = document.getElementById("cfg-company-name");
+      const cfgHrTeamNameEl = document.getElementById("cfg-hr-team-name");
+      const cfgHrContactEl = document.getElementById("cfg-hr-contact");
+
+      let validRoles = ["admin", "rrhh"];
+      let permissionsCatalog = [];
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function getInitialTheme() {
+        try {
+          const stored = localStorage.getItem(THEME_STORAGE_KEY);
+          if (stored === "dark" || stored === "light") return stored;
+        } catch (error) {
+          // Ignora errores de storage.
+        }
+        return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+
+      function applyTheme(theme) {
+        const normalized = theme === "dark" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", normalized);
+        if (themeToggleBtn) {
+          themeToggleBtn.textContent = normalized === "dark" ? "Modo claro" : "Modo oscuro";
+        }
+      }
+
+      function toggleTheme() {
+        const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        const next = current === "dark" ? "light" : "dark";
+        applyTheme(next);
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, next);
+        } catch (error) {
+          // Ignora errores de storage.
+        }
+      }
+
+      function setGeneralStatus(text, isError = false) {
+        if (!generalStatusEl) return;
+        generalStatusEl.textContent = text || "";
+        generalStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function setUsersStatus(text, isError = false) {
+        if (!usersStatusEl) return;
+        usersStatusEl.textContent = text || "";
+        usersStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function setRolesStatus(text, isError = false) {
+        if (!rolesStatusEl) return;
+        rolesStatusEl.textContent = text || "";
+        rolesStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function permisosTexto(perms) {
+        const values = Array.isArray(perms) ? perms : [];
+        if (values.length === 0) return "Sin permisos";
+        const labels = values.map((perm) => {
+          const found = permissionsCatalog.find((item) => item.key === perm);
+          return found ? found.label : perm;
+        });
+        return labels.join(" · ");
+      }
+
+      function renderPermissionsInputs(containerEl, selectedPermissions = []) {
+        if (!containerEl) return;
+        containerEl.innerHTML = "";
+        const selected = new Set((selectedPermissions || []).map((value) => String(value)));
+        permissionsCatalog.forEach((perm) => {
+          const label = document.createElement("label");
+          label.className = "perm-item";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.dataset.perm = perm.key;
+          checkbox.checked = selected.has(perm.key);
+          const text = document.createElement("span");
+          text.textContent = perm.label || perm.key;
+          label.appendChild(checkbox);
+          label.appendChild(text);
+          containerEl.appendChild(label);
+        });
+      }
+
+      function getSelectedPermissions(containerEl) {
+        if (!containerEl) return [];
+        const selected = [];
+        containerEl.querySelectorAll("input[type='checkbox'][data-perm]").forEach((input) => {
+          if (input.checked) selected.push(input.dataset.perm);
+        });
+        return selected;
+      }
+
+      function renderUsers(users) {
+        if (!usersBodyEl) return;
+        usersBodyEl.innerHTML = "";
+        if (!users || users.length === 0) {
+          usersBodyEl.innerHTML = "<tr><td colspan='5'>Sin usuarios creados en archivo.</td></tr>";
+          return;
+        }
+
+        users.forEach((user) => {
+          const tr = document.createElement("tr");
+          const username = String(user.username || "");
+          const currentRole = String(user.role || "rrhh").toLowerCase();
+          const roles = Array.isArray(validRoles) && validRoles.length ? validRoles : ["rrhh", "admin"];
+
+          const tdUsername = document.createElement("td");
+          tdUsername.innerHTML = `<code>${escapeHtml(username || "-")}</code>`;
+
+          const tdName = document.createElement("td");
+          tdName.textContent = user.display_name || "-";
+
+          const tdRole = document.createElement("td");
+          const selectRole = document.createElement("select");
+          selectRole.className = "role-select";
+          roles.forEach((role) => {
+            const opt = document.createElement("option");
+            opt.value = role;
+            opt.textContent = role;
+            if (role.toLowerCase() === currentRole) opt.selected = true;
+            selectRole.appendChild(opt);
+          });
+          tdRole.appendChild(selectRole);
+
+          const tdPerms = document.createElement("td");
+          tdPerms.className = "permissions-cell";
+          tdPerms.textContent = permisosTexto(user.permissions);
+
+          const tdAction = document.createElement("td");
+          const btnUpdate = document.createElement("button");
+          btnUpdate.type = "button";
+          btnUpdate.className = "role-update-btn";
+          btnUpdate.textContent = "Actualizar rol";
+          btnUpdate.addEventListener("click", async () => {
+            try {
+              await actualizarRolUsuario(username, selectRole.value);
+            } catch (error) {
+              setUsersStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnUpdate);
+
+          tr.appendChild(tdUsername);
+          tr.appendChild(tdName);
+          tr.appendChild(tdRole);
+          tr.appendChild(tdPerms);
+          tr.appendChild(tdAction);
+          usersBodyEl.appendChild(tr);
+        });
+      }
+
+      function renderRoles(roles) {
+        if (!rolesBodyEl) return;
+        rolesBodyEl.innerHTML = "";
+        if (!roles || roles.length === 0) {
+          rolesBodyEl.innerHTML = "<tr><td colspan='4'>Sin roles configurados.</td></tr>";
+          return;
+        }
+
+        roles.forEach((role) => {
+          const tr = document.createElement("tr");
+          const tdName = document.createElement("td");
+          tdName.innerHTML = `<code>${escapeHtml(role.name || "-")}</code>`;
+
+          const tdDisplay = document.createElement("td");
+          const inputDisplay = document.createElement("input");
+          inputDisplay.type = "text";
+          inputDisplay.className = "role-display-input";
+          inputDisplay.value = role.display_name || role.name || "";
+          tdDisplay.appendChild(inputDisplay);
+
+          const tdPerms = document.createElement("td");
+          const permsContainer = document.createElement("div");
+          permsContainer.className = "permissions-grid compact";
+          renderPermissionsInputs(permsContainer, role.permissions || []);
+          tdPerms.appendChild(permsContainer);
+
+          const tdAction = document.createElement("td");
+          const btnSave = document.createElement("button");
+          btnSave.type = "button";
+          btnSave.className = "role-update-btn";
+          btnSave.textContent = "Guardar rol";
+          btnSave.addEventListener("click", async () => {
+            try {
+              await actualizarRolDefinicion(
+                role.name,
+                inputDisplay.value,
+                getSelectedPermissions(permsContainer)
+              );
+            } catch (error) {
+              setRolesStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnSave);
+
+          tr.appendChild(tdName);
+          tr.appendChild(tdDisplay);
+          tr.appendChild(tdPerms);
+          tr.appendChild(tdAction);
+          rolesBodyEl.appendChild(tr);
+        });
+      }
+
+      async function cargarConfiguracionGeneral() {
+        if (!canManageGeneral) return;
+        const response = await fetch("/api/configuracion/general");
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cargar configuración.");
+        cfgCompanyNameEl.value = data.settings.company_name || "";
+        cfgHrTeamNameEl.value = data.settings.hr_team_name || "";
+        cfgHrContactEl.value = data.settings.hr_contact || "";
+        setGeneralStatus("Configuración general cargada.");
+      }
+
+      async function guardarConfiguracionGeneral() {
+        if (!canManageGeneral) return;
+        const payload = {
+          company_name: (cfgCompanyNameEl.value || "").trim(),
+          hr_team_name: (cfgHrTeamNameEl.value || "").trim(),
+          hr_contact: (cfgHrContactEl.value || "").trim(),
+        };
+        if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
+          throw new Error("Completá empresa, equipo RRHH y contacto.");
+        }
+        const response = await fetch("/api/configuracion/general", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo guardar configuración.");
+        setGeneralStatus("Configuración general actualizada correctamente.");
+      }
+
+      async function cargarUsuarios() {
+        if (!canManageUsers) return;
+        const response = await fetch("/api/rrhh/usuarios");
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cargar usuarios.");
+        if (Array.isArray(data.valid_roles) && data.valid_roles.length) {
+          validRoles = data.valid_roles;
+        }
+        if (Array.isArray(data.permissions_catalog) && data.permissions_catalog.length) {
+          permissionsCatalog = data.permissions_catalog;
+        }
+        if (usersFileEl) usersFileEl.textContent = `Archivo: ${data.users_file || "-"}`;
+        renderUsers(data.users || []);
+        setUsersStatus(`${(data.users || []).length} usuario(s) cargado(s).`);
+      }
+
+      async function crearUsuario() {
+        if (!canManageUsers) return;
+        const username = (newUsernameEl?.value || "").trim();
+        const display_name = (newDisplayNameEl?.value || "").trim();
+        const password = newPasswordEl?.value || "";
+        const role = (newRoleEl?.value || "rrhh").trim();
+        if (!username || !password) {
+          throw new Error("Completá usuario y contraseña.");
+        }
+        const response = await fetch("/api/rrhh/usuarios", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, display_name, password, role }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo crear el usuario.");
+        if (newUsernameEl) newUsernameEl.value = "";
+        if (newDisplayNameEl) newDisplayNameEl.value = "";
+        if (newPasswordEl) newPasswordEl.value = "";
+        if (newRoleEl) newRoleEl.value = "rrhh";
+        setUsersStatus(`Usuario ${data.user.username} creado correctamente.`);
+        await cargarUsuarios();
+      }
+
+      async function actualizarRolUsuario(username, role) {
+        if (!canManageUsers) return;
+        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/rol`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
+        setUsersStatus(`Rol actualizado para ${data.user.username}: ${data.user.role}.`);
+        await cargarUsuarios();
+      }
+
+      async function cargarRoles() {
+        if (!canManageRoles) return;
+        const response = await fetch("/api/rrhh/roles");
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cargar roles.");
+        if (Array.isArray(data.permissions_catalog) && data.permissions_catalog.length) {
+          permissionsCatalog = data.permissions_catalog;
+        }
+        if (rolesFileEl) rolesFileEl.textContent = `Archivo: ${data.roles_file || "-"}`;
+        renderPermissionsInputs(newRolePermissionsEl, []);
+        renderRoles(data.roles || []);
+        setRolesStatus(`${(data.roles || []).length} rol(es) cargado(s).`);
+      }
+
+      async function crearRol() {
+        if (!canManageRoles) return;
+        const name = (newRoleNameEl?.value || "").trim().toLowerCase();
+        const display_name = (newRoleDisplayNameEl?.value || "").trim();
+        const permissions = getSelectedPermissions(newRolePermissionsEl);
+        if (!name) throw new Error("Completá nombre de rol.");
+        if (permissions.length === 0) throw new Error("Seleccioná al menos un permiso.");
+        const response = await fetch("/api/rrhh/roles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, display_name, permissions }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo crear el rol.");
+        if (newRoleNameEl) newRoleNameEl.value = "";
+        if (newRoleDisplayNameEl) newRoleDisplayNameEl.value = "";
+        renderPermissionsInputs(newRolePermissionsEl, []);
+        setRolesStatus(`Rol ${data.role.name} creado correctamente.`);
+        await cargarRoles();
+        await cargarUsuarios();
+      }
+
+      async function actualizarRolDefinicion(roleName, displayName, permissions) {
+        if (!canManageRoles) return;
+        const response = await fetch(`/api/rrhh/roles/${encodeURIComponent(roleName)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: displayName, permissions }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
+        setRolesStatus(`Rol ${data.role.name} actualizado.`);
+        await cargarRoles();
+        await cargarUsuarios();
+      }
+
+      if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", toggleTheme);
+      }
+
+      if (generalForm) {
+        generalForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          try {
+            await guardarConfiguracionGeneral();
+          } catch (error) {
+            setGeneralStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      if (generalRefreshBtn) {
+        generalRefreshBtn.addEventListener("click", async () => {
+          try {
+            await cargarConfiguracionGeneral();
+          } catch (error) {
+            setGeneralStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      if (createUserForm) {
+        createUserForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          try {
+            await crearUsuario();
+          } catch (error) {
+            setUsersStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      if (createRoleForm) {
+        createRoleForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          try {
+            await crearRol();
+          } catch (error) {
+            setRolesStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      async function init() {
+        applyTheme(getInitialTheme());
+        if (canManageGeneral) {
+          try {
+            await cargarConfiguracionGeneral();
+          } catch (error) {
+            setGeneralStatus(`Error cargando configuración: ${error.message}`, true);
+          }
+        }
+        if (canManageUsers) {
+          try {
+            await cargarUsuarios();
+          } catch (error) {
+            setUsersStatus(`Error cargando usuarios: ${error.message}`, true);
+          }
+        }
+        if (canManageRoles) {
+          try {
+            await cargarRoles();
+          } catch (error) {
+            setRolesStatus(`Error cargando roles: ${error.message}`, true);
+          }
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>
