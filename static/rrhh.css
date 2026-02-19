@@ -323,6 +323,10 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+#reassign-agent {
+  min-width: 190px;
+}
+
 .messages {
   margin-top: 10px;
   border: 1px solid var(--border-soft);

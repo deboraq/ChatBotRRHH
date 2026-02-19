@@ -118,6 +118,7 @@ Funciones disponibles en la UI:
 - Vista de estadísticas en tiempo real: `http://localhost:5000/estadisticas`
 - Historial completo de chats: `http://localhost:5000/historial`
 - Panel RRHH con temas de color mejorados y switch claro/oscuro.
+- Panel de configuración separado para empresa, usuarios y roles: `http://localhost:5000/configuracion`
 
 ## ☁️ Deploy en Render (producción)
 
@@ -256,9 +257,33 @@ Cuando un colaborador pide “hablar con RRHH”, la conversación se deriva a u
 
 - Panel RRHH: `http://localhost:5000/rrhh`
 - Bandeja de conversaciones pendientes/activas.
+- Asignación automática de chats entre agentes RRHH activos (balanceo básico).
 - Botón para tomar conversación por agente.
+- Reasignación manual de conversaciones entre agentes activos.
 - Respuesta en vivo desde RRHH al colaborador en el mismo chat.
 - Cierre de conversación por RRHH o colaborador.
+
+### 🏢 Configuración para múltiples empresas
+
+El chatbot permite personalizar branding y contacto RRHH para usarlo en distintas compañías.
+
+Opciones:
+
+1) Variables de entorno:
+
+```bash
+export CHATBOT_COMPANY_NAME="Mi Empresa"
+export CHATBOT_HR_TEAM_NAME="RRHH"
+export CHATBOT_HR_CONTACT="interno 123"
+```
+
+2) Panel web de configuración (recomendado para operación diaria):
+
+- URL: `http://localhost:5000/configuracion`
+- Sección **Empresa y branding** para editar:
+  - Nombre de empresa
+  - Nombre del equipo RRHH
+  - Contacto RRHH
 
 ### 🔐 Usuarios para panel RRHH e historial
 
@@ -302,7 +327,7 @@ Con autenticación activa:
 1) Ingresá con un usuario **admin** en `http://localhost:5000/login`.  
    (si usás `RRHH_ADMIN_USER`, por defecto queda con rol `admin`)
 
-2) Entrá al panel `http://localhost:5000/rrhh`.
+2) Entrá al panel `http://localhost:5000/configuracion`.
 
 3) En la sección **Usuarios RRHH**:
    - completá usuario, nombre visible, contraseña y rol
@@ -316,7 +341,7 @@ Eso guarda automáticamente en `RRHH_USERS_FILE` (por defecto `rrhh_users.json`)
 
 Además de `admin` y `rrhh`, podés crear roles propios desde el panel:
 
-- Sección **Roles y permisos** en `http://localhost:5000/rrhh`
+- Sección **Roles y permisos** en `http://localhost:5000/configuracion`
 - Crear rol nuevo con permisos
 - Editar permisos de roles existentes
 

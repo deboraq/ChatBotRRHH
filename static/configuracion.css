@@ -1,0 +1,44 @@
+.config-wrapper {
+  width: min(1320px, 96vw);
+  margin: 20px auto;
+  background: var(--surface);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+  border: 1px solid #e9eef8;
+}
+
+.config-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.general-settings-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.general-settings-form .form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+#general-status {
+  margin-top: 8px;
+}
+
+@media (max-width: 760px) {
+  .config-wrapper {
+    width: 100%;
+    margin: 0;
+    border-radius: 0;
+    padding: 14px;
+  }
+
+  .general-settings-form {
+    grid-template-columns: 1fr;
+  }
+}
