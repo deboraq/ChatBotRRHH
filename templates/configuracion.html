@@ -31,80 +31,103 @@
 
       <div class="config-grid">
         {% if can_manage_general %}
-        <section class="panel">
+        <section class="panel companies-panel">
           <h2>Empresas y branding</h2>
-          <div class="general-selector">
-            <label class="field">
-              Empresa activa de sesión
-              <select id="cfg-company-selector"></select>
-            </label>
-            <button id="company-switch" type="button" class="ghost">Usar empresa</button>
-            <button id="company-delete" type="button" class="danger">Eliminar empresa</button>
+          <p class="subtle">
+            Configurá qué empresa estás administrando y personalizá su nombre, equipo y contacto.
+          </p>
+
+          <div class="company-step">
+            <h3>Paso 1 · Elegí la empresa activa</h3>
+            <div class="general-selector">
+              <label class="field">
+                Empresa activa de sesión
+                <select id="cfg-company-selector"></select>
+              </label>
+              <button id="company-switch" type="button" class="ghost">Cargar empresa</button>
+              <button id="general-refresh" type="button" class="ghost">Recargar datos</button>
+            </div>
+            <p id="company-summary" class="subtle"></p>
           </div>
 
-          <form id="new-company-form" class="general-settings-form new-company-form">
-            <label class="field">
-              ID empresa (opcional)
-              <input id="new-company-id" type="text" placeholder="ej: bacar_norte" />
-            </label>
-            <label class="field">
-              Nombre empresa
-              <input id="new-company-name" type="text" placeholder="ej: Bacar Norte" required />
-            </label>
-            <label class="field">
-              Equipo RRHH
-              <input id="new-company-hr-team-name" type="text" placeholder="ej: RRHH" required />
-            </label>
-            <label class="field">
-              Contacto RRHH
-              <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
-            </label>
-            <label class="field">
-              Sucursales (coma)
-              <input id="new-company-branches" type="text" placeholder="ej: CABA, Rosario, Córdoba" />
-            </label>
-            <div class="form-actions">
-              <button type="submit">Agregar empresa</button>
-            </div>
-          </form>
+          <div class="company-step">
+            <h3>Paso 2 · Editá la empresa activa</h3>
+            <form id="general-settings-form" class="general-settings-form">
+              <label class="field">
+                Nombre visible de la empresa
+                <input
+                  id="cfg-company-name"
+                  type="text"
+                  value="{{ general_settings.company_name }}"
+                  required
+                />
+              </label>
+              <label class="field">
+                Equipo de atención (ej: RRHH, People Ops)
+                <input
+                  id="cfg-hr-team-name"
+                  type="text"
+                  value="{{ general_settings.hr_team_name }}"
+                  required
+                />
+              </label>
+              <label class="field">
+                Contacto principal
+                <input
+                  id="cfg-hr-contact"
+                  type="text"
+                  value="{{ general_settings.hr_contact }}"
+                  required
+                />
+              </label>
+              <label class="field">
+                Sucursales (separadas por coma)
+                <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
+              </label>
+              <div class="form-actions">
+                <button type="submit">Guardar cambios de empresa</button>
+              </div>
+            </form>
+          </div>
 
-          <form id="general-settings-form" class="general-settings-form">
-            <label class="field">
-              Empresa (nombre visible)
-              <input
-                id="cfg-company-name"
-                type="text"
-                value="{{ general_settings.company_name }}"
-                required
-              />
-            </label>
-            <label class="field">
-              Nombre del equipo (ej: RRHH)
-              <input
-                id="cfg-hr-team-name"
-                type="text"
-                value="{{ general_settings.hr_team_name }}"
-                required
-              />
-            </label>
-            <label class="field">
-              Contacto RRHH
-              <input
-                id="cfg-hr-contact"
-                type="text"
-                value="{{ general_settings.hr_contact }}"
-                required
-              />
-            </label>
-            <label class="field">
-              Sucursales (separadas por coma)
-              <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
-            </label>
-            <div class="form-actions">
-              <button type="submit">Guardar empresa activa</button>
-              <button id="general-refresh" type="button" class="ghost">Recargar empresa</button>
-            </div>
-          </form>
+          <details class="company-step create-company-box">
+            <summary>Paso 3 · Agregar nueva empresa</summary>
+            <p class="subtle">Si no completás el ID, se genera automáticamente desde el nombre.</p>
+            <form id="new-company-form" class="general-settings-form new-company-form">
+              <label class="field">
+                Nombre empresa
+                <input id="new-company-name" type="text" placeholder="ej: Bacar Norte" required />
+              </label>
+              <label class="field">
+                Equipo RRHH
+                <input id="new-company-hr-team-name" type="text" placeholder="ej: RRHH" required />
+              </label>
+              <label class="field">
+                Contacto RRHH
+                <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
+              </label>
+              <label class="field">
+                Sucursales (coma)
+                <input id="new-company-branches" type="text" placeholder="ej: CABA, Rosario, Córdoba" />
+              </label>
+              <label class="field">
+                ID empresa (opcional)
+                <input id="new-company-id" type="text" placeholder="ej: bacar_norte" />
+              </label>
+              <div class="form-actions">
+                <button type="submit">Agregar empresa</button>
+              </div>
+            </form>
+          </details>
+
+          <div class="danger-zone">
+            <h3>Zona de peligro</h3>
+            <p class="subtle">
+              Eliminá la empresa activa solo si ya no se usa y no tiene usuarios asignados.
+            </p>
+            <button id="company-delete" type="button" class="danger">Eliminar empresa activa</button>
+          </div>
+
           <p id="general-status" class="subtle"></p>
         </section>
         {% endif %}
@@ -222,6 +245,7 @@
       const companySelectorEl = document.getElementById("cfg-company-selector");
       const companySwitchBtn = document.getElementById("company-switch");
       const companyDeleteBtn = document.getElementById("company-delete");
+      const companySummaryEl = document.getElementById("company-summary");
       const newCompanyForm = document.getElementById("new-company-form");
       const newCompanyIdEl = document.getElementById("new-company-id");
       const newCompanyNameEl = document.getElementById("new-company-name");
@@ -360,6 +384,26 @@
       function getCompanyById(companyId) {
         const key = normalizeCompanyId(companyId);
         return companies.find((item) => normalizeCompanyId(item.company_id) === key) || null;
+      }
+
+      function selectedCompany() {
+        return getCompanyById(selectedCompanyId);
+      }
+
+      function renderCompanySummary() {
+        if (!companySummaryEl) return;
+        const company = selectedCompany();
+        if (!company) {
+          companySummaryEl.textContent = "No hay empresa seleccionada.";
+          return;
+        }
+        const branches = Array.isArray(company.branches) ? company.branches : [];
+        const branchesLabel =
+          branches.length > 0 ? branches.join(", ") : "Sin sucursales cargadas";
+        companySummaryEl.textContent = `Editando: ${company.company_name} (${company.company_id}) · Sucursales: ${branchesLabel}`;
+        if (companyDeleteBtn) {
+          companyDeleteBtn.disabled = companies.length <= 1;
+        }
       }
 
       function fillCompanySelect(selectEl, selectedId = "", includeEmpty = false) {
@@ -597,6 +641,7 @@
       function refreshCompanySelectors() {
         fillCompanySelect(companySelectorEl, selectedCompanyId);
         fillCompanySelect(newUserCompanyEl, selectedCompanyId || "", false);
+        renderCompanySummary();
       }
 
       async function cargarEmpresas() {
@@ -654,8 +699,9 @@
 
       async function crearEmpresa() {
         if (!canManageGeneral) return;
+        const inferredId = normalizeCompanyId(newCompanyNameEl?.value || "");
         const payload = {
-          company_id: (newCompanyIdEl?.value || "").trim(),
+          company_id: normalizeCompanyId((newCompanyIdEl?.value || "").trim()) || inferredId,
           company_name: (newCompanyNameEl?.value || "").trim(),
           hr_team_name: (newCompanyHrTeamNameEl?.value || "").trim(),
           hr_contact: (newCompanyHrContactEl?.value || "").trim(),
@@ -680,8 +726,13 @@
         if (newCompanyHrTeamNameEl) newCompanyHrTeamNameEl.value = "";
         if (newCompanyHrContactEl) newCompanyHrContactEl.value = "";
         if (newCompanyBranchesEl) newCompanyBranchesEl.value = "";
+        selectedCompanyId = normalizeCompanyId(data.company.company_id);
         await cargarEmpresas();
-        setGeneralStatus(`Empresa ${data.company.company_name} creada.`);
+        if (companySelectorEl) {
+          companySelectorEl.value = selectedCompanyId;
+        }
+        await seleccionarEmpresaActiva();
+        setGeneralStatus(`Empresa ${data.company.company_name} creada y seleccionada.`);
       }
 
       async function eliminarEmpresaActiva() {
@@ -953,6 +1004,13 @@
       if (companySelectorEl) {
         companySelectorEl.addEventListener("change", () => {
           selectedCompanyId = normalizeCompanyId(companySelectorEl.value);
+          renderCompanySummary();
+          const company = selectedCompany();
+          if (company) {
+            setGeneralStatus(
+              `Seleccionaste ${company.company_name}. Hacé click en "Cargar empresa" para editar sus datos.`
+            );
+          }
         });
       }
 
