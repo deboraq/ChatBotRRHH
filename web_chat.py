@@ -1675,9 +1675,24 @@ def login_submit():
             ),
             403,
         )
-    chosen_company = company_id
-    if not chosen_company or not any(item.get("company_id") == chosen_company for item in user_companies):
-        chosen_company = user_companies[0]["company_id"] if user_companies else _default_company_id()
+    if company_id and not any(item.get("company_id") == company_id for item in user_companies):
+        message = "No tenés acceso a la empresa seleccionada."
+        if request.is_json:
+            return jsonify({"ok": False, "error": message}), 403
+        return (
+            render_template(
+                "login.html",
+                error=message,
+                next_path=next_path,
+                companies=user_companies,
+                selected_company=company_id,
+            ),
+            403,
+        )
+
+    chosen_company = company_id or (
+        user_companies[0]["company_id"] if user_companies else _default_company_id()
+    )
     if not _user_can_access_company(user_payload, chosen_company):
         message = "No tenés acceso a la empresa seleccionada."
         if request.is_json:
