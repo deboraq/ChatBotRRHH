@@ -13,6 +13,34 @@
   gap: 14px;
 }
 
+.companies-panel > .subtle {
+  margin-top: 0;
+}
+
+.company-step {
+  border: 1px solid #e6ebf5;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: rgba(248, 250, 254, 0.85);
+}
+
+.company-step h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: #1f3b74;
+}
+
+.create-company-box summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #1f3b74;
+}
+
+.create-company-box[open] summary {
+  margin-bottom: 10px;
+}
+
 .general-settings-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -27,19 +55,19 @@
 }
 
 .general-selector {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(240px, 1.6fr) auto auto;
   gap: 10px;
   align-items: end;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .general-selector .field {
-  min-width: 260px;
+  min-width: 0;
 }
 
 .new-company-form {
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .config-actions-cell {
@@ -59,6 +87,27 @@
   color: inherit;
 }
 
+.danger-zone {
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff5f5;
+}
+
+.danger-zone h3 {
+  margin: 0 0 6px;
+  color: #b91c1c;
+}
+
+.danger-zone .subtle {
+  margin: 0 0 10px;
+}
+
+#company-delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 #general-status {
   margin-top: 8px;
 }
@@ -72,6 +121,10 @@
   }
 
   .general-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .general-selector {
     grid-template-columns: 1fr;
   }
 }
