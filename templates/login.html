@@ -19,6 +19,18 @@
         <form method="post" action="/login">
           <input type="hidden" name="next" value="{{ next_path }}" />
 
+          <label for="company_id">Empresa</label>
+          <select id="company_id" name="company_id" required>
+            {% for company in companies %}
+            <option
+              value="{{ company.company_id }}"
+              {% if company.company_id == selected_company %}selected{% endif %}
+            >
+              {{ company.company_name }}{% if company.branches %} ({{ company.branches|length }} suc.){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+
           <label for="username">Usuario</label>
           <input id="username" name="username" type="text" autocomplete="username" required />
 

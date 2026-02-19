@@ -12,6 +12,7 @@
         <div>
           <h1>Panel RRHH</h1>
           <p>Atención humana de conversaciones derivadas desde el chatbot.</p>
+          <p class="subtle">Empresa activa: {{ selected_company_name or company_name }}</p>
           {% if auth_enabled and rrhh_user %}
           <p class="subtle">Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
           {% endif %}

@@ -26,6 +26,39 @@
   align-items: center;
 }
 
+.general-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.general-selector .field {
+  min-width: 260px;
+}
+
+.new-company-form {
+  margin-bottom: 12px;
+}
+
+.config-actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-update-btn.danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.role-update-btn.ghost {
+  background: transparent;
+  color: inherit;
+}
+
 #general-status {
   margin-top: 8px;
 }
