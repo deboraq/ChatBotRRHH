@@ -31,6 +31,22 @@
   color: #1f3b74;
 }
 
+.active-company-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+#company-current-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8efff;
+  color: #1f3b74;
+  font-size: 0.88rem;
+}
+
 .create-company-box summary {
   cursor: pointer;
   font-weight: 600;
