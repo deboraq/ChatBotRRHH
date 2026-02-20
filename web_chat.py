@@ -985,6 +985,27 @@ def _take_handoff(conversation_id, agente, auto_taken=False):
             else conv.get("company_id")
         ),
     )
+
+    # Evita mensajes de sistema duplicados cuando la conversación ya estaba tomada
+    # por el mismo agente.
+    estado_actual = str(conv.get("estado") or "").strip().lower()
+    agente_actual_id = str(conv.get("rrhh_agente_id") or "").strip().lower()
+    agente_actual_nombre = str(conv.get("rrhh_agente") or "").strip().lower()
+    if estado_actual == HANDOFF_STATUS_ACTIVE and (
+        (agent.get("agent_id") and agent.get("agent_id") == agente_actual_id)
+        or (
+            not agent.get("agent_id")
+            and agent.get("display_name")
+            and agent.get("display_name").strip().lower() == agente_actual_nombre
+        )
+    ):
+        _upsert_handoff(
+            conversation_id,
+            {"updated_at": _utc_now()},
+            merge=True,
+        )
+        return True
+
     _upsert_handoff(
         conversation_id,
         {
@@ -2241,6 +2262,17 @@ def rrhh_responder_api(conversation_id):
     if estado != HANDOFF_STATUS_ACTIVE:
         _take_handoff(conversation_id, agente)
 
+    # Idempotencia básica para evitar duplicados por doble submit/click en pocos segundos.
+    ultimo_texto_rrhh = str(conv.get("ultimo_rrhh_text") or "").strip()
+    ultimo_agente_rrhh = str(conv.get("ultimo_rrhh_agente_id") or "").strip().lower()
+    ultimo_rrhh_at = _as_utc_naive(conv.get("ultimo_rrhh_at"))
+    ahora = _as_utc_naive(_utc_now())
+    is_same_message = ultimo_texto_rrhh.lower() == mensaje.lower()
+    same_agent = ultimo_agente_rrhh == str(agente.get("agent_id") or "").strip().lower()
+    if ultimo_rrhh_at and ahora and is_same_message and same_agent:
+        if (ahora - ultimo_rrhh_at).total_seconds() <= 8:
+            return jsonify({"ok": True, "conversation_id": conversation_id, "duplicate_ignored": True})
+
     _add_handoff_message(
         conversation_id,
         remitente="rrhh",
@@ -2253,6 +2285,9 @@ def rrhh_responder_api(conversation_id):
             "rrhh_agente": agente.get("display_name"),
             "rrhh_agente_id": agente.get("agent_id"),
             "updated_at": _utc_now(),
+            "ultimo_rrhh_text": mensaje,
+            "ultimo_rrhh_agente_id": str(agente.get("agent_id") or "").strip().lower(),
+            "ultimo_rrhh_at": _utc_now(),
         },
         merge=True,
     )

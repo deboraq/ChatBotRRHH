@@ -180,6 +180,7 @@
       const messagesEl = document.getElementById("messages");
       const replyForm = document.getElementById("reply-form");
       const replyInput = document.getElementById("reply-input");
+      const replySubmitBtn = replyForm ? replyForm.querySelector("button[type='submit']") : null;
       const btnTomar = document.getElementById("btn-tomar");
       const btnReasignar = document.getElementById("btn-reasignar");
       const reassignAgentEl = document.getElementById("reassign-agent");
@@ -210,6 +211,9 @@
       let conversations = [];
       let activeAgents = [];
       let currentConversationId = null;
+      let currentConversationState = "";
+      let currentConversationAgentId = "";
+      let isSendingReply = false;
       let pollTimer = null;
       const AUTO_REFRESH_MS = 60 * 1000;
       let validRoles = ["admin", "rrhh"];
@@ -333,6 +337,31 @@
           messagesEl.appendChild(bubble);
         });
         messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function syncConversationActions() {
+        const hasConversation = Boolean(currentConversationId);
+        const estado = String(currentConversationState || "").toLowerCase();
+        const isClosed = estado === "cerrada";
+        const isActive = estado === "en_atencion";
+
+        if (btnTomar) {
+          btnTomar.disabled = !hasConversation || isClosed || isActive;
+          btnTomar.textContent = isActive ? "Conversación tomada" : "Tomar conversación";
+        }
+        if (btnReasignar) {
+          btnReasignar.disabled = !hasConversation || isClosed || !isActive;
+        }
+        if (reassignAgentEl) {
+          reassignAgentEl.disabled = !hasConversation || isClosed || !isActive;
+        }
+        if (btnCerrar) {
+          btnCerrar.disabled = !hasConversation || isClosed;
+        }
+
+        const canReply = hasConversation && !isClosed && !isSendingReply;
+        if (replyInput) replyInput.disabled = !canReply;
+        if (replySubmitBtn) replySubmitBtn.disabled = !canReply;
       }
 
       function setUsersStatus(text, isError = false) {
@@ -646,26 +675,41 @@
         }
         conversations = data.conversaciones || [];
         activeAgents = Array.isArray(data.agentes_activos) ? data.agentes_activos : [];
+        if (currentConversationId) {
+          const selected = conversations.find((conv) => conv.conversation_id === currentConversationId);
+          if (selected) {
+            currentConversationState = selected.estado || currentConversationState;
+            currentConversationAgentId = selected.rrhh_agente_id || currentConversationAgentId;
+          }
+        }
         renderActiveAgents();
         queueStatusEl.textContent = `${conversations.length} conversación(es)`;
         renderConversations();
+        syncConversationActions();
       }
 
       async function cargarMensajes(conversationId) {
         const response = await fetch(`/api/rrhh/conversaciones/${conversationId}/mensajes`);
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo cargar mensajes");
+        currentConversationState = data.estado || "";
+        currentConversationAgentId = data.rrhh_agente_id || "";
         renderMessages(data.mensajes || []);
         chatTitleEl.textContent = `Conversación ${conversationId}`;
         chatMetaEl.textContent = `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
         if (reassignAgentEl && data.rrhh_agente_id) {
           reassignAgentEl.value = data.rrhh_agente_id;
         }
+        syncConversationActions();
       }
 
       async function seleccionarConversacion(conversationId) {
         currentConversationId = conversationId;
+        const selected = conversations.find((conv) => conv.conversation_id === conversationId);
+        currentConversationState = selected?.estado || "";
+        currentConversationAgentId = selected?.rrhh_agente_id || "";
         renderConversations();
+        syncConversationActions();
         await cargarMensajes(conversationId);
       }
 
@@ -713,15 +757,23 @@
 
       async function enviarRespuesta(mensaje) {
         if (!currentConversationId) throw new Error("Seleccioná una conversación.");
+        if (isSendingReply) return;
+        isSendingReply = true;
+        syncConversationActions();
         const agente = agentNameEl.value.trim() || "RRHH";
-        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/mensajes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agente, mensaje }),
-        });
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo enviar la respuesta");
-        await cargarMensajes(currentConversationId);
+        try {
+          const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/mensajes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agente, mensaje }),
+          });
+          const data = await response.json();
+          if (!data.ok) throw new Error(data.error || "No se pudo enviar la respuesta");
+          await cargarMensajes(currentConversationId);
+        } finally {
+          isSendingReply = false;
+          syncConversationActions();
+        }
       }
 
       async function refrescarTodo(keepSelected = true) {
@@ -733,9 +785,12 @@
           await seleccionarConversacion(prevSelected);
         } else {
           currentConversationId = null;
+          currentConversationState = "";
+          currentConversationAgentId = "";
           chatTitleEl.textContent = "Seleccioná una conversación";
           chatMetaEl.textContent = "";
           messagesEl.innerHTML = "<p class='subtle'>Sin conversación seleccionada.</p>";
+          syncConversationActions();
         }
       }
 
@@ -820,6 +875,7 @@
         if (authEnabled) {
           agentNameEl.value = currentAgentName;
         }
+        syncConversationActions();
         await safeRefresh(false);
         if (canManageUsers) {
           try {
