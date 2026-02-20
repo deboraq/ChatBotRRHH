@@ -158,6 +158,12 @@ Opcional (si además querés Firebase Hosting con rewrite a Cloud Run):
 .\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseHosting
 ```
 
+Si querés publicar en un sitio Hosting específico (multisite), por ejemplo `debo-chat`:
+
+```powershell
+.\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseHosting -HostingSite "debo-chat"
+```
+
 > Requisitos: `gcloud` y (si usás hosting) `firebase` instalados y autenticados en tu sesión.
 
 3) Abrí en tu navegador:

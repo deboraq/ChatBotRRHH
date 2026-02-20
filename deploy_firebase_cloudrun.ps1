@@ -8,7 +8,8 @@ param(
     [string]$WebSecret = "cambiar-por-secreto-largo",
     [switch]$UseHosting = $false,
     [switch]$UseDefaultServiceAccount = $false,
-    [switch]$SkipApiEnable = $false
+    [switch]$SkipApiEnable = $false,
+    [string]$HostingSite = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -138,32 +139,44 @@ if ($UseHosting) {
         Set-Content -Path "hosting\index.html" -Value "<!doctype html><meta charset='utf-8'><title>Chatbot RRHH</title>"
     }
 
-    if (-not (Test-Path "firebase.json")) {
-        $firebaseJson = @"
+    $site = $HostingSite
+    if ([string]::IsNullOrWhiteSpace($site)) {
+        $site = $ProjectId
+    }
+
+    # Mapea target => site (multisite)
+    firebase target:apply hosting $site $site
+    Assert-LastExit "firebase target:apply hosting"
+
+    # Escribimos configuración explícita para el sitio objetivo.
+    $firebaseJson = @"
 {
-  "hosting": {
-    "public": "hosting",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [
-      {
-        "source": "**",
-        "run": {
-          "serviceId": "$ServiceName",
-          "region": "$Region"
+  "hosting": [
+    {
+      "target": "$site",
+      "public": "hosting",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "$ServiceName",
+            "region": "$Region"
+          }
         }
-      }
-    ]
-  }
+      ]
+    }
+  ]
 }
 "@
-        Set-Content -Path "firebase.json" -Value $firebaseJson
-    }
+    Set-Content -Path "firebase.json" -Value $firebaseJson
 
     firebase use $ProjectId
     Assert-LastExit "firebase use"
-    firebase deploy --only hosting
-    Assert-LastExit "firebase deploy --only hosting"
-    Write-Host "Firebase Hosting desplegado para proyecto $ProjectId." -ForegroundColor Green
+    firebase deploy --only "hosting:$site"
+    Assert-LastExit "firebase deploy --only hosting:site"
+    Write-Host "Firebase Hosting desplegado para sitio $site." -ForegroundColor Green
+    Write-Host "URL Hosting: https://$site.web.app" -ForegroundColor Green
 }
 
 Write-Host ""
