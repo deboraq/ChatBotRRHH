@@ -135,8 +135,12 @@ if ($UseHosting) {
     if (-not (Test-Path "hosting")) {
         New-Item -ItemType Directory -Path "hosting" | Out-Null
     }
-    if (-not (Test-Path "hosting\index.html")) {
-        Set-Content -Path "hosting\index.html" -Value "<!doctype html><meta charset='utf-8'><title>Chatbot RRHH</title>"
+
+    # Importante: si existe index.html en /hosting, Firebase lo sirve directo en "/"
+    # y NO aplica rewrite. Lo removemos para forzar proxy a Cloud Run.
+    if (Test-Path "hosting\index.html") {
+        Remove-Item "hosting\index.html" -Force
+        Write-Host "Se eliminó hosting/index.html para aplicar rewrite a Cloud Run en '/'." -ForegroundColor Yellow
     }
 
     $site = $HostingSite
