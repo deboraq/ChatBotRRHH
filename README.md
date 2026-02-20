@@ -129,6 +129,23 @@ Este script configura automáticamente:
 - `RRHH_AUTH_ENABLED=true`
 - usuario/clave admin local por defecto para panel RRHH
 
+### 🚀 Deploy rápido Firebase + Cloud Run (Windows)
+
+También podés desplegar en un comando con:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -AdminUser "admin" -AdminPassword "tu-clave-segura" -WebSecret "secreto-largo"
+```
+
+Opcional (si además querés Firebase Hosting con rewrite a Cloud Run):
+
+```powershell
+.\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseHosting
+```
+
+> Requisitos: `gcloud` y (si usás hosting) `firebase` instalados y autenticados en tu sesión.
+
 3) Abrí en tu navegador:
 
 ```text
