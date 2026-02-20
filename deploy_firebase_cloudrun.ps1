@@ -6,7 +6,8 @@ param(
     [string]$AdminUser = "admin",
     [string]$AdminPassword = "admin123",
     [string]$WebSecret = "cambiar-por-secreto-largo",
-    [switch]$UseHosting = $false
+    [switch]$UseHosting = $false,
+    [switch]$UseDefaultServiceAccount = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +16,12 @@ Set-Location $PSScriptRoot
 function Require-Command([string]$CommandName) {
     if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
         throw "No se encontro '$CommandName'. Instalala y reintenta."
+    }
+}
+
+function Assert-LastExit([string]$Step) {
+    if ($LASTEXITCODE -ne 0) {
+        throw "Fallo en: $Step (exit code $LASTEXITCODE). Revisa errores de permisos/IAM en la salida."
     }
 }
 
@@ -27,6 +34,7 @@ $serviceAccountEmail = "$ServiceAccountName@$ProjectId.iam.gserviceaccount.com"
 
 Write-Host "Configurando proyecto: $ProjectId" -ForegroundColor Cyan
 gcloud config set project $ProjectId | Out-Null
+Assert-LastExit "gcloud config set project"
 
 Write-Host "Habilitando APIs necesarias..." -ForegroundColor Cyan
 gcloud services enable `
@@ -35,36 +43,57 @@ gcloud services enable `
     artifactregistry.googleapis.com `
     firestore.googleapis.com `
     iam.googleapis.com | Out-Null
+Assert-LastExit "gcloud services enable"
 
-Write-Host "Verificando service account de Cloud Run..." -ForegroundColor Cyan
-$sa = gcloud iam service-accounts list `
-    --filter="email:$serviceAccountEmail" `
-    --format="value(email)"
+if (-not $UseDefaultServiceAccount) {
+    Write-Host "Verificando service account de Cloud Run..." -ForegroundColor Cyan
+    $sa = gcloud iam service-accounts list `
+        --filter="email:$serviceAccountEmail" `
+        --format="value(email)"
+    Assert-LastExit "gcloud iam service-accounts list"
 
-if (-not $sa) {
-    gcloud iam service-accounts create $ServiceAccountName `
-        --display-name "Cloud Run Chatbot RRHH" | Out-Null
+    if (-not $sa) {
+        gcloud iam service-accounts create $ServiceAccountName `
+            --display-name "Cloud Run Chatbot RRHH" | Out-Null
+        Assert-LastExit "gcloud iam service-accounts create"
+    }
+
+    Write-Host "Asignando permisos a service account..." -ForegroundColor Cyan
+    gcloud projects add-iam-policy-binding $ProjectId `
+        --member="serviceAccount:$serviceAccountEmail" `
+        --role="roles/datastore.user" `
+        --quiet | Out-Null
+    Assert-LastExit "gcloud projects add-iam-policy-binding"
 }
-
-Write-Host "Asignando permisos a service account..." -ForegroundColor Cyan
-gcloud projects add-iam-policy-binding $ProjectId `
-    --member="serviceAccount:$serviceAccountEmail" `
-    --role="roles/datastore.user" `
-    --quiet | Out-Null
+else {
+    Write-Host "Modo UseDefaultServiceAccount activo: se omite creacion/configuracion de service account." -ForegroundColor Yellow
+}
 
 Write-Host "Desplegando servicio en Cloud Run..." -ForegroundColor Cyan
 $envVars = "CHATBOT_WEB_SECRET=$WebSecret,RRHH_AUTH_ENABLED=true,RRHH_ADMIN_USER=$AdminUser,RRHH_ADMIN_PASSWORD=$AdminPassword"
-gcloud run deploy $ServiceName `
-    --source . `
-    --region $Region `
-    --platform managed `
-    --allow-unauthenticated `
-    --service-account $serviceAccountEmail `
-    --set-env-vars $envVars | Out-Null
+if ($UseDefaultServiceAccount) {
+    gcloud run deploy $ServiceName `
+        --source . `
+        --region $Region `
+        --platform managed `
+        --allow-unauthenticated `
+        --set-env-vars $envVars | Out-Null
+}
+else {
+    gcloud run deploy $ServiceName `
+        --source . `
+        --region $Region `
+        --platform managed `
+        --allow-unauthenticated `
+        --service-account $serviceAccountEmail `
+        --set-env-vars $envVars | Out-Null
+}
+Assert-LastExit "gcloud run deploy"
 
 $url = gcloud run services describe $ServiceName `
     --region $Region `
     --format="value(status.url)"
+Assert-LastExit "gcloud run services describe"
 
 Write-Host "Cloud Run desplegado: $url" -ForegroundColor Green
 
@@ -100,7 +129,9 @@ if ($UseHosting) {
     }
 
     firebase use $ProjectId
+    Assert-LastExit "firebase use"
     firebase deploy --only hosting
+    Assert-LastExit "firebase deploy --only hosting"
     Write-Host "Firebase Hosting desplegado para proyecto $ProjectId." -ForegroundColor Green
 }
 
