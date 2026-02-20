@@ -44,7 +44,7 @@ def pick_bg(index):
     return valid[(index - 1) % len(valid)]
 
 
-def add_background(slide, index):
+def add_background(slide, index, overlay_transparency=0.58):
     bg = pick_bg(index)
     if bg:
         slide.shapes.add_picture(str(bg), Inches(0), Inches(0), Inches(13.333), Inches(7.5))
@@ -61,7 +61,7 @@ def add_background(slide, index):
     )
     overlay.fill.solid()
     overlay.fill.fore_color.rgb = RGBColor(7, 15, 30)
-    overlay.fill.transparency = 0.34
+    overlay.fill.transparency = overlay_transparency
     overlay.line.fill.background()
 
     top = slide.shapes.add_shape(
@@ -78,8 +78,8 @@ def add_background(slide, index):
     style_paragraph(p, size=16, bold=True, color=WHITE)
 
 
-def add_title(slide, title, subtitle="", y=0.95):
-    box = slide.shapes.add_textbox(Inches(0.75), Inches(y), Inches(12.0), Inches(1.35))
+def add_title(slide, title, subtitle="", y=0.95, x=0.75, w=12.0):
+    box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(1.35))
     tf = box.text_frame
     clear_text_frame(tf)
     p = tf.paragraphs[0]
@@ -127,19 +127,36 @@ def add_chip(slide, text, x, y, color=GREEN):
 
 def slide_cover(prs, idx):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide, idx)
+    add_background(slide, idx, overlay_transparency=0.16)
+
+    hero = pick_bg(1)
+    if hero:
+        slide.shapes.add_picture(str(hero), Inches(7.1), Inches(1.15), Inches(5.7), Inches(5.9))
+        frame = slide.shapes.add_shape(
+            MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
+            Inches(7.1),
+            Inches(1.15),
+            Inches(5.7),
+            Inches(5.9),
+        )
+        frame.fill.background()
+        frame.line.color.rgb = WHITE
+        frame.line.width = Pt(1.4)
+
     add_title(
         slide,
         "CHATBOT RRHH",
         "Propuesta ejecutiva para mejorar la experiencia del colaborador y la productividad de RRHH",
-        y=1.4,
+        y=1.35,
+        x=0.85,
+        w=6.0,
     )
     add_card(
         slide,
         0.85,
-        2.9,
-        11.65,
-        2.0,
+        2.75,
+        6.0,
+        2.35,
         "Resumen ejecutivo",
         [
             "Atención rápida y uniforme para consultas frecuentes.",
@@ -147,7 +164,7 @@ def slide_cover(prs, idx):
             "Gestión por empresa/sucursal con trazabilidad y métricas de operación.",
         ],
     )
-    add_chip(slide, "Objetivo del comité: validar presupuesto y salida productiva", 0.9, 5.35)
+    add_chip(slide, "Objetivo del comité: validar presupuesto y salida productiva", 0.9, 5.55)
 
 
 def slide_situation(prs, idx):
