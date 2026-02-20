@@ -104,6 +104,31 @@ pip install -r requirements-full.txt
 python web_chat.py
 ```
 
+### ⚡ Arranque rápido en Windows (proyecto `it-analyzer`)
+
+Si trabajás en Windows y querés dejar todo listo en un comando (venv + dependencias + variables + run):
+
+1) Copiá tu Service Account JSON en la raíz del repo como `claves.json`.
+
+2) En PowerShell, ejecutá:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\iniciar_windows_it_analyzer.ps1
+```
+
+Opcional (credencial con otro nombre):
+
+```powershell
+.\iniciar_windows_it_analyzer.ps1 -CredPath "mi-clave-firebase.json"
+```
+
+Este script configura automáticamente:
+- `GOOGLE_CLOUD_PROJECT=it-analyzer`
+- `FIREBASE_PROJECT_ID=it-analyzer`
+- `RRHH_AUTH_ENABLED=true`
+- usuario/clave admin local por defecto para panel RRHH
+
 3) Abrí en tu navegador:
 
 ```text
