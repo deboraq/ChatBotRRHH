@@ -1,0 +1,27 @@
+# Excluir metadatos de git
+.git
+.gitignore
+
+# Entornos locales
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos sensibles/locales
+.env
+claves.json
+claves*.json
+serviceAccount*.json
+rrhh_users.json
+rrhh_roles.json
+
+# Archivos pesados/no necesarios para Cloud Run
+docs/
+*.pptx
+tests/
+
+# Archivos de desarrollo de Cursor
+.cursor/
