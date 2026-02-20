@@ -360,52 +360,81 @@ def slide_needs(prs, idx):
 def slide_costs(prs, idx):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_background(slide, idx)
-    add_title(slide, "Inversión mensual estimada (USD)", "Escenario de referencia: 800 a 1000 consultas mensuales.")
+    add_title(
+        slide,
+        "Detalle de costos mensuales estimados (USD)",
+        "Referencia: 800 a 1000 consultas/mes en Argentina.",
+    )
 
     add_card(
         slide,
         0.8,
-        2.1,
+        2.0,
         3.75,
-        3.55,
+        3.75,
         "Infraestructura + datos",
-        ["USD 30 - 90 / mes", "Servidor cloud", "Base de datos Firestore"],
+        [
+            "USD 30 - 90 / mes",
+            "Servidor cloud 24/7",
+            "Base de datos Firestore",
+            "Operación base del backend",
+        ],
         title_color=BLUE,
     )
     add_card(
         slide,
         4.8,
-        2.1,
+        2.0,
         3.75,
-        3.55,
+        3.75,
         "IA (Google)",
-        ["USD 60 - 180 / mes", "Uso de Gemini API", "Varía por cantidad de consultas"],
+        [
+            "USD 60 - 180 / mes",
+            "AI Studio para pruebas",
+            "Gemini API para producción",
+            "Costo según consumo real",
+        ],
         title_color=GREEN,
     )
     add_card(
         slide,
         8.8,
-        2.1,
+        2.0,
         3.75,
-        3.55,
-        "WhatsApp Business",
-        ["USD 80 - 250 / mes", "Depende de conversaciones y país", "Incluye proveedor oficial de canal"],
+        3.75,
+        "WhatsApp Business (AR)",
+        [
+            "USD 80 - 250 / mes",
+            "Meta cobra por conversación",
+            "Se suma proveedor oficial",
+            "Puede incluir impuestos locales",
+        ],
         title_color=ORANGE,
     )
 
+    add_card(
+        slide,
+        0.8,
+        5.95,
+        4.3,
+        1.2,
+        "Monitoreo y alertas",
+        ["USD 0 - 20 / mes | logs, alertas y salud del servicio"],
+        title_color=BLUE,
+    )
     add_chip(
         slide,
-        "Total estimado objetivo: USD 220 - 420 / mes | Recomendación inicial: USD 300 + 20% contingencia",
-        0.9,
-        5.85,
+        "Total objetivo: USD 220 - 420 / mes | Presupuesto sugerido: USD 300 + 20% contingencia",
+        5.35,
+        6.2,
         color=NAVY,
     )
-    note = slide.shapes.add_textbox(Inches(0.9), Inches(6.55), Inches(11.6), Inches(0.45))
+    note = slide.shapes.add_textbox(Inches(0.9), Inches(7.0), Inches(11.6), Inches(0.3))
     tf = note.text_frame
     clear_text_frame(tf)
     p = tf.paragraphs[0]
-    p.text = "Base del cálculo: tarifarios públicos de Meta/Google + estimación de consumo del piloto."
-    style_paragraph(p, size=13, color=WHITE, align=PP_ALIGN.CENTER)
+    p.text = "Base: tarifarios públicos Meta/Google + estimación de consumo esperado del piloto."
+    style_paragraph(p, size=12, color=WHITE, align=PP_ALIGN.CENTER)
 
 
 def slide_decision(prs, idx):
@@ -414,7 +443,7 @@ def slide_decision(prs, idx):
     add_title(slide, "Decisión solicitada al Comité Ejecutivo", "")
     add_card(
         slide,
-        0.8,
+        0.9,
         2.2,
         5.85,
         4.0,
