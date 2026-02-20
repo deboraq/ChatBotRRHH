@@ -7,15 +7,20 @@ from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 
-NAVY = RGBColor(20, 52, 117)
-BLUE = RGBColor(45, 99, 214)
-GREEN = RGBColor(21, 148, 110)
-ORANGE = RGBColor(232, 147, 31)
-LIGHT_BG = RGBColor(245, 248, 254)
+NAVY = RGBColor(19, 50, 113)
+BLUE = RGBColor(49, 104, 218)
+GREEN = RGBColor(24, 157, 117)
+ORANGE = RGBColor(232, 148, 32)
 WHITE = RGBColor(255, 255, 255)
-GRAY = RGBColor(86, 97, 119)
-DARK = RGBColor(22, 33, 58)
-BORDER = RGBColor(216, 226, 243)
+DARK = RGBColor(28, 38, 60)
+MID = RGBColor(82, 96, 124)
+BORDER = RGBColor(210, 221, 240)
+
+BG_IMAGES = [
+    Path("docs/images/chatbot-bg-1.jpg"),
+    Path("docs/images/chatbot-bg-2.jpg"),
+    Path("docs/images/chatbot-bg-3.jpg"),
+]
 
 
 def style_paragraph(paragraph, size=18, bold=False, color=DARK, align=PP_ALIGN.LEFT):
@@ -27,76 +32,88 @@ def style_paragraph(paragraph, size=18, bold=False, color=DARK, align=PP_ALIGN.L
     paragraph.alignment = align
 
 
-def clear_text_frame(tf, word_wrap=True):
+def clear_text_frame(tf):
     tf.clear()
-    tf.word_wrap = word_wrap
+    tf.word_wrap = True
 
 
-def add_background(slide):
-    fill = slide.background.fill
-    fill.solid()
-    fill.fore_color.rgb = LIGHT_BG
+def pick_bg(index):
+    valid = [path for path in BG_IMAGES if path.exists()]
+    if not valid:
+        return None
+    return valid[(index - 1) % len(valid)]
 
-    header = slide.shapes.add_shape(
-        MSO_AUTO_SHAPE_TYPE.RECTANGLE,
-        Inches(0),
-        Inches(0),
-        Inches(13.333),
-        Inches(0.7),
+
+def add_background(slide, index):
+    bg = pick_bg(index)
+    if bg:
+        slide.shapes.add_picture(str(bg), Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+    else:
+        fallback = slide.shapes.add_shape(
+            MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(7.5)
+        )
+        fallback.fill.solid()
+        fallback.fill.fore_color.rgb = RGBColor(232, 238, 250)
+        fallback.line.fill.background()
+
+    overlay = slide.shapes.add_shape(
+        MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(7.5)
     )
-    header.fill.solid()
-    header.fill.fore_color.rgb = NAVY
-    header.line.fill.background()
+    overlay.fill.solid()
+    overlay.fill.fore_color.rgb = RGBColor(7, 15, 30)
+    overlay.fill.transparency = 0.34
+    overlay.line.fill.background()
 
-    brand = slide.shapes.add_textbox(Inches(0.5), Inches(0.12), Inches(7.5), Inches(0.35))
+    top = slide.shapes.add_shape(
+        MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.68)
+    )
+    top.fill.solid()
+    top.fill.fore_color.rgb = NAVY
+    top.fill.transparency = 0.08
+    top.line.fill.background()
+
+    brand = slide.shapes.add_textbox(Inches(0.5), Inches(0.12), Inches(7.8), Inches(0.35))
     p = brand.text_frame.paragraphs[0]
     p.text = "BacarIT  |  Chatbot RRHH"
     style_paragraph(p, size=16, bold=True, color=WHITE)
 
 
-def add_title(slide, title, subtitle="", y=1.0):
-    box = slide.shapes.add_textbox(Inches(0.8), Inches(y), Inches(11.8), Inches(1.4))
+def add_title(slide, title, subtitle="", y=0.95):
+    box = slide.shapes.add_textbox(Inches(0.75), Inches(y), Inches(12.0), Inches(1.35))
     tf = box.text_frame
     clear_text_frame(tf)
     p = tf.paragraphs[0]
     p.text = title
-    style_paragraph(p, size=34, bold=True, color=NAVY)
+    style_paragraph(p, size=34, bold=True, color=WHITE)
     if subtitle:
-        p2 = tf.add_paragraph()
-        p2.text = subtitle
-        style_paragraph(p2, size=18, color=GRAY)
+        s = tf.add_paragraph()
+        s.text = subtitle
+        style_paragraph(s, size=18, color=RGBColor(230, 236, 248))
 
 
-def add_bullet_card(slide, x, y, w, h, title, bullets, title_color=BLUE):
+def add_card(slide, x, y, w, h, title, bullets, title_color=BLUE):
     card = slide.shapes.add_shape(
-        MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
-        Inches(x),
-        Inches(y),
-        Inches(w),
-        Inches(h),
+        MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h)
     )
     card.fill.solid()
     card.fill.fore_color.rgb = WHITE
+    card.fill.transparency = 0.05
     card.line.color.rgb = BORDER
 
     tf = card.text_frame
     clear_text_frame(tf)
-    tp = tf.paragraphs[0]
-    tp.text = title
-    style_paragraph(tp, size=20, bold=True, color=title_color)
-    for item in bullets:
+    t = tf.paragraphs[0]
+    t.text = title
+    style_paragraph(t, size=20, bold=True, color=title_color)
+    for bullet in bullets:
         p = tf.add_paragraph()
-        p.text = f"• {item}"
+        p.text = f"• {bullet}"
         style_paragraph(p, size=16, color=DARK)
 
 
-def add_chip(slide, text, x, y, w=4.5, color=GREEN):
+def add_chip(slide, text, x, y, color=GREEN):
     chip = slide.shapes.add_shape(
-        MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
-        Inches(x),
-        Inches(y),
-        Inches(w),
-        Inches(0.62),
+        MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(5.2), Inches(0.62)
     )
     chip.fill.solid()
     chip.fill.fore_color.rgb = color
@@ -108,247 +125,195 @@ def add_chip(slide, text, x, y, w=4.5, color=GREEN):
     style_paragraph(p, size=15, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
 
-def add_cover(prs):
+def slide_cover(prs, idx):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-
+    add_background(slide, idx)
     add_title(
         slide,
         "CHATBOT RRHH",
-        "Propuesta ejecutiva para mejorar servicio al colaborador y eficiencia operativa",
-        y=1.45,
+        "Propuesta ejecutiva para mejorar la experiencia del colaborador y la productividad de RRHH",
+        y=1.4,
     )
-
-    summary = slide.shapes.add_textbox(Inches(0.9), Inches(2.75), Inches(11.5), Inches(1.6))
-    tf = summary.text_frame
-    clear_text_frame(tf)
-    p = tf.paragraphs[0]
-    p.text = "• Atención rápida y consistente para consultas frecuentes"
-    style_paragraph(p, size=19, color=DARK)
-    p2 = tf.add_paragraph()
-    p2.text = "• Escalamiento directo a RRHH cuando la consulta requiere intervención humana"
-    style_paragraph(p2, size=19, color=DARK)
-    p3 = tf.add_paragraph()
-    p3.text = "• Operación por empresa/sucursal con trazabilidad completa"
-    style_paragraph(p3, size=19, color=DARK)
-
-    add_chip(slide, "Objetivo: aprobar implementación productiva", x=0.9, y=5.2, w=5.2, color=GREEN)
-
-
-def add_problem_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(
+    add_card(
         slide,
-        "Situación actual",
-        "Hoy RRHH enfrenta demanda creciente con procesos que pueden ser más ágiles.",
+        0.85,
+        2.9,
+        11.65,
+        2.0,
+        "Resumen ejecutivo",
+        [
+            "Atención rápida y uniforme para consultas frecuentes.",
+            "Derivación directa a RRHH cuando el caso requiere intervención humana.",
+            "Gestión por empresa/sucursal con trazabilidad y métricas de operación.",
+        ],
     )
+    add_chip(slide, "Objetivo del comité: validar presupuesto y salida productiva", 0.9, 5.35)
 
-    add_bullet_card(
+
+def slide_situation(prs, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_background(slide, idx)
+    add_title(slide, "Situación actual", "Hay oportunidad concreta de mejorar tiempos y calidad de atención.")
+    add_card(
         slide,
         0.8,
         2.2,
-        5.9,
-        4.0,
-        "Dolores principales",
+        5.85,
+        3.95,
+        "Dolores hoy",
         [
-            "Consultas repetitivas consumen tiempo operativo.",
-            "Respuesta desigual según horario o disponibilidad.",
-            "Derivaciones manuales sin un circuito unificado.",
-            "Menor tiempo para tareas estratégicas de RRHH.",
+            "Consultas repetitivas consumen tiempo del equipo.",
+            "La experiencia del colaborador depende del horario.",
+            "No siempre hay un circuito único para seguimiento.",
+            "Se pierde foco en tareas de mayor valor para RRHH.",
         ],
         title_color=ORANGE,
     )
-    add_bullet_card(
+    add_card(
+        slide,
+        6.7,
+        2.2,
+        5.85,
+        3.95,
+        "Qué ganamos al resolverlo",
+        [
+            "Menos carga operativa en preguntas frecuentes.",
+            "Respuesta más rápida y consistente.",
+            "Más tiempo del equipo en casos críticos.",
+            "Datos claros para gestión y mejora continua.",
+        ],
+        title_color=GREEN,
+    )
+
+
+def slide_solution(prs, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_background(slide, idx)
+    add_title(slide, "La propuesta", "Un canal único de atención: chatbot + atención humana integrada.")
+    add_card(
+        slide,
+        0.8,
+        2.2,
+        11.7,
+        1.75,
+        "Qué hace el chatbot",
+        [
+            "Responde automáticamente consultas frecuentes.",
+            "Escala a RRHH en tiempo real cuando corresponde.",
+        ],
+    )
+    add_card(
+        slide,
+        0.8,
+        4.15,
+        3.75,
+        2.0,
+        "Para colaboradores",
+        ["Respuesta rápida", "Canal claro", "Mejor experiencia"],
+    )
+    add_card(
+        slide,
+        4.8,
+        4.15,
+        3.75,
+        2.0,
+        "Para RRHH",
+        ["Menos repetición", "Más foco", "Bandeja unificada"],
+    )
+    add_card(
+        slide,
+        8.8,
+        4.15,
+        3.7,
+        2.0,
+        "Para dirección",
+        ["Métricas claras", "Escalabilidad", "Mejor productividad"],
+        title_color=GREEN,
+    )
+
+
+def slide_journey_colaborador(prs, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_background(slide, idx)
+    add_title(slide, "Experiencia del colaborador", "Flujo simple y entendible en 4 pasos.")
+    cols = [
+        ("1) Consulta", "El colaborador escribe su necesidad."),
+        ("2) Respuesta", "Recibe respuesta inmediata y guía."),
+        ("3) Pase a RRHH", "Si hace falta, toma un agente humano."),
+        ("4) Cierre", "Se resuelve y queda registro."),
+    ]
+    x = 0.85
+    for name, detail in cols:
+        add_card(slide, x, 2.35, 3.08, 3.6, name, [detail], title_color=BLUE)
+        x += 3.15
+
+
+def slide_journey_rrhh(prs, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_background(slide, idx)
+    add_title(slide, "Experiencia del equipo RRHH", "Gestión más ordenada, colaborativa y medible.")
+    add_card(
+        slide,
+        0.8,
+        2.15,
+        11.7,
+        4.2,
+        "Qué cambia para RRHH",
+        [
+            "Conversaciones centralizadas y priorizadas.",
+            "Posibilidad de tomar, reasignar y cerrar casos con registro.",
+            "Operación por empresa/sucursal según permisos.",
+            "Seguimiento con indicadores de tiempo y volumen.",
+            "Menos trabajo administrativo, más foco en personas.",
+        ],
+        title_color=GREEN,
+    )
+
+
+def slide_capabilities(prs, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_background(slide, idx)
+    add_title(slide, "Capacidades de negocio ya disponibles", "")
+    add_card(
+        slide,
+        0.8,
+        2.2,
+        5.8,
+        4.0,
+        "Operación y servicio",
+        [
+            "Atención inicial automática 24/7.",
+            "Derivación a personas cuando el caso lo requiere.",
+            "Historial centralizado de conversaciones.",
+            "Dashboard de indicadores operativos.",
+        ],
+    )
+    add_card(
         slide,
         6.7,
         2.2,
         5.8,
         4.0,
-        "Oportunidad de mejora",
-        [
-            "Automatizar primera respuesta y clasificación.",
-            "Derivar solo casos que realmente necesitan intervención humana.",
-            "Medir tiempos, volumen y satisfacción en una sola vista.",
-            "Escalar el servicio sin crecer linealmente en costos.",
-        ],
-        title_color=GREEN,
-    )
-
-
-def add_solution_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(
-        slide,
-        "La propuesta",
-        "Un asistente de RRHH con atención automática + atención humana integrada.",
-    )
-
-    add_bullet_card(
-        slide,
-        0.8,
-        2.15,
-        11.7,
-        1.7,
-        "¿Qué hace el chatbot?",
-        [
-            "Responde preguntas frecuentes al instante y guía al colaborador.",
-            "Si hace falta, deriva la conversación al equipo de RRHH en vivo.",
-        ],
-        title_color=BLUE,
-    )
-
-    add_bullet_card(
-        slide,
-        0.8,
-        4.0,
-        3.75,
-        2.2,
-        "Para colaboradores",
-        [
-            "Canal claro y rápido.",
-            "Menos espera.",
-            "Mejor experiencia.",
-        ],
-    )
-    add_bullet_card(
-        slide,
-        4.8,
-        4.0,
-        3.75,
-        2.2,
-        "Para RRHH",
-        [
-            "Menos carga repetitiva.",
-            "Más foco en casos críticos.",
-            "Bandeja única de atención.",
-        ],
-    )
-    add_bullet_card(
-        slide,
-        8.75,
-        4.0,
-        3.75,
-        2.2,
-        "Para dirección",
-        [
-            "Visibilidad de métricas.",
-            "Escalabilidad controlada.",
-            "Mejor productividad global.",
-        ],
-    )
-
-
-def add_journey_collaborator_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(slide, "Experiencia del colaborador", "Recorrido simple en 4 momentos.")
-
-    steps = [
-        "1) Consulta inicial",
-        "2) Respuesta inmediata",
-        "3) Si aplica: pase a RRHH",
-        "4) Resolución y cierre",
-    ]
-    details = [
-        "El colaborador escribe su consulta en lenguaje natural.",
-        "El asistente responde con información clara y accionable.",
-        "Cuando el caso lo requiere, un agente humano toma la conversación.",
-        "Queda registro de la gestión para seguimiento y mejora.",
-    ]
-    x = 0.85
-    for title, detail in zip(steps, details):
-        box = slide.shapes.add_shape(
-            MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
-            Inches(x),
-            Inches(2.35),
-            Inches(3.1),
-            Inches(3.5),
-        )
-        box.fill.solid()
-        box.fill.fore_color.rgb = WHITE
-        box.line.color.rgb = BORDER
-        tf = box.text_frame
-        clear_text_frame(tf)
-        p = tf.paragraphs[0]
-        p.text = title
-        style_paragraph(p, size=17, bold=True, color=BLUE, align=PP_ALIGN.CENTER)
-        p2 = tf.add_paragraph()
-        p2.text = detail
-        style_paragraph(p2, size=14, color=DARK, align=PP_ALIGN.CENTER)
-        x += 3.2
-
-
-def add_journey_rrhh_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(slide, "Experiencia del equipo RRHH", "Gestión ordenada, colaborativa y medible.")
-
-    add_bullet_card(
-        slide,
-        0.8,
-        2.15,
-        11.7,
-        4.25,
-        "Qué cambia para RRHH",
-        [
-            "Las conversaciones llegan organizadas y priorizadas.",
-            "Se pueden tomar, reasignar y cerrar casos con trazabilidad.",
-            "La operación se divide por empresa/sucursal según permisos.",
-            "Se reduce la carga administrativa y mejora el tiempo de respuesta.",
-            "La información queda centralizada para control y auditoría.",
-        ],
-        title_color=BLUE,
-    )
-
-
-def add_capabilities_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(slide, "Capacidades de negocio ya disponibles", "")
-
-    add_bullet_card(
-        slide,
-        0.8,
-        2.2,
-        5.75,
-        4.0,
-        "Operación y servicio",
-        [
-            "Atención inicial automática 24/7.",
-            "Derivación a personas cuando el caso lo necesita.",
-            "Historial de conversaciones centralizado.",
-            "Dashboard con indicadores clave.",
-        ],
-    )
-    add_bullet_card(
-        slide,
-        6.75,
-        2.2,
-        5.75,
-        4.0,
         "Escala y gobierno",
         [
             "Gestión multiempresa y multisucursal.",
-            "Usuarios, roles y permisos administrables.",
+            "Administración de usuarios, roles y permisos.",
             "Asignación automática y manual de conversaciones.",
-            "Base lista para expansión a WhatsApp.",
+            "Base lista para incorporar WhatsApp.",
         ],
         title_color=GREEN,
     )
 
 
-def add_needs_slide(prs):
+def slide_needs(prs, idx):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
+    add_background(slide, idx)
     add_title(
         slide,
-        "Qué vamos a necesitar para producción",
-        "Componentes clave para operar con estabilidad y escalar el servicio.",
+        "Qué se necesita para operar en producción",
+        "Lenguaje simple para decisión ejecutiva.",
     )
-
-    add_bullet_card(
+    add_card(
         slide,
         0.8,
         2.2,
@@ -357,13 +322,12 @@ def add_needs_slide(prs):
         "Base de datos",
         [
             "Firestore",
-            "Historial y métricas",
-            "Configuración multiempresa",
-            "Persistencia segura",
+            "Guarda conversaciones e indicadores",
+            "Permite operar por empresa/sucursal",
         ],
         title_color=BLUE,
     )
-    add_bullet_card(
+    add_card(
         slide,
         4.8,
         2.2,
@@ -371,14 +335,13 @@ def add_needs_slide(prs):
         4.0,
         "Inteligencia",
         [
-            "Google AI Studio (prototipo)",
-            "Gemini API para producción",
-            "Mejor respuesta por contexto",
-            "Escalabilidad por consumo",
+            "Google AI Studio para pruebas",
+            "Gemini API para uso productivo",
+            "Respuestas más precisas por contexto",
         ],
         title_color=GREEN,
     )
-    add_bullet_card(
+    add_card(
         slide,
         8.8,
         2.2,
@@ -386,131 +349,96 @@ def add_needs_slide(prs):
         4.0,
         "Canal y operación",
         [
-            "WhatsApp Business API",
-            "Proveedor BSP habilitado",
-            "Cloud Run para backend",
-            "Monitoreo y seguridad",
+            "Cuenta oficial WhatsApp Business activa",
+            "Número verificado y plantillas de mensajes",
+            "Servidor en la nube 24/7 para continuidad",
         ],
         title_color=ORANGE,
     )
 
 
-def add_costs_slide(prs):
+def slide_costs(prs, idx):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(
-        slide,
-        "Inversión mensual estimada (USD)",
-        "Referencia para 800 a 1000 consultas mensuales. Valores orientativos sujetos a uso y país.",
-    )
+    add_background(slide, idx)
+    add_title(slide, "Inversión mensual estimada (USD)", "Escenario de referencia: 800 a 1000 consultas mensuales.")
 
-    scenarios = [
-        (
-            "Escenario base",
-            "USD 120 - 220 / mes",
-            ["Piloto controlado", "Volumen moderado", "Uso inicial de WhatsApp"],
-            BLUE,
-        ),
-        (
-            "Escenario objetivo",
-            "USD 220 - 380 / mes",
-            ["800-1000 consultas/mes", "Operación continua", "RRHH + métricas completas"],
-            GREEN,
-        ),
-        (
-            "Escenario escalado",
-            "USD 380 - 650 / mes",
-            ["Más empresas/sucursales", "Mayor tráfico", "Campañas y plantillas WhatsApp"],
-            ORANGE,
-        ),
-    ]
-
-    x = 0.8
-    for name, amount, notes, color in scenarios:
-        card = slide.shapes.add_shape(
-            MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE,
-            Inches(x),
-            Inches(2.2),
-            Inches(3.75),
-            Inches(3.8),
-        )
-        card.fill.solid()
-        card.fill.fore_color.rgb = WHITE
-        card.line.color.rgb = BORDER
-        tf = card.text_frame
-        clear_text_frame(tf)
-        p = tf.paragraphs[0]
-        p.text = name
-        style_paragraph(p, size=18, bold=True, color=color, align=PP_ALIGN.CENTER)
-        p2 = tf.add_paragraph()
-        p2.text = amount
-        style_paragraph(p2, size=22, bold=True, color=DARK, align=PP_ALIGN.CENTER)
-        for note in notes:
-            pn = tf.add_paragraph()
-            pn.text = f"• {note}"
-            style_paragraph(pn, size=14, color=DARK)
-        x += 4.0
-
-    foot = slide.shapes.add_textbox(Inches(0.9), Inches(6.2), Inches(11.6), Inches(0.55))
-    ft = foot.text_frame
-    clear_text_frame(ft)
-    fp = ft.paragraphs[0]
-    fp.text = (
-        "Sugerencia de presupuesto inicial al comité: USD 300/mes + 20% de contingencia "
-        "durante los primeros 90 días."
-    )
-    style_paragraph(fp, size=15, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
-
-
-def add_roadmap_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(slide, "Plan de implementación (90 días)", "Ejecución por etapas con hitos de negocio.")
-
-    phases = [
-        ("Fase 1 (0-30 días)", ["Ajustes finales del chatbot", "Validación de métricas", "Prueba controlada"]),
-        ("Fase 2 (31-60 días)", ["Integración WhatsApp", "Capacitación de RRHH", "Inicio operación asistida"]),
-        ("Fase 3 (61-90 días)", ["Escalado por empresa/sucursal", "Optimización de costos", "KPIs para comité"]),
-    ]
-
-    x = 0.85
-    for title, lines in phases:
-        add_bullet_card(slide, x, 2.2, 4.1, 3.9, title, lines, title_color=BLUE)
-        x += 4.2
-
-
-def add_decision_slide(prs):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_background(slide)
-    add_title(slide, "Decisión solicitada al Comité Ejecutivo", "")
-
-    add_bullet_card(
+    add_card(
         slide,
         0.8,
-        2.15,
-        5.8,
-        4.2,
+        2.1,
+        3.75,
+        3.55,
+        "Infraestructura + datos",
+        ["USD 30 - 90 / mes", "Servidor cloud", "Base de datos Firestore"],
+        title_color=BLUE,
+    )
+    add_card(
+        slide,
+        4.8,
+        2.1,
+        3.75,
+        3.55,
+        "IA (Google)",
+        ["USD 60 - 180 / mes", "Uso de Gemini API", "Varía por cantidad de consultas"],
+        title_color=GREEN,
+    )
+    add_card(
+        slide,
+        8.8,
+        2.1,
+        3.75,
+        3.55,
+        "WhatsApp Business",
+        ["USD 80 - 250 / mes", "Depende de conversaciones y país", "Incluye proveedor oficial de canal"],
+        title_color=ORANGE,
+    )
+
+    add_chip(
+        slide,
+        "Total estimado objetivo: USD 220 - 420 / mes | Recomendación inicial: USD 300 + 20% contingencia",
+        0.9,
+        5.85,
+        color=NAVY,
+    )
+    note = slide.shapes.add_textbox(Inches(0.9), Inches(6.55), Inches(11.6), Inches(0.45))
+    tf = note.text_frame
+    clear_text_frame(tf)
+    p = tf.paragraphs[0]
+    p.text = "Base del cálculo: tarifarios públicos de Meta/Google + estimación de consumo del piloto."
+    style_paragraph(p, size=13, color=WHITE, align=PP_ALIGN.CENTER)
+
+
+def slide_decision(prs, idx):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_background(slide, idx)
+    add_title(slide, "Decisión solicitada al Comité Ejecutivo", "")
+    add_card(
+        slide,
+        0.8,
+        2.2,
+        5.85,
+        4.0,
         "Aprobaciones requeridas",
         [
             "Presupuesto mensual inicial para operación.",
-            "Habilitación de infraestructura Google y IA.",
-            "Habilitación del canal WhatsApp Business.",
-            "Sponsor de negocio para seguimiento trimestral.",
+            "Habilitación de cuentas Google para base de datos e IA.",
+            "Alta del canal oficial de WhatsApp Business.",
+            "Asignación de responsable interno (RRHH + IT).",
         ],
         title_color=ORANGE,
     )
-    add_bullet_card(
+    add_card(
         slide,
-        6.75,
-        2.15,
-        5.75,
-        4.2,
+        6.7,
+        2.2,
+        5.85,
+        4.0,
         "Resultado esperado",
         [
             "Mejor experiencia del colaborador.",
-            "Menor carga operativa del equipo RRHH.",
+            "Reducción de carga operativa de RRHH.",
             "Mayor trazabilidad y control de gestión.",
-            "Base escalable para nuevas unidades del grupo.",
+            "Escalabilidad a nuevas empresas/sucursales.",
         ],
         title_color=GREEN,
     )
@@ -521,16 +449,15 @@ def build_presentation(output_path: Path):
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
-    add_cover(prs)
-    add_problem_slide(prs)
-    add_solution_slide(prs)
-    add_journey_collaborator_slide(prs)
-    add_journey_rrhh_slide(prs)
-    add_capabilities_slide(prs)
-    add_needs_slide(prs)
-    add_costs_slide(prs)
-    add_roadmap_slide(prs)
-    add_decision_slide(prs)
+    slide_cover(prs, 1)
+    slide_situation(prs, 2)
+    slide_solution(prs, 3)
+    slide_journey_colaborador(prs, 4)
+    slide_journey_rrhh(prs, 5)
+    slide_capabilities(prs, 6)
+    slide_needs(prs, 7)
+    slide_costs(prs, 8)
+    slide_decision(prs, 9)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(output_path))
