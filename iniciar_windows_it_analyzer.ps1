@@ -9,14 +9,23 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-if (-not (Test-Path ".venv")) {
-    Write-Host "Creando entorno virtual (.venv)..." -ForegroundColor Cyan
-    py -3 -m venv .venv
+# Soporta ambos nombres de entorno: .venv y venv.
+$venvDir = $null
+if (Test-Path ".venv\Scripts\Activate.ps1") {
+    $venvDir = ".venv"
+}
+elseif (Test-Path "venv\Scripts\Activate.ps1") {
+    $venvDir = "venv"
+}
+else {
+    $venvDir = ".venv"
+    Write-Host "No se detecto entorno virtual. Creando $venvDir..." -ForegroundColor Cyan
+    py -3 -m venv $venvDir
 }
 
-$activate = Join-Path $PSScriptRoot ".venv\Scripts\Activate.ps1"
+$activate = Join-Path $PSScriptRoot "$venvDir\Scripts\Activate.ps1"
 if (-not (Test-Path $activate)) {
-    throw "No se encontró .venv\Scripts\Activate.ps1"
+    throw "No se encontro $venvDir\Scripts\Activate.ps1"
 }
 
 . $activate
