@@ -159,6 +159,57 @@ class WebChatApiTests(unittest.TestCase):
         self.assertTrue(historial_body["ok"])
         self.assertTrue(any(item["remitente"] == "rrhh" for item in historial_body["items"]))
 
+    def test_rrhh_take_is_idempotent_for_same_agent(self):
+        inicio = self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+        self.assertEqual(inicio.status_code, 200)
+
+        convs_resp = self.client.get("/api/rrhh/conversaciones")
+        self.assertEqual(convs_resp.status_code, 200)
+        conv_id = convs_resp.get_json()["conversaciones"][0]["conversation_id"]
+
+        take_1 = self.client.post(
+            f"/api/rrhh/conversaciones/{conv_id}/tomar",
+            json={"agente": "Laura"},
+        )
+        take_2 = self.client.post(
+            f"/api/rrhh/conversaciones/{conv_id}/tomar",
+            json={"agente": "Laura"},
+        )
+        self.assertEqual(take_1.status_code, 200)
+        self.assertEqual(take_2.status_code, 200)
+
+        mensajes_resp = self.client.get(f"/api/rrhh/conversaciones/{conv_id}/mensajes")
+        self.assertEqual(mensajes_resp.status_code, 200)
+        mensajes = mensajes_resp.get_json()["mensajes"]
+        textos = [item["texto"] for item in mensajes if item.get("remitente") == "sistema"]
+        tomadas = [texto for texto in textos if "fue tomada por RRHH (Laura)" in texto]
+        self.assertEqual(len(tomadas), 1)
+
+    def test_rrhh_reply_deduplicates_fast_double_submit(self):
+        inicio = self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})
+        self.assertEqual(inicio.status_code, 200)
+
+        convs_resp = self.client.get("/api/rrhh/conversaciones")
+        self.assertEqual(convs_resp.status_code, 200)
+        conv_id = convs_resp.get_json()["conversaciones"][0]["conversation_id"]
+
+        send_1 = self.client.post(
+            f"/api/rrhh/conversaciones/{conv_id}/mensajes",
+            json={"agente": "Laura", "mensaje": "Hola, te ayudo."},
+        )
+        send_2 = self.client.post(
+            f"/api/rrhh/conversaciones/{conv_id}/mensajes",
+            json={"agente": "Laura", "mensaje": "Hola, te ayudo."},
+        )
+        self.assertEqual(send_1.status_code, 200)
+        self.assertEqual(send_2.status_code, 200)
+
+        mensajes_resp = self.client.get(f"/api/rrhh/conversaciones/{conv_id}/mensajes")
+        self.assertEqual(mensajes_resp.status_code, 200)
+        mensajes = mensajes_resp.get_json()["mensajes"]
+        rrhh_textos = [item["texto"] for item in mensajes if item.get("remitente") == "rrhh"]
+        self.assertEqual(rrhh_textos.count("Hola, te ayudo."), 1)
+
     def test_stats_reflects_rrhh_handoffs(self):
         self.client.post("/api/chat", json={"message": "quiero hablar con rrhh"})
         stats_resp = self.client.get("/api/stats")
