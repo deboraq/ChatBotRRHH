@@ -138,6 +138,12 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -AdminUser "admin" -AdminPassword "tu-clave-segura" -WebSecret "secreto-largo"
 ```
 
+Si tu usuario no tiene permisos IAM para crear service accounts, podés desplegar usando la cuenta por defecto:
+
+```powershell
+.\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseDefaultServiceAccount
+```
+
 Opcional (si además querés Firebase Hosting con rewrite a Cloud Run):
 
 ```powershell
