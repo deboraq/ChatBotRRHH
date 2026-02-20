@@ -90,6 +90,24 @@ else {
 }
 Assert-LastExit "gcloud run deploy"
 
+# Intenta dejar el servicio publico para evitar 403 en navegador.
+Write-Host "Intentando habilitar acceso publico (allUsers:roles/run.invoker)..." -ForegroundColor Cyan
+gcloud run services add-iam-policy-binding $ServiceName `
+    --region $Region `
+    --member="allUsers" `
+    --role="roles/run.invoker" `
+    --quiet | Out-Null
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "No se pudo habilitar acceso publico automaticamente."
+    Write-Warning "Tu usuario no tiene permisos IAM o hay una politica de organizacion que lo bloquea."
+    Write-Host "Comando para ejecutar con un usuario owner/admin:" -ForegroundColor Yellow
+    Write-Host "gcloud run services add-iam-policy-binding $ServiceName --region $Region --member=`"allUsers`" --role=`"roles/run.invoker`" --project $ProjectId" -ForegroundColor Yellow
+}
+else {
+    Write-Host "Acceso publico habilitado correctamente." -ForegroundColor Green
+}
+
 $url = gcloud run services describe $ServiceName `
     --region $Region `
     --format="value(status.url)"
