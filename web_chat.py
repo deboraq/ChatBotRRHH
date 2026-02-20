@@ -12,6 +12,8 @@ import stats_service
 
 flask_app = Flask(__name__)
 flask_app.config["SECRET_KEY"] = os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-secret")
+# Firebase Hosting preserves the "__session" cookie across rewrites to Cloud Run.
+flask_app.config["SESSION_COOKIE_NAME"] = os.getenv("CHATBOT_SESSION_COOKIE_NAME", "__session")
 SERVER_BOOT_AT = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 HANDOFF_STATUS_PENDING = "pendiente"
