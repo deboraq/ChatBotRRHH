@@ -144,6 +144,14 @@ Si tu usuario no tiene permisos IAM para crear service accounts, podés desplega
 .\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseDefaultServiceAccount
 ```
 
+Si además tu usuario no puede habilitar APIs (error `serviceusage.services.enable`), usá:
+
+```powershell
+.\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseDefaultServiceAccount -SkipApiEnable
+```
+
+> En ese caso, las APIs deben estar habilitadas previamente por un owner/admin del proyecto.
+
 Opcional (si además querés Firebase Hosting con rewrite a Cloud Run):
 
 ```powershell

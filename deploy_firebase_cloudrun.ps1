@@ -7,7 +7,8 @@ param(
     [string]$AdminPassword = "admin123",
     [string]$WebSecret = "cambiar-por-secreto-largo",
     [switch]$UseHosting = $false,
-    [switch]$UseDefaultServiceAccount = $false
+    [switch]$UseDefaultServiceAccount = $false,
+    [switch]$SkipApiEnable = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,14 +37,26 @@ Write-Host "Configurando proyecto: $ProjectId" -ForegroundColor Cyan
 gcloud config set project $ProjectId | Out-Null
 Assert-LastExit "gcloud config set project"
 
-Write-Host "Habilitando APIs necesarias..." -ForegroundColor Cyan
-gcloud services enable `
-    run.googleapis.com `
-    cloudbuild.googleapis.com `
-    artifactregistry.googleapis.com `
-    firestore.googleapis.com `
-    iam.googleapis.com | Out-Null
-Assert-LastExit "gcloud services enable"
+if (-not $SkipApiEnable) {
+    Write-Host "Habilitando APIs necesarias..." -ForegroundColor Cyan
+    gcloud services enable `
+        run.googleapis.com `
+        cloudbuild.googleapis.com `
+        artifactregistry.googleapis.com `
+        firestore.googleapis.com `
+        iam.googleapis.com | Out-Null
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "No se pudieron habilitar APIs desde este usuario."
+        Write-Warning "Si ya estaban habilitadas, podés continuar con -SkipApiEnable."
+        Write-Host "Comando sugerido para reintentar:" -ForegroundColor Yellow
+        Write-Host ".\deploy_firebase_cloudrun.ps1 -ProjectId `"$ProjectId`" -UseDefaultServiceAccount -SkipApiEnable" -ForegroundColor Yellow
+        throw "Fallo en: gcloud services enable (exit code $LASTEXITCODE)."
+    }
+}
+else {
+    Write-Host "SkipApiEnable activo: se omite habilitacion de APIs." -ForegroundColor Yellow
+}
 
 if (-not $UseDefaultServiceAccount) {
     Write-Host "Verificando service account de Cloud Run..." -ForegroundColor Cyan
