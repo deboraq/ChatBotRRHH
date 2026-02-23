@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Configuración - Chatbot RRHH</title>
+    <title>Configuración - Asistente</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
     <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}" />
   </head>
@@ -12,13 +12,13 @@
       <header class="rrhh-header">
         <div>
           <h1>Configuración</h1>
-          <p>Administración de empresa, usuarios y roles para escalar el asistente.</p>
+          <p>Administración de empresas, usuarios y roles para escalar el asistente.</p>
           {% if auth_enabled and rrhh_user %}
           <p class="subtle">Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
           {% endif %}
         </div>
         <div class="header-actions">
-          <a class="btn ghost" href="/rrhh">Panel RRHH</a>
+          <a class="btn ghost" href="/rrhh">Panel de atención</a>
           <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
           <button id="theme-toggle" class="ghost" type="button">Modo oscuro</button>
           {% if auth_enabled %}
@@ -29,191 +29,216 @@
         </div>
       </header>
 
-      <div class="config-grid">
-        {% if can_manage_general %}
-        <section class="panel companies-panel">
-          <h2>Empresas y branding</h2>
-          <p class="subtle">
-            Elegí una empresa, editá sus datos y guardá. Los cambios impactan en login, chat y panel RRHH.
-          </p>
+      <div class="config-layout">
+        <aside class="panel config-sidebar">
+          <h2>Módulos</h2>
+          <p class="subtle">Seleccioná qué querés administrar.</p>
+          <nav id="config-nav" class="config-nav">
+            {% if can_manage_general %}
+            <button type="button" data-section-target="empresas">Empresas</button>
+            {% endif %}
+            {% if can_manage_users %}
+            <button type="button" data-section-target="usuarios">Usuarios</button>
+            {% endif %}
+            {% if can_manage_roles %}
+            <button type="button" data-section-target="roles">Roles</button>
+            {% endif %}
+          </nav>
+        </aside>
 
-          <div class="company-step">
-            <h3>Paso 1 · Empresa que estás editando ahora</h3>
-            <div class="general-selector">
-              <label class="field">
-                Empresa activa
-                <select id="cfg-company-selector"></select>
-              </label>
-              <button id="company-switch" type="button" class="ghost">Aplicar selección</button>
-              <button id="general-refresh" type="button" class="ghost">Recargar datos</button>
-            </div>
-            <p class="subtle">Tip: al cambiar la empresa en el selector, se aplica automáticamente.</p>
-            <div class="active-company-line">
-              <span class="subtle">Editando:</span>
-              <strong id="company-current-badge">-</strong>
-            </div>
-            <p id="company-summary" class="subtle"></p>
-          </div>
-
-          <div class="company-step">
-            <h3>Paso 2 · Editá la empresa activa</h3>
-            <form id="general-settings-form" class="general-settings-form">
-              <label class="field">
-                Nombre visible de la empresa
-                <input
-                  id="cfg-company-name"
-                  type="text"
-                  value="{{ general_settings.company_name }}"
-                  required
-                />
-              </label>
-              <label class="field">
-                Equipo de atención (ej: RRHH, People Ops)
-                <input
-                  id="cfg-hr-team-name"
-                  type="text"
-                  value="{{ general_settings.hr_team_name }}"
-                  required
-                />
-              </label>
-              <label class="field">
-                Contacto principal
-                <input
-                  id="cfg-hr-contact"
-                  type="text"
-                  value="{{ general_settings.hr_contact }}"
-                  required
-                />
-              </label>
-              <label class="field">
-                Sucursales (separadas por coma)
-                <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
-              </label>
-              <div class="form-actions">
-                <button type="submit">Guardar cambios y aplicar</button>
-              </div>
-            </form>
-          </div>
-
-          <details class="company-step create-company-box">
-            <summary>Paso 3 · Agregar otra empresa (opcional)</summary>
-            <p class="subtle">Si no completás el ID, se genera automáticamente desde el nombre.</p>
-            <form id="new-company-form" class="general-settings-form new-company-form">
-              <label class="field">
-                Nombre empresa
-                <input id="new-company-name" type="text" placeholder="ej: Bacar Norte" required />
-              </label>
-              <label class="field">
-                Equipo RRHH
-                <input id="new-company-hr-team-name" type="text" placeholder="ej: RRHH" required />
-              </label>
-              <label class="field">
-                Contacto RRHH
-                <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
-              </label>
-              <label class="field">
-                Sucursales (coma)
-                <input id="new-company-branches" type="text" placeholder="ej: CABA, Rosario, Córdoba" />
-              </label>
-              <label class="field">
-                ID empresa (opcional)
-                <input id="new-company-id" type="text" placeholder="ej: bacar_norte" />
-              </label>
-              <div class="form-actions">
-                <button type="submit">Agregar empresa</button>
-              </div>
-            </form>
-          </details>
-
-          <div class="danger-zone">
-            <h3>Zona de peligro</h3>
+        <div class="config-content">
+          {% if can_manage_general %}
+          <section class="panel companies-panel config-section" data-section-key="empresas">
+            <h2>Empresas y marca</h2>
             <p class="subtle">
-              Eliminá solo empresas que ya no se usan. Si tiene usuarios asignados, el sistema la va a bloquear.
+              Elegí una empresa, editá sus datos y guardá. Los cambios impactan en login, chat y panel de atención.
             </p>
-            <button id="company-delete" type="button" class="danger">Eliminar empresa activa</button>
-          </div>
 
-          <p id="general-status" class="subtle"></p>
-        </section>
-        {% endif %}
-
-        {% if can_manage_users %}
-        <section class="panel users-panel">
-          <div class="users-head">
-            <div>
-              <h2>Usuarios RRHH</h2>
-              <p class="subtle">Alta y edición de usuarios para panel e historial.</p>
+            <div class="company-step">
+              <h3>Paso 1 · Empresa que estás editando ahora</h3>
+              <div class="general-selector">
+                <label class="field">
+                  Empresa activa
+                  <select id="cfg-company-selector"></select>
+                </label>
+                <button id="company-switch" type="button" class="ghost">Aplicar selección</button>
+                <button id="general-refresh" type="button" class="ghost">Recargar datos</button>
+              </div>
+              <p class="subtle">Tip: al cambiar la empresa en el selector, se aplica automáticamente.</p>
+              <div class="active-company-line">
+                <span class="subtle">Editando:</span>
+                <strong id="company-current-badge">-</strong>
+              </div>
+              <p id="company-summary" class="subtle"></p>
             </div>
-            <span id="users-file" class="subtle"></span>
-          </div>
 
-          <form id="create-user-form" class="create-user-form">
-            <input id="new-username" type="text" placeholder="Usuario (ej: laura.rrhh)" required />
-            <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
-            <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
-            <select id="new-role">
-              <option value="rrhh">rrhh</option>
-              <option value="admin">admin</option>
-            </select>
-            <select id="new-user-company"></select>
-            <input id="new-user-branch" type="text" placeholder="Sucursal (opcional)" />
-            <button type="submit">Crear usuario</button>
-          </form>
-
-          <p id="users-status" class="subtle"></p>
-
-          <div class="users-table-wrap">
-            <table class="users-table">
-              <thead>
-                <tr>
-                  <th>Usuario</th>
-                  <th>Nombre</th>
-                  <th>Rol</th>
-                  <th>Empresa/Sucursal</th>
-                  <th>Permisos</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody id="users-body"></tbody>
-            </table>
-          </div>
-        </section>
-        {% endif %}
-
-        {% if can_manage_roles %}
-        <section class="panel roles-panel">
-          <div class="roles-head">
-            <div>
-              <h2>Roles y permisos</h2>
-              <p class="subtle">Creá y editá roles para distintas empresas/equipos.</p>
+            <div class="company-step">
+              <h3>Paso 2 · Editá la empresa activa</h3>
+              <form id="general-settings-form" class="general-settings-form">
+                <label class="field">
+                  Nombre visible de la empresa
+                  <input
+                    id="cfg-company-name"
+                    type="text"
+                    value="{{ general_settings.company_name }}"
+                    required
+                  />
+                </label>
+                <label class="field">
+                  Equipo principal (ej: RRHH, People Ops, Operaciones)
+                  <input
+                    id="cfg-hr-team-name"
+                    type="text"
+                    value="{{ general_settings.hr_team_name }}"
+                    required
+                  />
+                </label>
+                <label class="field">
+                  Contacto principal
+                  <input
+                    id="cfg-hr-contact"
+                    type="text"
+                    value="{{ general_settings.hr_contact }}"
+                    required
+                  />
+                </label>
+                <label class="field">
+                  Sucursales (separadas por coma)
+                  <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
+                </label>
+                <div class="form-actions">
+                  <button type="submit">Guardar cambios y aplicar</button>
+                </div>
+              </form>
             </div>
-            <span id="roles-file" class="subtle"></span>
-          </div>
 
-          <form id="create-role-form" class="create-role-form">
-            <input id="new-role-name" type="text" placeholder="Rol (ej: supervisor_rrhh)" required />
-            <input id="new-role-display-name" type="text" placeholder="Nombre visible del rol" />
-            <div id="new-role-permissions" class="permissions-grid"></div>
-            <button type="submit">Crear rol</button>
-          </form>
+            <div class="company-step create-company-box">
+              <h3>Paso 3 · Agregar otra empresa</h3>
+              <p class="subtle">Si no completás el ID, se genera automáticamente desde el nombre.</p>
+              <form id="new-company-form" class="general-settings-form new-company-form">
+                <label class="field">
+                  Nombre empresa
+                  <input id="new-company-name" type="text" placeholder="ej: Bacar Norte" required />
+                </label>
+                <label class="field">
+                  Equipo principal
+                  <input id="new-company-hr-team-name" type="text" placeholder="ej: People Ops" required />
+                </label>
+                <label class="field">
+                  Contacto principal
+                  <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
+                </label>
+                <label class="field">
+                  Sucursales (coma)
+                  <input id="new-company-branches" type="text" placeholder="ej: CABA, Rosario, Córdoba" />
+                </label>
+                <label class="field">
+                  ID empresa (opcional)
+                  <input id="new-company-id" type="text" placeholder="ej: bacar_norte" />
+                </label>
+                <div class="form-actions">
+                  <button type="submit">Agregar empresa</button>
+                </div>
+              </form>
+            </div>
 
-          <p id="roles-status" class="subtle"></p>
+            <div class="danger-zone">
+              <h3>Zona de peligro</h3>
+              <p class="subtle">
+                Eliminá solo empresas que ya no se usan. Si tiene usuarios asignados, el sistema la va a bloquear.
+              </p>
+              <button id="company-delete" type="button" class="danger">Eliminar empresa activa</button>
+            </div>
 
-          <div class="roles-table-wrap">
-            <table class="roles-table">
-              <thead>
-                <tr>
-                  <th>Rol</th>
-                  <th>Nombre</th>
-                  <th>Permisos</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-              <tbody id="roles-body"></tbody>
-            </table>
-          </div>
-        </section>
-        {% endif %}
+            <p id="general-status" class="subtle"></p>
+          </section>
+          {% endif %}
+
+          {% if can_manage_users %}
+          <section class="panel users-panel config-section" data-section-key="usuarios">
+            <div class="users-head">
+              <div>
+                <h2>Usuarios y accesos</h2>
+                <p class="subtle">Alta y edición de usuarios para paneles operativos e historial.</p>
+              </div>
+              <span id="users-file" class="subtle"></span>
+            </div>
+
+            <form id="create-user-form" class="create-user-form">
+              <input id="new-username" type="text" placeholder="Usuario (ej: laura.operaciones)" required />
+              <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
+              <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
+              <select id="new-role">
+                <option value="rrhh">rrhh</option>
+                <option value="admin">admin</option>
+              </select>
+              <select id="new-user-company"></select>
+              <input id="new-user-branch" type="text" placeholder="Sucursal (opcional)" />
+              <button type="submit">Crear usuario</button>
+            </form>
+
+            <p id="users-status" class="subtle"></p>
+
+            <div class="users-table-wrap">
+              <table class="users-table">
+                <thead>
+                  <tr>
+                    <th>Usuario</th>
+                    <th>Nombre</th>
+                    <th>Rol</th>
+                    <th>Empresa / Sucursal</th>
+                    <th>Permisos</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="users-body"></tbody>
+              </table>
+            </div>
+          </section>
+          {% endif %}
+
+          {% if can_manage_roles %}
+          <section class="panel roles-panel config-section" data-section-key="roles">
+            <div class="roles-head">
+              <div>
+                <h2>Roles y permisos</h2>
+                <p class="subtle">Creá y editá roles para distintas empresas y equipos.</p>
+              </div>
+              <span id="roles-file" class="subtle"></span>
+            </div>
+
+            <form id="create-role-form" class="create-role-form">
+              <input id="new-role-name" type="text" placeholder="Rol (ej: supervisor_operaciones)" required />
+              <input id="new-role-display-name" type="text" placeholder="Nombre visible del rol" />
+              <div id="new-role-permissions" class="permissions-grid"></div>
+              <button type="submit">Crear rol</button>
+            </form>
+
+            <p id="roles-status" class="subtle"></p>
+
+            <div class="roles-table-wrap">
+              <table class="roles-table">
+                <thead>
+                  <tr>
+                    <th>Rol</th>
+                    <th>Nombre</th>
+                    <th>Permisos</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="roles-body"></tbody>
+              </table>
+            </div>
+          </section>
+          {% endif %}
+
+          {% if not (can_manage_general or can_manage_users or can_manage_roles) %}
+          <section class="panel">
+            <h2>Sin módulos disponibles</h2>
+            <p class="subtle">Tu usuario no tiene permisos para administrar esta pantalla.</p>
+          </section>
+          {% endif %}
+        </div>
       </div>
     </main>
 
@@ -221,6 +246,9 @@
       const canManageUsers = {{ can_manage_users|tojson }};
       const canManageRoles = {{ can_manage_roles|tojson }};
       const canManageGeneral = {{ can_manage_general|tojson }};
+      const sectionNavButtons = Array.from(document.querySelectorAll("[data-section-target]"));
+      const sectionPanels = Array.from(document.querySelectorAll(".config-section[data-section-key]"));
+      const CONFIG_SECTION_STORAGE_KEY = "config_active_section";
 
       const themeToggleBtn = document.getElementById("theme-toggle");
       const THEME_STORAGE_KEY = "rrhh_panel_theme";
@@ -302,6 +330,60 @@
           localStorage.setItem(THEME_STORAGE_KEY, next);
         } catch (error) {
           // Ignora errores de storage.
+        }
+      }
+
+      function setActiveSection(sectionKey, persist = true) {
+        const key = String(sectionKey || "").trim().toLowerCase();
+        let found = false;
+
+        sectionPanels.forEach((panel) => {
+          const panelKey = String(panel.dataset.sectionKey || "").trim().toLowerCase();
+          const isActive = key && panelKey === key;
+          panel.classList.toggle("active", isActive);
+          panel.hidden = !isActive;
+          if (isActive) found = true;
+        });
+
+        sectionNavButtons.forEach((button) => {
+          const buttonKey = String(button.dataset.sectionTarget || "").trim().toLowerCase();
+          const isActive = found && buttonKey === key;
+          button.classList.toggle("active", isActive);
+          if (isActive) {
+            button.setAttribute("aria-current", "page");
+          } else {
+            button.removeAttribute("aria-current");
+          }
+        });
+
+        if (found && persist) {
+          try {
+            localStorage.setItem(CONFIG_SECTION_STORAGE_KEY, key);
+          } catch (error) {
+            // Ignora errores de storage.
+          }
+        }
+        return found;
+      }
+
+      function setupSectionNavigation() {
+        if (!sectionNavButtons.length || !sectionPanels.length) return;
+
+        sectionNavButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            setActiveSection(button.dataset.sectionTarget || "");
+          });
+        });
+
+        let preferred = "";
+        try {
+          preferred = localStorage.getItem(CONFIG_SECTION_STORAGE_KEY) || "";
+        } catch (error) {
+          preferred = "";
+        }
+        const firstAvailable = sectionNavButtons[0]?.dataset.sectionTarget || "";
+        if (!setActiveSection(preferred, false)) {
+          setActiveSection(firstAvailable, false);
         }
       }
 
@@ -720,7 +802,7 @@
           branches: parseBranchesText(newCompanyBranchesEl?.value || ""),
         };
         if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
-          throw new Error("Completá nombre, equipo RRHH y contacto.");
+          throw new Error("Completá nombre, equipo y contacto.");
         }
         const response = await fetch("/api/configuracion/empresas", {
           method: "POST",
@@ -779,7 +861,7 @@
           branches: parseBranchesText(cfgCompanyBranchesEl?.value || ""),
         };
         if (!payload.company_id || !payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
-          throw new Error("Completá empresa, equipo RRHH y contacto.");
+          throw new Error("Completá empresa, equipo y contacto.");
         }
         const response = await fetch("/api/configuracion/general", {
           method: "POST",
@@ -1083,6 +1165,7 @@
 
       async function init() {
         applyTheme(getInitialTheme());
+        setupSectionNavigation();
         if (canManageGeneral) {
           try {
             await cargarEmpresas();
