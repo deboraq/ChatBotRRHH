@@ -505,6 +505,111 @@ class WebChatApiTests(unittest.TestCase):
                     all(item.get("company_id") == "acme" for item in convs_body["conversaciones"])
                 )
 
+    def test_rrhh_can_switch_company_from_panel_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Admin",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            web_chat.IN_MEMORY_COMPANIES.update(
+                {
+                    "acme": {
+                        "company_id": "acme",
+                        "company_name": "Acme",
+                        "hr_team_name": "People Ops",
+                        "hr_contact": "interno 200",
+                        "branches": ["Centro"],
+                        "active": True,
+                    },
+                    "bacar": {
+                        "company_id": "bacar",
+                        "company_name": "Bacar",
+                        "hr_team_name": "RRHH",
+                        "hr_contact": "interno 104",
+                        "branches": ["Casa Central"],
+                        "active": True,
+                    },
+                }
+            )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                self.client.post(
+                    "/login",
+                    data={
+                        "username": "admin",
+                        "password": "admin123",
+                        "company_id": "acme",
+                        "next": "/rrhh",
+                    },
+                )
+
+                switch_resp = self.client.post(
+                    "/api/rrhh/empresa/seleccionar",
+                    json={"company_id": "bacar"},
+                )
+                self.assertEqual(switch_resp.status_code, 200)
+                switch_body = switch_resp.get_json()
+                self.assertTrue(switch_body["ok"])
+                self.assertEqual(switch_body["company"]["company_id"], "bacar")
+
+                convs_resp = self.client.get("/api/rrhh/conversaciones")
+                self.assertEqual(convs_resp.status_code, 200)
+                convs_body = convs_resp.get_json()
+                self.assertEqual(convs_body["selected_company_id"], "bacar")
+
+    def test_password_recovery_submit_sends_email_for_valid_identity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "ana",
+                                "display_name": "Ana",
+                                "password": "ana123",
+                                "role": "rrhh",
+                                "email": "ana@empresa.com",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                with patch("web_chat._send_password_reset_email", return_value=(True, "")):
+                    response = self.client.post(
+                        "/recuperar-clave",
+                        data={"username": "ana", "email": "ana@empresa.com"},
+                    )
+                self.assertEqual(response.status_code, 200)
+                page = response.get_data(as_text=True)
+                self.assertIn("Si los datos coinciden", page)
+
+                with open(users_path, "r", encoding="utf-8") as fh:
+                    stored = json.load(fh)
+                user = stored["users"][0]
+                self.assertTrue(user.get("password_reset_token_hash"))
+
     def test_admin_can_delete_users_and_custom_roles(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             users_path = os.path.join(tmpdir, "rrhh_users.json")

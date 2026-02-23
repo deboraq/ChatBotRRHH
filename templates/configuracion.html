@@ -656,7 +656,12 @@
           tdUsername.innerHTML = `<code>${escapeHtml(username || "-")}</code>`;
 
           const tdName = document.createElement("td");
-          tdName.textContent = user.display_name || "-";
+          const nameInput = document.createElement("input");
+          nameInput.type = "text";
+          nameInput.className = "role-display-input";
+          nameInput.value = user.display_name || "";
+          nameInput.placeholder = "Nombre visible";
+          tdName.appendChild(nameInput);
 
           const tdEmail = document.createElement("td");
           const emailInput = document.createElement("input");
@@ -718,6 +723,7 @@
               const assignments = parseAssignmentsText(assignmentsInput.value);
               await guardarCambiosUsuario(
                 username,
+                nameInput.value,
                 selectRole.value,
                 assignments,
                 emailInput.value,
@@ -1094,12 +1100,20 @@
         await cargarUsuarios();
       }
 
-      async function guardarCambiosUsuario(username, role, assignments, email, phone, area) {
+      async function guardarCambiosUsuario(
+        username,
+        display_name,
+        role,
+        assignments,
+        email,
+        phone,
+        area
+      ) {
         if (!canManageUsers) return;
         const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/perfil`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role, assignments, email, phone, area }),
+          body: JSON.stringify({ display_name, role, assignments, email, phone, area }),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;

@@ -1731,13 +1731,18 @@ def add_no_cache_headers(response):
 def rrhh_page():
     company = _set_company_session(session.get("company_id") or _default_company_id())
     settings = _apply_company_branding(_read_general_settings())
+    current_user = _current_rrhh_user()
+    available_companies = (
+        _companies_for_user(current_user) if current_user else _list_companies(include_inactive=False)
+    )
     return render_template(
         "rrhh.html",
         auth_enabled=_auth_enabled(),
-        rrhh_user=_current_rrhh_user(),
+        rrhh_user=current_user,
         can_manage_users=False,
         can_manage_roles=False,
         can_manage_config=_can_manage_configuration(),
+        available_companies=available_companies,
         company_name=settings.get("company_name"),
         hr_team_name=settings.get("hr_team_name"),
         selected_company_id=company.get("company_id"),
@@ -1949,6 +1954,91 @@ def logout_page():
     session_cookie_name = flask_app.config.get("SESSION_COOKIE_NAME", "session")
     response.delete_cookie(session_cookie_name)
     return response
+
+
+@flask_app.get("/recuperar-clave")
+def password_recovery_page():
+    if not _auth_enabled():
+        return redirect(url_for("login_page"))
+    if _current_rrhh_user() is not None:
+        return redirect(_safe_next_path(request.args.get("next"), fallback="/rrhh"))
+    return render_template(
+        "recover_password.html",
+        error="",
+        success=False,
+        message="",
+    )
+
+
+@flask_app.post("/recuperar-clave")
+def password_recovery_submit():
+    if not _auth_enabled():
+        return redirect(url_for("login_page"))
+
+    data = request.get_json(silent=True) if request.is_json else request.form
+    username = str((data or {}).get("username") or "").strip()
+    email = str((data or {}).get("email") or "").strip()
+    generic_success_message = (
+        "Si los datos coinciden, enviamos un enlace de restablecimiento al email indicado."
+    )
+
+    if not username or not email:
+        if request.is_json:
+            return jsonify({"ok": False, "error": "Ingresá usuario y email."}), 400
+        return (
+            render_template(
+                "recover_password.html",
+                error="Ingresá usuario y email.",
+                success=False,
+                message="",
+            ),
+            400,
+        )
+
+    ok, payload, _error = auth_rrhh.create_password_reset_token_for_identity(
+        username=username,
+        email=email,
+        ttl_minutes=60,
+        requested_by=f"self:{username}",
+    )
+    if not ok:
+        if request.is_json:
+            return jsonify({"ok": True, "message": generic_success_message})
+        return render_template(
+            "recover_password.html",
+            error="",
+            success=True,
+            message=generic_success_message,
+        )
+
+    reset_url = url_for("password_reset_page", token=payload.get("token"), _external=True)
+    mail_ok, mail_error = _send_password_reset_email(
+        to_email=payload.get("email"),
+        display_name=payload.get("display_name") or payload.get("username"),
+        reset_url=reset_url,
+        expires_at_iso=payload.get("expires_at"),
+    )
+    if request.is_json:
+        if mail_ok:
+            return jsonify({"ok": True, "mail_sent": True, "message": generic_success_message})
+        return jsonify({"ok": False, "error": mail_error or "No se pudo enviar el email."}), 502
+
+    if mail_ok:
+        return render_template(
+            "recover_password.html",
+            error="",
+            success=True,
+            message=generic_success_message,
+        )
+    return (
+        render_template(
+            "recover_password.html",
+            error=mail_error or "No se pudo enviar el email de restablecimiento.",
+            success=False,
+            message="",
+        ),
+        502,
+    )
 
 
 @flask_app.get("/restablecer-clave/<token>")
@@ -2214,6 +2304,38 @@ def rrhh_conversaciones_api():
             ],
             "selected_company_id": company.get("company_id"),
             "selected_company_name": company.get("company_name"),
+        }
+    )
+
+
+@flask_app.post("/api/rrhh/empresa/seleccionar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="Sin permiso para cambiar empresa activa.",
+)
+def rrhh_seleccionar_empresa_api():
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id"))
+    if not company_id:
+        return jsonify({"ok": False, "error": "Seleccioná una empresa válida."}), 400
+
+    company = _get_company(company_id, include_inactive=False)
+    if not company:
+        return jsonify({"ok": False, "error": "Empresa no encontrada o inactiva."}), 404
+
+    current_user = _current_rrhh_user()
+    if current_user and not _user_can_access_company(current_user, company_id):
+        return _forbidden_json_error("No tenés acceso a la empresa seleccionada.")
+
+    selected = _set_company_session(company.get("company_id"))
+    _apply_company_branding(_read_general_settings())
+    return jsonify(
+        {
+            "ok": True,
+            "company": {
+                "company_id": selected.get("company_id"),
+                "company_name": selected.get("company_name"),
+            },
         }
     )
 

@@ -218,6 +218,40 @@ class AuthRrhhTests(unittest.TestCase):
                 self.assertTrue(auth_rrhh.user_has_company_access("laura", "acme"))
                 self.assertFalse(auth_rrhh.user_has_company_access("laura", "bacar"))
 
+    def test_create_password_reset_token_for_identity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with patch.dict(
+                os.environ,
+                {
+                    "RRHH_USERS_FILE": users_path,
+                },
+                clear=True,
+            ):
+                ok_create, _, _ = auth_rrhh.create_user(
+                    "laura",
+                    "secreta123",
+                    role="rrhh",
+                    email="laura@empresa.com",
+                )
+                self.assertTrue(ok_create)
+
+                ok_reset, payload, error = auth_rrhh.create_password_reset_token_for_identity(
+                    username="laura",
+                    email="laura@empresa.com",
+                )
+                self.assertTrue(ok_reset)
+                self.assertEqual(error, "")
+                self.assertEqual(payload["email"], "laura@empresa.com")
+                self.assertTrue(len(payload["token"]) > 20)
+
+                bad_ok, _, bad_error = auth_rrhh.create_password_reset_token_for_identity(
+                    username="laura",
+                    email="otro@empresa.com",
+                )
+                self.assertFalse(bad_ok)
+                self.assertIn("inválido", bad_error.lower())
+
     def test_delete_role_blocked_when_assigned_to_user(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             users_path = os.path.join(tmpdir, "rrhh_users.json")

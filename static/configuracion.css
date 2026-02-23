@@ -144,6 +144,50 @@
   gap: 6px;
 }
 
+.users-panel .create-user-form {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+}
+
+.users-panel .create-user-form button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.users-panel .users-table {
+  min-width: 1280px;
+}
+
+.users-panel .users-table td,
+.users-panel .users-table th {
+  vertical-align: middle;
+}
+
+.users-panel .users-table th:nth-child(7),
+.users-panel .users-table td:nth-child(7) {
+  min-width: 230px;
+}
+
+.users-panel .permissions-cell {
+  min-width: 220px;
+}
+
+.users-panel .users-table td .role-display-input,
+.users-panel .users-table td .role-select {
+  width: 100%;
+  min-width: 150px;
+}
+
+.users-panel .config-actions-cell {
+  min-width: 140px;
+  align-items: stretch;
+}
+
+.users-panel .config-actions-cell .role-update-btn {
+  width: 100%;
+  white-space: nowrap;
+}
+
 .role-update-btn.danger {
   background: #dc2626;
   color: #fff;
@@ -242,5 +286,9 @@
 
   .config-nav button {
     width: auto;
+  }
+
+  .users-panel .users-table {
+    min-width: 1080px;
   }
 }
