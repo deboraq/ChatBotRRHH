@@ -62,6 +62,10 @@ try:
 except Exception:
     ACTIVE_AGENT_TTL_SECONDS = 180
 
+AUTO_CLOSE_MIN_MINUTES = 5
+AUTO_CLOSE_MAX_MINUTES = 7 * 24 * 60
+AUTO_CLOSE_DEFAULT_MINUTES = 0
+
 
 def _accion(label, value, variant="default"):
     return {"label": label, "value": value, "variant": variant}
@@ -181,6 +185,8 @@ def _default_general_settings():
         "company_address": "",
         "company_phone": "",
         "company_website": "",
+        "handoff_auto_close_enabled": False,
+        "handoff_auto_close_minutes": AUTO_CLOSE_DEFAULT_MINUTES,
     }
 
 
@@ -228,6 +234,29 @@ def _normalize_optional_company_text(value, max_len=180):
     return raw[:max_len]
 
 
+def _normalize_bool_flag(value, default=False):
+    if isinstance(value, bool):
+        return value
+    raw = str(value if value is not None else "").strip().lower()
+    if not raw:
+        return bool(default)
+    if raw in {"1", "true", "yes", "on", "si", "sí"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _normalize_auto_close_minutes(value):
+    try:
+        minutes = int(str(value or 0).strip() or "0")
+    except Exception:
+        minutes = 0
+    if minutes <= 0:
+        return 0
+    return max(AUTO_CLOSE_MIN_MINUTES, min(minutes, AUTO_CLOSE_MAX_MINUTES))
+
+
 def _normalize_company_entry(entry):
     if not isinstance(entry, dict):
         return None
@@ -244,6 +273,13 @@ def _normalize_company_entry(entry):
     company_address = _normalize_optional_company_text(entry.get("company_address"), max_len=240)
     company_phone = _normalize_optional_company_text(entry.get("company_phone"), max_len=80)
     company_website = _normalize_optional_company_text(entry.get("company_website"), max_len=200)
+    auto_close_minutes = _normalize_auto_close_minutes(entry.get("handoff_auto_close_minutes"))
+    auto_close_enabled = _normalize_bool_flag(
+        entry.get("handoff_auto_close_enabled"),
+        default=auto_close_minutes > 0,
+    )
+    if not auto_close_enabled:
+        auto_close_minutes = 0
     return {
         "company_id": company_id,
         "company_name": company_name,
@@ -253,6 +289,8 @@ def _normalize_company_entry(entry):
         "company_address": company_address,
         "company_phone": company_phone,
         "company_website": company_website,
+        "handoff_auto_close_enabled": auto_close_enabled,
+        "handoff_auto_close_minutes": auto_close_minutes,
         "branches": branches,
         "active": bool(entry.get("active", True)),
     }
@@ -269,6 +307,8 @@ def _default_company_entry():
         "company_address": "",
         "company_phone": "",
         "company_website": "",
+        "handoff_auto_close_enabled": False,
+        "handoff_auto_close_minutes": AUTO_CLOSE_DEFAULT_MINUTES,
         "branches": [],
         "active": True,
     }
@@ -285,6 +325,17 @@ def _merge_company_entries(current, candidate):
         value = _normalize_optional_company_text(extra.get(key), max_len=240)
         if value:
             base[key] = value.lower() if key == "company_email" else value
+    base_minutes = _normalize_auto_close_minutes(
+        extra.get("handoff_auto_close_minutes", base.get("handoff_auto_close_minutes"))
+    )
+    base_enabled = _normalize_bool_flag(
+        extra.get("handoff_auto_close_enabled", base.get("handoff_auto_close_enabled")),
+        default=base_minutes > 0,
+    )
+    if not base_enabled:
+        base_minutes = 0
+    base["handoff_auto_close_enabled"] = base_enabled
+    base["handoff_auto_close_minutes"] = base_minutes
     base["branches"] = _normalize_branches(
         list(base.get("branches") or []) + list(extra.get("branches") or [])
     )
@@ -448,6 +499,13 @@ def _sanitize_general_settings(payload):
 
 def _read_general_settings():
     company = _current_company()
+    auto_close_enabled = _normalize_bool_flag(
+        company.get("handoff_auto_close_enabled", False),
+        default=False,
+    )
+    auto_close_minutes = _normalize_auto_close_minutes(company.get("handoff_auto_close_minutes"))
+    if not auto_close_enabled:
+        auto_close_minutes = 0
     return {
         "company_id": company.get("company_id"),
         "company_name": company.get("company_name"),
@@ -457,6 +515,8 @@ def _read_general_settings():
         "company_address": company.get("company_address") or "",
         "company_phone": company.get("company_phone") or "",
         "company_website": company.get("company_website") or "",
+        "handoff_auto_close_enabled": auto_close_enabled,
+        "handoff_auto_close_minutes": auto_close_minutes,
         "branches": list(company.get("branches") or []),
     }
 
@@ -504,6 +564,23 @@ def _write_general_settings(payload):
         company_website_raw,
         max_len=200,
     )
+    auto_close_enabled_raw = (
+        data.get("handoff_auto_close_enabled")
+        if "handoff_auto_close_enabled" in data
+        else current.get("handoff_auto_close_enabled", False)
+    )
+    auto_close_enabled = _normalize_bool_flag(
+        auto_close_enabled_raw,
+        default=bool(current.get("handoff_auto_close_enabled", False)),
+    )
+    auto_close_minutes_raw = (
+        data.get("handoff_auto_close_minutes")
+        if "handoff_auto_close_minutes" in data
+        else current.get("handoff_auto_close_minutes", AUTO_CLOSE_DEFAULT_MINUTES)
+    )
+    auto_close_minutes = _normalize_auto_close_minutes(auto_close_minutes_raw)
+    if not auto_close_enabled:
+        auto_close_minutes = 0
     branches = _normalize_branches((payload or {}).get("branches") or current.get("branches") or [])
 
     ok, company, error = _upsert_company(
@@ -516,6 +593,8 @@ def _write_general_settings(payload):
             "company_address": company_address,
             "company_phone": company_phone,
             "company_website": company_website,
+            "handoff_auto_close_enabled": auto_close_enabled,
+            "handoff_auto_close_minutes": auto_close_minutes,
             "branches": branches,
             "active": True,
         }
@@ -1243,6 +1322,86 @@ def _close_handoff(conversation_id, quien):
     return True
 
 
+def _handoff_auto_close_policy(company=None):
+    current = company if isinstance(company, dict) else _current_company()
+    enabled = _normalize_bool_flag(current.get("handoff_auto_close_enabled"), default=False)
+    minutes = _normalize_auto_close_minutes(
+        current.get("handoff_auto_close_minutes", AUTO_CLOSE_DEFAULT_MINUTES)
+    )
+    if not enabled or minutes <= 0:
+        return False, 0
+    return True, minutes
+
+
+def _handoff_last_activity(conv):
+    if not isinstance(conv, dict):
+        return None
+    return (
+        _as_utc_naive(conv.get("ultimo_mensaje_fecha"))
+        or _as_utc_naive(conv.get("updated_at"))
+        or _as_utc_naive(conv.get("created_at"))
+    )
+
+
+def _auto_close_expired_handoffs(company=None, force=False, override_minutes=None):
+    target_company = company if isinstance(company, dict) else _current_company()
+    company_id = _normalize_company_id(target_company.get("company_id"))
+    if not company_id:
+        return {
+            "company_id": "",
+            "auto_close_enabled": False,
+            "auto_close_minutes": 0,
+            "closed_count": 0,
+            "checked_count": 0,
+        }
+
+    enabled, minutes = _handoff_auto_close_policy(target_company)
+    if override_minutes is not None:
+        minutes = _normalize_auto_close_minutes(override_minutes)
+        enabled = minutes > 0
+    if not enabled:
+        return {
+            "company_id": company_id,
+            "auto_close_enabled": False,
+            "auto_close_minutes": 0,
+            "closed_count": 0,
+            "checked_count": 0,
+        }
+
+    now = _as_utc_naive(_utc_now()) or datetime.utcnow()
+    conversations = _list_handoffs(include_closed=False, limit=1000, company_id=company_id)
+    closed_count = 0
+    checked_count = 0
+    for conv in conversations:
+        estado = str(conv.get("estado") or "").strip().lower()
+        if estado not in {HANDOFF_STATUS_PENDING, HANDOFF_STATUS_ACTIVE}:
+            continue
+        checked_count += 1
+        conversation_id = str(conv.get("conversation_id") or conv.get("id") or "").strip()
+        if not conversation_id:
+            continue
+        last_activity = _handoff_last_activity(conv)
+        if last_activity is None:
+            continue
+        idle_minutes = (now - last_activity).total_seconds() / 60.0
+        if idle_minutes < minutes:
+            continue
+        if _close_handoff(
+            conversation_id,
+            f"sistema por inactividad ({minutes} min)",
+        ):
+            closed_count += 1
+
+    return {
+        "company_id": company_id,
+        "auto_close_enabled": True,
+        "auto_close_minutes": minutes,
+        "closed_count": closed_count,
+        "checked_count": checked_count,
+        "forced": bool(force),
+    }
+
+
 def _reassign_handoff(conversation_id, agente_destino, reasignado_por=""):
     conv = _fetch_handoff(conversation_id)
     if not conv:
@@ -1530,6 +1689,7 @@ def responder_chat(mensaje_usuario):
 
     handoff_id = _get_handoff_session_id()
     if handoff_id:
+        _auto_close_expired_handoffs(company=_current_company())
         conv = _fetch_handoff(handoff_id)
         if conv and str(conv.get("estado") or "").strip().lower() == HANDOFF_STATUS_CLOSED:
             _clear_handoff_session()
@@ -2142,6 +2302,7 @@ def historial_api():
 
 @flask_app.get("/api/chat/poll")
 def chat_poll_api():
+    _auto_close_expired_handoffs(company=_current_company())
     handoff_id = _get_handoff_session_id()
     if not handoff_id:
         return jsonify({"ok": True, "handoff_active": False, "messages": []})
@@ -2235,6 +2396,14 @@ def configuracion_editar_empresa_api(company_id):
         "company_address": data.get("company_address", current.get("company_address")),
         "company_phone": data.get("company_phone", current.get("company_phone")),
         "company_website": data.get("company_website", current.get("company_website")),
+        "handoff_auto_close_enabled": data.get(
+            "handoff_auto_close_enabled",
+            current.get("handoff_auto_close_enabled", False),
+        ),
+        "handoff_auto_close_minutes": data.get(
+            "handoff_auto_close_minutes",
+            current.get("handoff_auto_close_minutes", AUTO_CLOSE_DEFAULT_MINUTES),
+        ),
         "branches": data.get("branches", current.get("branches") or []),
         "active": bool(data.get("active", current.get("active", True))),
     }
@@ -2279,6 +2448,16 @@ def configuracion_seleccionar_empresa_api():
     return jsonify({"ok": True, "company": selected, "settings": settings})
 
 
+@flask_app.post("/api/configuracion/conversaciones/autocierre/ejecutar")
+@rrhh_auth_required
+def configuracion_autocierre_ejecutar_api():
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso para ejecutar autocierre.")
+    company = _current_company()
+    result = _auto_close_expired_handoffs(company=company, force=True)
+    return jsonify({"ok": True, **result})
+
+
 @flask_app.get("/api/rrhh/conversaciones")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_VIEW,
@@ -2288,6 +2467,7 @@ def rrhh_conversaciones_api():
     _heartbeat_current_agent()
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
     company = _current_company()
+    auto_close_result = _auto_close_expired_handoffs(company=company)
     convs = _list_handoffs(
         include_closed=include_closed,
         limit=150,
@@ -2304,6 +2484,7 @@ def rrhh_conversaciones_api():
             ],
             "selected_company_id": company.get("company_id"),
             "selected_company_name": company.get("company_name"),
+            "autocierre": auto_close_result,
         }
     )
 
