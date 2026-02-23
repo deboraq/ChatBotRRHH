@@ -414,6 +414,14 @@ def _clear_password_reset_fields(entry):
     entry.pop("password_reset_requested_by", None)
 
 
+def _normalize_password_reset_ttl(ttl_minutes):
+    try:
+        ttl = int(str(ttl_minutes or PASSWORD_RESET_TTL_MINUTES))
+    except Exception:
+        ttl = PASSWORD_RESET_TTL_MINUTES
+    return max(5, min(ttl, 24 * 60))
+
+
 def get_roles_map(path=None):
     source = path or roles_file_path()
     return _build_roles_map(_load_roles_raw_entries(source))
@@ -889,11 +897,7 @@ def create_password_reset_token(username, ttl_minutes=PASSWORD_RESET_TTL_MINUTES
     if not email:
         return False, None, "El usuario no tiene email cargado."
 
-    try:
-        ttl = int(str(ttl_minutes or PASSWORD_RESET_TTL_MINUTES))
-    except Exception:
-        ttl = PASSWORD_RESET_TTL_MINUTES
-    ttl = max(5, min(ttl, 24 * 60))
+    ttl = _normalize_password_reset_ttl(ttl_minutes)
 
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=ttl)
@@ -916,6 +920,71 @@ def create_password_reset_token(username, ttl_minutes=PASSWORD_RESET_TTL_MINUTES
             "username": str(entry.get("username") or username_clean),
             "display_name": str(entry.get("display_name") or username_clean),
             "email": email,
+            "token": token,
+            "expires_at": expires_at.isoformat(timespec="seconds"),
+        },
+        "",
+    )
+
+
+def create_password_reset_token_for_identity(
+    username,
+    email,
+    ttl_minutes=PASSWORD_RESET_TTL_MINUTES,
+    requested_by="",
+    path=None,
+):
+    username_clean = str(username or "").strip()
+    if not username_clean:
+        return False, None, "Usuario requerido."
+
+    email_clean = _normalize_email(email)
+    if not email_clean:
+        return False, None, "Email inválido."
+
+    env_users = _load_admin_user_from_env()
+    env_usernames = {str(item.get("username") or "").strip().lower() for item in env_users}
+    key = username_clean.lower()
+    if key in env_usernames:
+        return (
+            False,
+            None,
+            "Ese usuario se gestiona por variables de entorno y no puede restablecerse automáticamente.",
+        )
+
+    target_path = path or users_file_path()
+    raw_entries = _load_users_raw_entries(target_path)
+    target_idx = _find_raw_user_index(raw_entries, key)
+    if target_idx < 0:
+        return False, None, "Usuario o email inválido."
+
+    entry = dict(raw_entries[target_idx])
+    user_email = _normalize_email(entry.get("email"))
+    if not user_email or not compare_digest(user_email, email_clean):
+        return False, None, "Usuario o email inválido."
+
+    ttl = _normalize_password_reset_ttl(ttl_minutes)
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=ttl)
+    token = secrets.token_urlsafe(32)
+    entry["password_reset_token_hash"] = _hash_reset_token(token)
+    entry["password_reset_expires_at"] = expires_at.isoformat(timespec="seconds")
+    entry["password_reset_requested_at"] = now.isoformat(timespec="seconds")
+    requested_by_clean = str(requested_by or "").strip()
+    if requested_by_clean:
+        entry["password_reset_requested_by"] = requested_by_clean
+
+    new_raw_entries = list(raw_entries)
+    new_raw_entries[target_idx] = entry
+    if not _write_users_raw_entries(target_path, new_raw_entries):
+        return False, None, "No pude guardar el token de restablecimiento."
+
+    return (
+        True,
+        {
+            "username": str(entry.get("username") or username_clean),
+            "display_name": str(entry.get("display_name") or username_clean),
+            "email": user_email,
             "token": token,
             "expires_at": expires_at.isoformat(timespec="seconds"),
         },

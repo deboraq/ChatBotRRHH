@@ -170,6 +170,10 @@ textarea:focus {
   min-width: 220px;
 }
 
+.field.compact-field select {
+  min-width: 220px;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;

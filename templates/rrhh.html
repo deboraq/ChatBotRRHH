@@ -46,6 +46,22 @@
           <input id="include-closed" type="checkbox" />
           Mostrar conversaciones cerradas
         </label>
+        {% if available_companies and available_companies|length > 1 %}
+        <label class="field compact-field">
+          Empresa visible
+          <select id="rrhh-company-selector">
+            {% for company in available_companies %}
+            <option
+              value="{{ company.company_id }}"
+              {% if company.company_id == selected_company_id %}selected{% endif %}
+            >
+              {{ company.company_name }} ({{ company.company_id }})
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <button id="btn-company-switch" type="button" class="ghost">Cambiar empresa</button>
+        {% endif %}
         <span id="active-agents-status" class="subtle"></span>
       </section>
 
@@ -188,10 +204,13 @@
       const themeToggleBtn = document.getElementById("theme-toggle");
       const agentNameEl = document.getElementById("agent-name");
       const activeAgentsStatusEl = document.getElementById("active-agents-status");
+      const companySelectorEl = document.getElementById("rrhh-company-selector");
+      const companySwitchBtn = document.getElementById("btn-company-switch");
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
       const rrhhUsername = {{ (rrhh_user.username if rrhh_user else "")|tojson }};
       const selectedCompanyId = {{ (selected_company_id or "")|tojson }};
+      let activeCompanyName = {{ (selected_company_name or company_name or "")|tojson }};
       const canManageUsers = {{ can_manage_users|tojson }};
       const canManageRoles = {{ can_manage_roles|tojson }};
       const usersFileEl = document.getElementById("users-file");
@@ -365,11 +384,36 @@
       function renderQueueStatus() {
         const unreadCount = unreadConversationIds.size;
         let text = `${conversations.length} conversación(es)`;
+        if (activeCompanyName) {
+          text += ` · empresa: ${activeCompanyName}`;
+        }
         if (unreadCount > 0) {
           text += ` · ${unreadCount} con mensaje(s) nuevo(s)`;
         }
         queueStatusEl.textContent = text;
         queueStatusEl.classList.toggle("alert-text", unreadCount > 0);
+      }
+
+      async function seleccionarEmpresaPanel() {
+        const company_id = String(companySelectorEl?.value || "").trim();
+        if (!company_id) throw new Error("Seleccioná una empresa.");
+        if (companySwitchBtn) companySwitchBtn.disabled = true;
+        try {
+          const response = await fetch("/api/rrhh/empresa/seleccionar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ company_id }),
+          });
+          if (response.status === 401) {
+            window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+            return;
+          }
+          const data = await response.json();
+          if (!data.ok) throw new Error(data.error || "No se pudo cambiar la empresa.");
+          window.location.reload();
+        } finally {
+          if (companySwitchBtn) companySwitchBtn.disabled = false;
+        }
       }
 
       function notifyNewMessages(newConversationsCount) {
@@ -810,6 +854,9 @@
         if (authEnabled && data.agente_actual) {
           agentNameEl.value = data.agente_actual;
         }
+        if (data.selected_company_name) {
+          activeCompanyName = String(data.selected_company_name);
+        }
         conversations = data.conversaciones || [];
         recalculateUnreadConversations({ notify: hasConversationSnapshot });
         hasConversationSnapshot = true;
@@ -952,6 +999,16 @@
 
       refreshBtn.addEventListener("click", () => safeRefresh(true));
       includeClosedEl.addEventListener("change", () => safeRefresh(false));
+      if (companySwitchBtn && companySelectorEl) {
+        companySwitchBtn.addEventListener("click", async () => {
+          try {
+            await seleccionarEmpresaPanel();
+          } catch (error) {
+            queueStatusEl.textContent = `Error de empresa: ${error.message}`;
+            queueStatusEl.classList.add("alert-text");
+          }
+        });
+      }
       btnTomar.addEventListener("click", async () => {
         try {
           await tomarConversacion();
