@@ -8,9 +8,67 @@
   border: 1px solid #e9eef8;
 }
 
-.config-grid {
+.config-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.config-sidebar {
+  position: sticky;
+  top: 16px;
+}
+
+.config-sidebar h2 {
+  margin: 0 0 8px;
+  font-size: 1.02rem;
+}
+
+.config-sidebar > .subtle {
+  margin-top: 0;
+}
+
+.config-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.config-nav button {
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  background: #eef2ff;
+  color: #1e3a8a;
+  border: 1px solid #c7d2fe;
+  box-shadow: none;
+}
+
+.config-nav button:hover {
+  background: #e0e7ff;
+  color: #1e3a8a;
+}
+
+.config-nav button.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.2);
+}
+
+.config-content {
   display: grid;
   gap: 14px;
+}
+
+.config-section {
+  display: none;
+}
+
+.config-section.active {
+  display: block;
 }
 
 .companies-panel > .subtle {
@@ -47,14 +105,8 @@
   font-size: 0.88rem;
 }
 
-.create-company-box summary {
-  cursor: pointer;
-  font-weight: 600;
-  color: #1f3b74;
-}
-
-.create-company-box[open] summary {
-  margin-bottom: 10px;
+.create-company-box h3 {
+  margin-bottom: 8px;
 }
 
 .general-settings-form {
@@ -128,6 +180,37 @@
   margin-top: 8px;
 }
 
+:root[data-theme="dark"] .company-step {
+  background: rgba(19, 32, 51, 0.82);
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] #company-current-badge {
+  background: #1b2a44;
+  color: #dbeafe;
+}
+
+:root[data-theme="dark"] .danger-zone {
+  background: #2b1519;
+  border-color: #7f1d1d;
+}
+
+:root[data-theme="dark"] .config-nav button {
+  background: #1b2a44;
+  color: #cfe0ff;
+  border-color: #3b4f73;
+}
+
+:root[data-theme="dark"] .config-nav button:hover {
+  background: #23385c;
+}
+
+:root[data-theme="dark"] .config-nav button.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+
 @media (max-width: 760px) {
   .config-wrapper {
     width: 100%;
@@ -142,5 +225,22 @@
 
   .general-selector {
     grid-template-columns: 1fr;
+  }
+
+  .config-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .config-sidebar {
+    position: static;
+  }
+
+  .config-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .config-nav button {
+    width: auto;
   }
 }
