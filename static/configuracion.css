@@ -1,11 +1,14 @@
 .config-wrapper {
   width: min(1320px, 96vw);
+  max-width: 100%;
   margin: 20px auto;
   background: var(--surface);
   border-radius: 20px;
   box-shadow: var(--shadow);
   padding: 20px;
   border: 1px solid #e9eef8;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .config-layout {
@@ -13,6 +16,11 @@
   grid-template-columns: 240px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+  min-width: 0;
+}
+
+.config-layout > * {
+  min-width: 0;
 }
 
 .config-sidebar {
@@ -61,14 +69,39 @@
 .config-content {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .config-section {
-  display: none;
+  display: none !important;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 .config-section.active {
-  display: block;
+  display: block !important;
+}
+
+.config-section.panel,
+.companies-panel,
+.users-panel,
+.roles-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.config-section .field,
+.config-section label.field {
+  min-width: 0;
+}
+
+.config-section input,
+.config-section select {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .companies-panel > .subtle {
@@ -78,9 +111,11 @@
 .company-step {
   border: 1px solid #e6ebf5;
   border-radius: 14px;
-  padding: 14px;
-  margin-bottom: 12px;
+  padding: 18px;
+  margin-bottom: 16px;
   background: rgba(248, 250, 254, 0.85);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .company-step h3 {
@@ -111,32 +146,63 @@
 
 .general-settings-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px 20px;
   align-items: end;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.general-settings-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.general-settings-form label.field {
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.general-settings-form select {
+  min-width: 0;
+  width: 100%;
 }
 
 .general-settings-form .form-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  grid-column: 1 / -1;
+  margin-top: 4px;
 }
 
 .general-settings-form .form-actions button {
   min-height: 40px;
 }
 
+.select-autoclose {
+  min-width: 200px;
+}
+
 .general-selector {
   display: grid;
-  grid-template-columns: minmax(240px, 1.6fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: end;
   margin-bottom: 8px;
+  min-width: 0;
 }
 
 .general-selector .field {
   min-width: 0;
+}
+
+.general-selector select {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .new-company-form {
@@ -150,67 +216,197 @@
 }
 
 .users-panel .create-user-form {
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px 20px;
   align-items: end;
   border: 1px solid #e6ebf5;
   border-radius: 12px;
-  padding: 10px;
+  padding: 16px;
   background: rgba(248, 250, 254, 0.85);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .users-panel .create-user-form .field {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.users-panel .create-user-form label.field {
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .users-panel .create-user-form .create-user-actions {
   display: flex;
   align-items: flex-end;
+  grid-column: 1 / -1;
 }
 
 .users-panel .create-user-form .create-user-actions button {
-  width: 100%;
   min-height: 40px;
+  min-width: 140px;
   white-space: nowrap;
 }
 
+.config-section.active.users-panel {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.users-panel .users-head {
+  flex-shrink: 0;
+}
+
+.users-panel .create-user-form {
+  flex-shrink: 0;
+}
+
+.users-panel #users-status {
+  flex-shrink: 0;
+}
+
+.users-table-wrap {
+  flex: 0 1 auto;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid #e6ebf5;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  width: 100%;
+  min-width: 0;
+}
+
 .users-panel .users-table {
-  min-width: 1180px;
+  width: 100%;
+  table-layout: fixed;
 }
 
 .users-panel .users-table td,
 .users-panel .users-table th {
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.users-panel .users-table th:nth-child(7),
-.users-panel .users-table td:nth-child(7) {
-  min-width: 230px;
+.users-panel .users-table td:nth-child(9),
+.users-panel .users-table th:nth-child(9) {
+  overflow: visible;
+  vertical-align: top;
 }
+
+.users-panel .users-table th:nth-child(1),
+.users-panel .users-table td:nth-child(1) { width: 12%; }
+.users-panel .users-table th:nth-child(2),
+.users-panel .users-table td:nth-child(2) { width: 12%; }
+.users-panel .users-table th:nth-child(3),
+.users-panel .users-table td:nth-child(3) { width: 14%; }
+.users-panel .users-table th:nth-child(4),
+.users-panel .users-table td:nth-child(4) { width: 10%; }
+.users-panel .users-table th:nth-child(5),
+.users-panel .users-table td:nth-child(5) { width: 8%; }
+.users-panel .users-table th:nth-child(6),
+.users-panel .users-table td:nth-child(6) { width: 8%; }
+.users-panel .users-table th:nth-child(7),
+.users-panel .users-table td:nth-child(7) { width: 10%; }
+.users-panel .users-table th:nth-child(8),
+.users-panel .users-table td:nth-child(8) { width: 14%; }
+.users-panel .users-table th:nth-child(9),
+.users-panel .users-table td:nth-child(9) { width: 12%; }
 
 .users-panel .permissions-cell {
-  max-width: 280px;
-  min-width: 220px;
   font-size: 0.8rem;
   line-height: 1.3;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .users-panel .users-table td .role-display-input,
 .users-panel .users-table td .role-select {
   width: 100%;
-  min-width: 150px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .users-panel .config-actions-cell {
-  min-width: 140px;
-  align-items: stretch;
-  flex-direction: column;
+  min-width: 0;
+  align-items: flex-start;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 6px 4px;
+  overflow: visible;
 }
 
 .users-panel .config-actions-cell .role-update-btn {
-  width: 100%;
+  flex: 0 0 auto;
   white-space: nowrap;
   font-size: 0.78rem;
-  padding: 7px 8px;
+  padding: 6px 10px;
+}
+
+.branch-control-wrap {
+  display: block;
+  min-width: 0;
+}
+
+.branch-control-wrap .hidden {
+  display: none !important;
+}
+
+.branch-control-wrap input.hidden,
+.branch-control-wrap select.hidden {
+  display: none !important;
+}
+
+.branch-control-wrap select:not(.hidden) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.branch-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.branch-checkboxes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.branch-checkboxes input[type="checkbox"] {
+  margin: 0;
+  width: 1rem;
+  height: 1rem;
+}
+
+.branch-control-wrap .branch-freetext.hidden {
+  display: none !important;
+}
+
+.branch-control-wrap .branch-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.branch-control-wrap .branch-select.hidden {
+  display: none !important;
 }
 
 .role-update-btn.danger {
@@ -285,6 +481,16 @@
   color: #fff;
 }
 
+@media (max-width: 900px) {
+  .general-selector {
+    grid-template-columns: 1fr;
+  }
+
+  .general-selector .field {
+    max-width: 100%;
+  }
+}
+
 @media (max-width: 760px) {
   .config-wrapper {
     width: 100%;
@@ -318,7 +524,4 @@
     width: auto;
   }
 
-  .users-panel .users-table {
-    min-width: 1080px;
-  }
 }
