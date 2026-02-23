@@ -15,7 +15,7 @@ ROLE_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
 COMPANY_ID_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
 MIN_PASSWORD_LENGTH = 6
 
-# Permisos disponibles para roles de RRHH.
+# Permisos disponibles para roles operativos del panel.
 PERM_CONVERSATIONS_VIEW = "conversaciones_ver"
 PERM_CONVERSATIONS_MANAGE = "conversaciones_gestionar"
 PERM_HISTORY_VIEW = "historial_ver"
@@ -23,7 +23,7 @@ PERM_USERS_MANAGE = "usuarios_gestionar"
 PERM_ROLES_MANAGE = "roles_gestionar"
 
 PERMISSIONS_CATALOG = {
-    PERM_CONVERSATIONS_VIEW: "Ver conversaciones RRHH",
+    PERM_CONVERSATIONS_VIEW: "Ver conversaciones",
     PERM_CONVERSATIONS_MANAGE: "Tomar, responder y cerrar conversaciones",
     PERM_HISTORY_VIEW: "Ver historial completo",
     PERM_USERS_MANAGE: "Crear y editar usuarios",
@@ -36,7 +36,7 @@ DEFAULT_ROLE_DEFINITIONS = {
         "permissions": list(PERMISSIONS_CATALOG.keys()),
     },
     "rrhh": {
-        "display_name": "Agente RRHH",
+        "display_name": "Agente de atención",
         "permissions": [
             PERM_CONVERSATIONS_VIEW,
             PERM_CONVERSATIONS_MANAGE,
@@ -310,6 +310,8 @@ def _build_roles_map(role_entries):
         normalized = _normalize_role_entry(item)
         if not normalized:
             continue
+        if normalized["name"] == "rrhh" and normalized.get("display_name", "").strip().lower() == "agente rrhh":
+            normalized["display_name"] = "Agente de atención"
         roles[normalized["name"]] = normalized
     return roles
 

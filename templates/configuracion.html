@@ -85,7 +85,7 @@
                   />
                 </label>
                 <label class="field">
-                  Equipo principal (ej: RRHH, People Ops, Operaciones)
+                  Equipo principal (ej: People Ops, Operaciones, Administración)
                   <input
                     id="cfg-hr-team-name"
                     type="text"
@@ -169,7 +169,7 @@
               <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
               <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
               <select id="new-role">
-                <option value="rrhh">rrhh</option>
+                <option value="rrhh">agente</option>
                 <option value="admin">admin</option>
               </select>
               <select id="new-user-company"></select>
@@ -474,6 +474,10 @@
         return companies.find((item) => normalizeCompanyId(item.company_id) === key) || null;
       }
 
+      function firstAvailableCompanyId() {
+        return normalizeCompanyId((companies[0] || {}).company_id || "");
+      }
+
       function selectedCompany() {
         return getCompanyById(selectedCompanyId);
       }
@@ -585,7 +589,7 @@
           roles.forEach((role) => {
             const opt = document.createElement("option");
             opt.value = role;
-            opt.textContent = role;
+            opt.textContent = role.toLowerCase() === "rrhh" ? "agente" : role;
             if (role.toLowerCase() === currentRole) opt.selected = true;
             selectRole.appendChild(opt);
           });
@@ -606,32 +610,19 @@
           const tdAction = document.createElement("td");
           tdAction.className = "config-actions-cell";
 
-          const btnUpdate = document.createElement("button");
-          btnUpdate.type = "button";
-          btnUpdate.className = "role-update-btn";
-          btnUpdate.textContent = "Actualizar rol";
-          btnUpdate.addEventListener("click", async () => {
-            try {
-              await actualizarRolUsuario(username, selectRole.value);
-            } catch (error) {
-              setUsersStatus(`Error: ${error.message}`, true);
-            }
-          });
-          tdAction.appendChild(btnUpdate);
-
-          const btnAssign = document.createElement("button");
-          btnAssign.type = "button";
-          btnAssign.className = "role-update-btn ghost";
-          btnAssign.textContent = "Guardar asignación";
-          btnAssign.addEventListener("click", async () => {
+          const btnSaveAll = document.createElement("button");
+          btnSaveAll.type = "button";
+          btnSaveAll.className = "role-update-btn";
+          btnSaveAll.textContent = "Guardar cambios";
+          btnSaveAll.addEventListener("click", async () => {
             try {
               const assignments = parseAssignmentsText(assignmentsInput.value);
-              await actualizarAsignacionesUsuario(username, assignments);
+              await guardarCambiosUsuario(username, selectRole.value, assignments);
             } catch (error) {
               setUsersStatus(`Error: ${error.message}`, true);
             }
           });
-          tdAction.appendChild(btnAssign);
+          tdAction.appendChild(btnSaveAll);
 
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
@@ -667,7 +658,9 @@
         roles.forEach((role) => {
           const tr = document.createElement("tr");
           const tdName = document.createElement("td");
-          tdName.innerHTML = `<code>${escapeHtml(role.name || "-")}</code>`;
+          const roleNameLabel =
+            String(role.name || "").toLowerCase() === "rrhh" ? "agente" : role.name || "-";
+          tdName.innerHTML = `<code>${escapeHtml(roleNameLabel)}</code>`;
 
           const tdDisplay = document.createElement("td");
           const inputDisplay = document.createElement("input");
@@ -749,8 +742,8 @@
         if (!data.ok) throw new Error(data.error || "No se pudo cargar empresas.");
         companies = Array.isArray(data.companies) ? data.companies : [];
         selectedCompanyId = normalizeCompanyId(data.selected_company_id || selectedCompanyId);
-        if (!selectedCompanyId && companies.length) {
-          selectedCompanyId = normalizeCompanyId(companies[0].company_id);
+        if (!getCompanyById(selectedCompanyId)) {
+          selectedCompanyId = firstAvailableCompanyId();
         }
         refreshCompanySelectors();
       }
@@ -772,13 +765,36 @@
 
       async function seleccionarEmpresaActiva() {
         if (!canManageGeneral) return;
-        const company_id = normalizeCompanyId(companySelectorEl?.value || "");
+        let company_id = normalizeCompanyId(companySelectorEl?.value || selectedCompanyId);
+        if (!getCompanyById(company_id)) {
+          company_id = firstAvailableCompanyId();
+        }
         if (!company_id) throw new Error("Seleccioná una empresa.");
-        const response = await fetch("/api/configuracion/empresa/seleccionar", {
+
+        if (companySelectorEl) {
+          companySelectorEl.value = company_id;
+        }
+
+        let response = await fetch("/api/configuracion/empresa/seleccionar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ company_id }),
         });
+        if (response.status === 404) {
+          await cargarEmpresas();
+          const fallbackCompanyId = firstAvailableCompanyId();
+          if (fallbackCompanyId) {
+            company_id = fallbackCompanyId;
+            if (companySelectorEl) {
+              companySelectorEl.value = fallbackCompanyId;
+            }
+            response = await fetch("/api/configuracion/empresa/seleccionar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ company_id: fallbackCompanyId }),
+            });
+          }
+        }
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
           return;
@@ -897,7 +913,7 @@
           companies = data.companies;
           refreshCompanySelectors();
         }
-        if (usersFileEl) usersFileEl.textContent = `Archivo: ${data.users_file || "-"}`;
+        if (usersFileEl) usersFileEl.textContent = data.users_file ? "Fuente: archivo local" : "";
         renderUsers(data.users || []);
         setUsersStatus(`${(data.users || []).length} usuario(s) cargado(s).`);
       }
@@ -947,8 +963,24 @@
         }
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
-        setUsersStatus(`Rol actualizado para ${data.user.username}: ${data.user.role}.`);
+        const roleLabel = String(data.user.role || "").toLowerCase() === "rrhh" ? "agente" : data.user.role;
+        setUsersStatus(`Rol actualizado para ${data.user.username}: ${roleLabel}.`);
         await cargarUsuarios();
+      }
+
+      async function actualizarRolUsuarioSilencioso(username, role) {
+        if (!canManageUsers) return;
+        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/rol`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
       }
 
       async function actualizarAsignacionesUsuario(username, assignments) {
@@ -968,6 +1000,32 @@
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo actualizar asignaciones.");
         setUsersStatus(`Asignaciones actualizadas para ${data.user.username}.`);
+        await cargarUsuarios();
+      }
+
+      async function actualizarAsignacionesUsuarioSilencioso(username, assignments) {
+        if (!canManageUsers) return;
+        const response = await fetch(
+          `/api/rrhh/usuarios/${encodeURIComponent(username)}/asignaciones`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ assignments }),
+          }
+        );
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar empresa/sucursal.");
+      }
+
+      async function guardarCambiosUsuario(username, role, assignments) {
+        if (!canManageUsers) return;
+        await actualizarRolUsuarioSilencioso(username, role);
+        await actualizarAsignacionesUsuarioSilencioso(username, assignments);
+        setUsersStatus(`Usuario ${username} actualizado (rol y empresa/sucursal).`);
         await cargarUsuarios();
       }
 
@@ -1000,7 +1058,7 @@
         if (Array.isArray(data.permissions_catalog) && data.permissions_catalog.length) {
           permissionsCatalog = data.permissions_catalog;
         }
-        if (rolesFileEl) rolesFileEl.textContent = `Archivo: ${data.roles_file || "-"}`;
+        if (rolesFileEl) rolesFileEl.textContent = data.roles_file ? "Fuente: archivo local" : "";
         renderPermissionsInputs(newRolePermissionsEl, []);
         renderRoles(data.roles || []);
         setRolesStatus(`${(data.roles || []).length} rol(es) cargado(s).`);
