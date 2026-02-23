@@ -346,6 +346,7 @@ export CHATBOT_HR_CONTACT="interno 123"
   - Nombre de empresa
   - Nombre del equipo RRHH
   - Contacto RRHH
+  - (Opcional) Email, dirección, teléfono y sitio web de la empresa
 
 ### 🔐 Usuarios para panel RRHH e historial
 
@@ -393,11 +394,35 @@ Con autenticación activa:
 
 3) En la sección **Usuarios RRHH**:
    - completá usuario, nombre visible, contraseña y rol
+   - podés cargar datos opcionales: email, teléfono y área
    - hacé click en **Crear usuario**
-   - para modificar rol, elegí el nuevo valor en la tabla y hacé click en **Actualizar rol**
+   - para modificar usuario, editá sus campos y hacé click en **Guardar cambios**
    - en la columna **Permisos** ves qué puede ver/hacer cada usuario según su rol
 
 Eso guarda automáticamente en `RRHH_USERS_FILE` (por defecto `rrhh_users.json`).
+
+### Restablecer contraseña por email
+
+Desde `Configuración -> Usuarios`, cada usuario tiene el botón **Enviar reset**:
+
+- Genera un enlace seguro y temporal
+- Envía el link al email del usuario (si SMTP está configurado)
+- Si SMTP no está configurado, muestra el link manual para copiar/pegar
+
+Configuración SMTP por variables de entorno:
+
+```bash
+export SMTP_HOST="smtp.tu-proveedor.com"
+export SMTP_PORT="587"
+export SMTP_USER="no-reply@tu-dominio.com"
+export SMTP_PASSWORD="tu-clave-smtp"
+export SMTP_FROM="no-reply@tu-dominio.com"
+export SMTP_USE_TLS="true"
+```
+
+Ruta de reset de contraseña (link que recibe el usuario):
+
+`/restablecer-clave/<token>`
 
 ### Roles personalizados y permisos
 

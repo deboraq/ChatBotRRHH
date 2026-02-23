@@ -465,7 +465,7 @@ textarea:focus {
 
 .create-user-form {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr 140px auto;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -489,7 +489,7 @@ textarea:focus {
 .roles-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 760px;
+  min-width: 980px;
   background: #fff;
 }
 

@@ -76,3 +76,24 @@ body {
   padding: 9px 10px;
   font-size: 0.9rem;
 }
+
+.success {
+  margin: 0 0 12px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 0.9rem;
+}
+
+.hint {
+  margin-top: 12px;
+  font-size: 0.9rem;
+}
+
+.hint a {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}

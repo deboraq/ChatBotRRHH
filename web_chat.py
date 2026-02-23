@@ -1,6 +1,8 @@
 import os
+import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from functools import wraps
 
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -103,11 +105,82 @@ def _fmt_fecha(dt):
     return dt2.strftime("%Y-%m-%d %H:%M")
 
 
+def _is_true_env(value, default=True):
+    raw = str(value if value is not None else "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def _smtp_settings():
+    try:
+        port = int(str(os.getenv("SMTP_PORT", "587")).strip() or "587")
+    except Exception:
+        port = 587
+    return {
+        "host": str(os.getenv("SMTP_HOST", "")).strip(),
+        "port": port,
+        "username": str(os.getenv("SMTP_USER", "")).strip(),
+        "password": str(os.getenv("SMTP_PASSWORD", "")).strip(),
+        "from_email": str(os.getenv("SMTP_FROM", "")).strip(),
+        "use_tls": _is_true_env(os.getenv("SMTP_USE_TLS"), default=True),
+    }
+
+
+def _send_email(to_email, subject, body_text):
+    cfg = _smtp_settings()
+    recipient = str(to_email or "").strip()
+    if not recipient:
+        return False, "Email de destino inválido."
+    if not cfg["host"]:
+        return False, "SMTP no configurado: falta SMTP_HOST."
+
+    sender = cfg["from_email"] or cfg["username"]
+    if not sender:
+        return False, "SMTP no configurado: falta SMTP_FROM o SMTP_USER."
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = recipient
+    message["Subject"] = str(subject or "").strip() or "Notificación"
+    message.set_content(str(body_text or "").strip() or "Mensaje automático")
+
+    try:
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as smtp:
+            smtp.ehlo()
+            if cfg["use_tls"]:
+                smtp.starttls()
+                smtp.ehlo()
+            if cfg["username"]:
+                smtp.login(cfg["username"], cfg["password"])
+            smtp.send_message(message)
+    except Exception as exc:
+        return False, f"No se pudo enviar email: {exc}"
+    return True, ""
+
+
+def _send_password_reset_email(to_email, display_name, reset_url, expires_at_iso):
+    name = str(display_name or "usuario").strip()
+    subject = "Restablecer contraseña de acceso"
+    body = (
+        f"Hola {name},\n\n"
+        "Recibimos una solicitud para restablecer tu contraseña.\n"
+        f"Usá este enlace para crear una nueva clave:\n{reset_url}\n\n"
+        f"Este enlace vence el: {expires_at_iso} (UTC).\n\n"
+        "Si no solicitaste este cambio, ignorá este mensaje."
+    )
+    return _send_email(to_email=to_email, subject=subject, body_text=body)
+
+
 def _default_general_settings():
     return {
         "company_name": BOOTSTRAP_COMPANY_NAME,
         "hr_team_name": BOOTSTRAP_HR_TEAM_NAME,
         "hr_contact": BOOTSTRAP_HR_CONTACT,
+        "company_email": "",
+        "company_address": "",
+        "company_phone": "",
+        "company_website": "",
     }
 
 
@@ -148,6 +221,13 @@ def _normalize_branches(raw_branches):
     return cleaned
 
 
+def _normalize_optional_company_text(value, max_len=180):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return raw[:max_len]
+
+
 def _normalize_company_entry(entry):
     if not isinstance(entry, dict):
         return None
@@ -160,11 +240,19 @@ def _normalize_company_entry(entry):
     hr_team_name = str(entry.get("hr_team_name") or "RRHH").strip() or "RRHH"
     hr_contact = str(entry.get("hr_contact") or "").strip() or "interno 104"
     branches = _normalize_branches(entry.get("branches"))
+    company_email = _normalize_optional_company_text(entry.get("company_email"), max_len=200).lower()
+    company_address = _normalize_optional_company_text(entry.get("company_address"), max_len=240)
+    company_phone = _normalize_optional_company_text(entry.get("company_phone"), max_len=80)
+    company_website = _normalize_optional_company_text(entry.get("company_website"), max_len=200)
     return {
         "company_id": company_id,
         "company_name": company_name,
         "hr_team_name": hr_team_name,
         "hr_contact": hr_contact,
+        "company_email": company_email,
+        "company_address": company_address,
+        "company_phone": company_phone,
+        "company_website": company_website,
         "branches": branches,
         "active": bool(entry.get("active", True)),
     }
@@ -177,6 +265,10 @@ def _default_company_entry():
         "company_name": defaults.get("company_name") or "Empresa",
         "hr_team_name": defaults.get("hr_team_name") or "RRHH",
         "hr_contact": defaults.get("hr_contact") or "interno 104",
+        "company_email": "",
+        "company_address": "",
+        "company_phone": "",
+        "company_website": "",
         "branches": [],
         "active": True,
     }
@@ -189,6 +281,10 @@ def _merge_company_entries(current, candidate):
         value = str(extra.get(key) or "").strip()
         if value:
             base[key] = value
+    for key in ("company_email", "company_address", "company_phone", "company_website"):
+        value = _normalize_optional_company_text(extra.get(key), max_len=240)
+        if value:
+            base[key] = value.lower() if key == "company_email" else value
     base["branches"] = _normalize_branches(
         list(base.get("branches") or []) + list(extra.get("branches") or [])
     )
@@ -357,16 +453,57 @@ def _read_general_settings():
         "company_name": company.get("company_name"),
         "hr_team_name": company.get("hr_team_name"),
         "hr_contact": company.get("hr_contact"),
+        "company_email": company.get("company_email") or "",
+        "company_address": company.get("company_address") or "",
+        "company_phone": company.get("company_phone") or "",
+        "company_website": company.get("company_website") or "",
         "branches": list(company.get("branches") or []),
     }
 
 
 def _write_general_settings(payload):
     current = _current_company()
+    data = payload if isinstance(payload, dict) else {}
     company_id = _normalize_company_id((payload or {}).get("company_id") or current.get("company_id"))
     company_name = str((payload or {}).get("company_name") or current.get("company_name") or "").strip()
     hr_team_name = str((payload or {}).get("hr_team_name") or current.get("hr_team_name") or "").strip()
     hr_contact = str((payload or {}).get("hr_contact") or current.get("hr_contact") or "").strip()
+    company_email_raw = (
+        data.get("company_email")
+        if "company_email" in data
+        else current.get("company_email") or ""
+    )
+    company_email = _normalize_optional_company_text(
+        company_email_raw,
+        max_len=200,
+    ).lower()
+    company_address_raw = (
+        data.get("company_address")
+        if "company_address" in data
+        else current.get("company_address") or ""
+    )
+    company_address = _normalize_optional_company_text(
+        company_address_raw,
+        max_len=240,
+    )
+    company_phone_raw = (
+        data.get("company_phone")
+        if "company_phone" in data
+        else current.get("company_phone") or ""
+    )
+    company_phone = _normalize_optional_company_text(
+        company_phone_raw,
+        max_len=80,
+    )
+    company_website_raw = (
+        data.get("company_website")
+        if "company_website" in data
+        else current.get("company_website") or ""
+    )
+    company_website = _normalize_optional_company_text(
+        company_website_raw,
+        max_len=200,
+    )
     branches = _normalize_branches((payload or {}).get("branches") or current.get("branches") or [])
 
     ok, company, error = _upsert_company(
@@ -375,6 +512,10 @@ def _write_general_settings(payload):
             "company_name": company_name or current.get("company_name"),
             "hr_team_name": hr_team_name or current.get("hr_team_name"),
             "hr_contact": hr_contact or current.get("hr_contact"),
+            "company_email": company_email,
+            "company_address": company_address,
+            "company_phone": company_phone,
+            "company_website": company_website,
             "branches": branches,
             "active": True,
         }
@@ -1810,6 +1951,67 @@ def logout_page():
     return response
 
 
+@flask_app.get("/restablecer-clave/<token>")
+def password_reset_page(token):
+    return render_template(
+        "reset_password.html",
+        token=str(token or "").strip(),
+        error="",
+        success=False,
+        message="",
+    )
+
+
+@flask_app.post("/restablecer-clave/<token>")
+def password_reset_submit(token):
+    data = request.get_json(silent=True) if request.is_json else request.form
+    password = str((data or {}).get("password") or "")
+    confirm = str((data or {}).get("confirm_password") or "")
+    if not password:
+        return (
+            render_template(
+                "reset_password.html",
+                token=str(token or "").strip(),
+                error="Ingresá una contraseña nueva.",
+                success=False,
+                message="",
+            ),
+            400,
+        )
+    if password != confirm:
+        return (
+            render_template(
+                "reset_password.html",
+                token=str(token or "").strip(),
+                error="Las contraseñas no coinciden.",
+                success=False,
+                message="",
+            ),
+            400,
+        )
+
+    ok, user, error = auth_rrhh.reset_password_with_token(str(token or "").strip(), password)
+    if not ok:
+        return (
+            render_template(
+                "reset_password.html",
+                token=str(token or "").strip(),
+                error=error or "No se pudo restablecer la contraseña.",
+                success=False,
+                message="",
+            ),
+            400,
+        )
+
+    return render_template(
+        "reset_password.html",
+        token="",
+        error="",
+        success=True,
+        message=f"Contraseña actualizada para {user.get('username')}. Ya podés iniciar sesión.",
+    )
+
+
 @flask_app.get("/api/historial")
 @rrhh_permission_required(auth_rrhh.PERM_HISTORY_VIEW, message="Sin permiso para ver historial.")
 def historial_api():
@@ -1939,6 +2141,10 @@ def configuracion_editar_empresa_api(company_id):
         "company_name": data.get("company_name", current.get("company_name")),
         "hr_team_name": data.get("hr_team_name", current.get("hr_team_name")),
         "hr_contact": data.get("hr_contact", current.get("hr_contact")),
+        "company_email": data.get("company_email", current.get("company_email")),
+        "company_address": data.get("company_address", current.get("company_address")),
+        "company_phone": data.get("company_phone", current.get("company_phone")),
+        "company_website": data.get("company_website", current.get("company_website")),
         "branches": data.get("branches", current.get("branches") or []),
         "active": bool(data.get("active", current.get("active", True))),
     }
@@ -2043,6 +2249,9 @@ def rrhh_crear_usuario_api():
     display_name = str(data.get("display_name") or "").strip()
     role = str(data.get("role") or "rrhh").strip().lower()
     assignments = data.get("assignments")
+    email = str(data.get("email") or "").strip()
+    phone = str(data.get("phone") or "").strip()
+    area = str(data.get("area") or "").strip()
     created_by = (_current_rrhh_user() or {}).get("username") or ""
 
     ok, user, error = auth_rrhh.create_user(
@@ -2052,6 +2261,9 @@ def rrhh_crear_usuario_api():
         role=role,
         created_by=created_by,
         assignments=assignments,
+        email=email,
+        phone=phone,
+        area=area,
     )
     if not ok:
         status_code = 409 if "existe" in error.lower() else 400
@@ -2171,6 +2383,36 @@ def rrhh_actualizar_asignaciones_api(username):
     return jsonify({"ok": True, "user": user})
 
 
+@flask_app.post("/api/rrhh/usuarios/<username>/perfil")
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para editar usuarios.",
+)
+def rrhh_actualizar_perfil_usuario_api(username):
+    data = request.get_json(silent=True) or {}
+    updated_by = (_current_rrhh_user() or {}).get("username") or ""
+    ok, user, error = auth_rrhh.update_user_profile(
+        username=username,
+        role=data.get("role"),
+        assignments=data.get("assignments"),
+        display_name=data.get("display_name"),
+        email=data.get("email"),
+        phone=data.get("phone"),
+        area=data.get("area"),
+        updated_by=updated_by,
+    )
+    if not ok:
+        msg = str(error or "").lower()
+        if "no encontrado" in msg:
+            status_code = 404
+        elif "debe quedar al menos un usuario con permiso" in msg:
+            status_code = 409
+        else:
+            status_code = 400
+        return jsonify({"ok": False, "error": error}), status_code
+    return jsonify({"ok": True, "user": user})
+
+
 @flask_app.delete("/api/rrhh/usuarios/<username>")
 @rrhh_permission_required(
     auth_rrhh.PERM_USERS_MANAGE,
@@ -2184,6 +2426,53 @@ def rrhh_eliminar_usuario_api(username):
         status_code = 404 if "no encontrado" in msg else 409 if "debe quedar" in msg else 400
         return jsonify({"ok": False, "error": error}), status_code
     return jsonify({"ok": True})
+
+
+@flask_app.post("/api/rrhh/usuarios/<username>/enviar-reset")
+@rrhh_permission_required(
+    auth_rrhh.PERM_USERS_MANAGE,
+    message="Sin permiso para gestionar usuarios.",
+)
+def rrhh_enviar_reset_password_api(username):
+    data = request.get_json(silent=True) or {}
+    requested_by = (_current_rrhh_user() or {}).get("username") or ""
+    ok, payload, error = auth_rrhh.create_password_reset_token(
+        username=username,
+        ttl_minutes=data.get("ttl_minutes", 60),
+        requested_by=requested_by,
+    )
+    if not ok:
+        msg = str(error or "").lower()
+        status_code = 404 if "no encontrado" in msg else 400
+        return jsonify({"ok": False, "error": error}), status_code
+
+    reset_url = url_for("password_reset_page", token=payload.get("token"), _external=True)
+    mail_ok, mail_error = _send_password_reset_email(
+        to_email=payload.get("email"),
+        display_name=payload.get("display_name") or payload.get("username"),
+        reset_url=reset_url,
+        expires_at_iso=payload.get("expires_at"),
+    )
+    if not mail_ok:
+        return jsonify(
+            {
+                "ok": True,
+                "mail_sent": False,
+                "warning": mail_error,
+                "reset_url": reset_url,
+                "email": payload.get("email"),
+                "expires_at": payload.get("expires_at"),
+            }
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "mail_sent": True,
+            "email": payload.get("email"),
+            "expires_at": payload.get("expires_at"),
+        }
+    )
 
 
 @flask_app.delete("/api/rrhh/roles/<role_name>")
