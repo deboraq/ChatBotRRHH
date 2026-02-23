@@ -103,6 +103,42 @@
                   />
                 </label>
                 <label class="field">
+                  Email empresa (opcional)
+                  <input
+                    id="cfg-company-email"
+                    type="email"
+                    value="{{ general_settings.company_email or '' }}"
+                    placeholder="ej: contacto@empresa.com"
+                  />
+                </label>
+                <label class="field">
+                  Dirección (opcional)
+                  <input
+                    id="cfg-company-address"
+                    type="text"
+                    value="{{ general_settings.company_address or '' }}"
+                    placeholder="ej: Av. Siempre Viva 742"
+                  />
+                </label>
+                <label class="field">
+                  Teléfono (opcional)
+                  <input
+                    id="cfg-company-phone"
+                    type="text"
+                    value="{{ general_settings.company_phone or '' }}"
+                    placeholder="ej: +54 11 4000-0000"
+                  />
+                </label>
+                <label class="field">
+                  Sitio web (opcional)
+                  <input
+                    id="cfg-company-website"
+                    type="text"
+                    value="{{ general_settings.company_website or '' }}"
+                    placeholder="ej: https://empresa.com"
+                  />
+                </label>
+                <label class="field">
                   Sucursales (separadas por coma)
                   <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
                 </label>
@@ -127,6 +163,22 @@
                 <label class="field">
                   Contacto principal
                   <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
+                </label>
+                <label class="field">
+                  Email empresa (opcional)
+                  <input id="new-company-email" type="email" placeholder="ej: contacto@empresa.com" />
+                </label>
+                <label class="field">
+                  Dirección (opcional)
+                  <input id="new-company-address" type="text" placeholder="ej: Av. Siempre Viva 742" />
+                </label>
+                <label class="field">
+                  Teléfono (opcional)
+                  <input id="new-company-phone" type="text" placeholder="ej: +54 11 4000-0000" />
+                </label>
+                <label class="field">
+                  Sitio web (opcional)
+                  <input id="new-company-website" type="text" placeholder="ej: https://empresa.com" />
                 </label>
                 <label class="field">
                   Sucursales (coma)
@@ -159,7 +211,10 @@
             <div class="users-head">
               <div>
                 <h2>Usuarios y accesos</h2>
-                <p class="subtle">Alta y edición de usuarios para paneles operativos e historial.</p>
+                <p class="subtle">
+                  Alta y edición de usuarios para paneles operativos e historial. Podés enviar links de
+                  restablecimiento al email de cada usuario.
+                </p>
               </div>
               <span id="users-file" class="subtle"></span>
             </div>
@@ -167,6 +222,9 @@
             <form id="create-user-form" class="create-user-form">
               <input id="new-username" type="text" placeholder="Usuario (ej: laura.operaciones)" required />
               <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
+              <input id="new-user-email" type="email" placeholder="Email (opcional)" />
+              <input id="new-user-phone" type="text" placeholder="Teléfono (opcional)" />
+              <input id="new-user-area" type="text" placeholder="Área (opcional)" />
               <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
               <select id="new-role">
                 <option value="rrhh">agente</option>
@@ -185,6 +243,9 @@
                   <tr>
                     <th>Usuario</th>
                     <th>Nombre</th>
+                    <th>Email</th>
+                    <th>Teléfono</th>
+                    <th>Área</th>
                     <th>Rol</th>
                     <th>Empresa / Sucursal</th>
                     <th>Permisos</th>
@@ -259,6 +320,9 @@
       const createUserForm = document.getElementById("create-user-form");
       const newUsernameEl = document.getElementById("new-username");
       const newDisplayNameEl = document.getElementById("new-display-name");
+      const newUserEmailEl = document.getElementById("new-user-email");
+      const newUserPhoneEl = document.getElementById("new-user-phone");
+      const newUserAreaEl = document.getElementById("new-user-area");
       const newPasswordEl = document.getElementById("new-password");
       const newRoleEl = document.getElementById("new-role");
       const newUserCompanyEl = document.getElementById("new-user-company");
@@ -285,10 +349,18 @@
       const newCompanyNameEl = document.getElementById("new-company-name");
       const newCompanyHrTeamNameEl = document.getElementById("new-company-hr-team-name");
       const newCompanyHrContactEl = document.getElementById("new-company-hr-contact");
+      const newCompanyEmailEl = document.getElementById("new-company-email");
+      const newCompanyAddressEl = document.getElementById("new-company-address");
+      const newCompanyPhoneEl = document.getElementById("new-company-phone");
+      const newCompanyWebsiteEl = document.getElementById("new-company-website");
       const newCompanyBranchesEl = document.getElementById("new-company-branches");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
       const cfgHrTeamNameEl = document.getElementById("cfg-hr-team-name");
       const cfgHrContactEl = document.getElementById("cfg-hr-contact");
+      const cfgCompanyEmailEl = document.getElementById("cfg-company-email");
+      const cfgCompanyAddressEl = document.getElementById("cfg-company-address");
+      const cfgCompanyPhoneEl = document.getElementById("cfg-company-phone");
+      const cfgCompanyWebsiteEl = document.getElementById("cfg-company-website");
       const cfgCompanyBranchesEl = document.getElementById("cfg-company-branches");
 
       let validRoles = ["admin", "rrhh"];
@@ -570,7 +642,7 @@
         if (!usersBodyEl) return;
         usersBodyEl.innerHTML = "";
         if (!users || users.length === 0) {
-          usersBodyEl.innerHTML = "<tr><td colspan='6'>Sin usuarios creados en archivo.</td></tr>";
+          usersBodyEl.innerHTML = "<tr><td colspan='9'>Sin usuarios creados en archivo.</td></tr>";
           return;
         }
 
@@ -585,6 +657,30 @@
 
           const tdName = document.createElement("td");
           tdName.textContent = user.display_name || "-";
+
+          const tdEmail = document.createElement("td");
+          const emailInput = document.createElement("input");
+          emailInput.type = "email";
+          emailInput.className = "role-display-input";
+          emailInput.value = user.email || "";
+          emailInput.placeholder = "usuario@empresa.com";
+          tdEmail.appendChild(emailInput);
+
+          const tdArea = document.createElement("td");
+          const areaInput = document.createElement("input");
+          areaInput.type = "text";
+          areaInput.className = "role-display-input";
+          areaInput.value = user.area || "";
+          areaInput.placeholder = "Área (opcional)";
+          tdArea.appendChild(areaInput);
+
+          const tdPhone = document.createElement("td");
+          const phoneInput = document.createElement("input");
+          phoneInput.type = "text";
+          phoneInput.className = "role-display-input";
+          phoneInput.value = user.phone || "";
+          phoneInput.placeholder = "Teléfono (opcional)";
+          tdPhone.appendChild(phoneInput);
 
           const tdRole = document.createElement("td");
           const selectRole = document.createElement("select");
@@ -620,12 +716,32 @@
           btnSaveAll.addEventListener("click", async () => {
             try {
               const assignments = parseAssignmentsText(assignmentsInput.value);
-              await guardarCambiosUsuario(username, selectRole.value, assignments);
+              await guardarCambiosUsuario(
+                username,
+                selectRole.value,
+                assignments,
+                emailInput.value,
+                phoneInput.value,
+                areaInput.value
+              );
             } catch (error) {
               setUsersStatus(`Error: ${error.message}`, true);
             }
           });
           tdAction.appendChild(btnSaveAll);
+
+          const btnReset = document.createElement("button");
+          btnReset.type = "button";
+          btnReset.className = "role-update-btn ghost";
+          btnReset.textContent = "Enviar reset";
+          btnReset.addEventListener("click", async () => {
+            try {
+              await enviarResetPasswordUsuario(username);
+            } catch (error) {
+              setUsersStatus(`Error: ${error.message}`, true);
+            }
+          });
+          tdAction.appendChild(btnReset);
 
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
@@ -642,6 +758,9 @@
 
           tr.appendChild(tdUsername);
           tr.appendChild(tdName);
+          tr.appendChild(tdEmail);
+          tr.appendChild(tdPhone);
+          tr.appendChild(tdArea);
           tr.appendChild(tdRole);
           tr.appendChild(tdAssignments);
           tr.appendChild(tdPerms);
@@ -723,6 +842,10 @@
         if (cfgCompanyNameEl) cfgCompanyNameEl.value = settings.company_name || "";
         if (cfgHrTeamNameEl) cfgHrTeamNameEl.value = settings.hr_team_name || "";
         if (cfgHrContactEl) cfgHrContactEl.value = settings.hr_contact || "";
+        if (cfgCompanyEmailEl) cfgCompanyEmailEl.value = settings.company_email || "";
+        if (cfgCompanyAddressEl) cfgCompanyAddressEl.value = settings.company_address || "";
+        if (cfgCompanyPhoneEl) cfgCompanyPhoneEl.value = settings.company_phone || "";
+        if (cfgCompanyWebsiteEl) cfgCompanyWebsiteEl.value = settings.company_website || "";
         if (cfgCompanyBranchesEl) {
           cfgCompanyBranchesEl.value = branchesToText(settings.branches || []);
         }
@@ -818,6 +941,10 @@
           company_name: (newCompanyNameEl?.value || "").trim(),
           hr_team_name: (newCompanyHrTeamNameEl?.value || "").trim(),
           hr_contact: (newCompanyHrContactEl?.value || "").trim(),
+          company_email: (newCompanyEmailEl?.value || "").trim(),
+          company_address: (newCompanyAddressEl?.value || "").trim(),
+          company_phone: (newCompanyPhoneEl?.value || "").trim(),
+          company_website: (newCompanyWebsiteEl?.value || "").trim(),
           branches: parseBranchesText(newCompanyBranchesEl?.value || ""),
         };
         if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
@@ -838,6 +965,10 @@
         if (newCompanyNameEl) newCompanyNameEl.value = "";
         if (newCompanyHrTeamNameEl) newCompanyHrTeamNameEl.value = "";
         if (newCompanyHrContactEl) newCompanyHrContactEl.value = "";
+        if (newCompanyEmailEl) newCompanyEmailEl.value = "";
+        if (newCompanyAddressEl) newCompanyAddressEl.value = "";
+        if (newCompanyPhoneEl) newCompanyPhoneEl.value = "";
+        if (newCompanyWebsiteEl) newCompanyWebsiteEl.value = "";
         if (newCompanyBranchesEl) newCompanyBranchesEl.value = "";
         selectedCompanyId = normalizeCompanyId(data.company.company_id);
         await cargarEmpresas();
@@ -877,6 +1008,10 @@
           company_name: (cfgCompanyNameEl.value || "").trim(),
           hr_team_name: (cfgHrTeamNameEl.value || "").trim(),
           hr_contact: (cfgHrContactEl.value || "").trim(),
+          company_email: (cfgCompanyEmailEl?.value || "").trim(),
+          company_address: (cfgCompanyAddressEl?.value || "").trim(),
+          company_phone: (cfgCompanyPhoneEl?.value || "").trim(),
+          company_website: (cfgCompanyWebsiteEl?.value || "").trim(),
           branches: parseBranchesText(cfgCompanyBranchesEl?.value || ""),
         };
         if (!payload.company_id || !payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
@@ -925,6 +1060,9 @@
         if (!canManageUsers) return;
         const username = (newUsernameEl?.value || "").trim();
         const display_name = (newDisplayNameEl?.value || "").trim();
+        const email = (newUserEmailEl?.value || "").trim();
+        const phone = (newUserPhoneEl?.value || "").trim();
+        const area = (newUserAreaEl?.value || "").trim();
         const password = newPasswordEl?.value || "";
         const role = (newRoleEl?.value || "rrhh").trim();
         const company_id = normalizeCompanyId(newUserCompanyEl?.value || "");
@@ -936,7 +1074,7 @@
         const response = await fetch("/api/rrhh/usuarios", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, display_name, password, role, assignments }),
+          body: JSON.stringify({ username, display_name, email, phone, area, password, role, assignments }),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
@@ -946,6 +1084,9 @@
         if (!data.ok) throw new Error(data.error || "No se pudo crear el usuario.");
         if (newUsernameEl) newUsernameEl.value = "";
         if (newDisplayNameEl) newDisplayNameEl.value = "";
+        if (newUserEmailEl) newUserEmailEl.value = "";
+        if (newUserPhoneEl) newUserPhoneEl.value = "";
+        if (newUserAreaEl) newUserAreaEl.value = "";
         if (newPasswordEl) newPasswordEl.value = "";
         if (newRoleEl) newRoleEl.value = "rrhh";
         if (newUserBranchEl) newUserBranchEl.value = "";
@@ -953,83 +1094,43 @@
         await cargarUsuarios();
       }
 
-      async function actualizarRolUsuario(username, role) {
+      async function guardarCambiosUsuario(username, role, assignments, email, phone, area) {
         if (!canManageUsers) return;
-        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/rol`, {
+        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/perfil`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role }),
+          body: JSON.stringify({ role, assignments, email, phone, area }),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
           return;
         }
         const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
-        const roleLabel = String(data.user.role || "").toLowerCase() === "rrhh" ? "agente" : data.user.role;
-        setUsersStatus(`Rol actualizado para ${data.user.username}: ${roleLabel}.`);
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el usuario.");
+        setUsersStatus(`Usuario ${username} actualizado.`);
         await cargarUsuarios();
       }
 
-      async function actualizarRolUsuarioSilencioso(username, role) {
+      async function enviarResetPasswordUsuario(username) {
         if (!canManageUsers) return;
-        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/rol`, {
+        const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/enviar-reset`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role }),
+          body: JSON.stringify({ ttl_minutes: 60 }),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
           return;
         }
         const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
-      }
+        if (!data.ok) throw new Error(data.error || "No se pudo enviar el reset.");
 
-      async function actualizarAsignacionesUsuario(username, assignments) {
-        if (!canManageUsers) return;
-        const response = await fetch(
-          `/api/rrhh/usuarios/${encodeURIComponent(username)}/asignaciones`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ assignments }),
-          }
-        );
-        if (response.status === 401) {
-          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+        if (data.mail_sent) {
+          setUsersStatus(`Reset enviado a ${data.email}.`);
           return;
         }
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo actualizar asignaciones.");
-        setUsersStatus(`Asignaciones actualizadas para ${data.user.username}.`);
-        await cargarUsuarios();
-      }
-
-      async function actualizarAsignacionesUsuarioSilencioso(username, assignments) {
-        if (!canManageUsers) return;
-        const response = await fetch(
-          `/api/rrhh/usuarios/${encodeURIComponent(username)}/asignaciones`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ assignments }),
-          }
-        );
-        if (response.status === 401) {
-          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
-          return;
-        }
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo actualizar empresa/sucursal.");
-      }
-
-      async function guardarCambiosUsuario(username, role, assignments) {
-        if (!canManageUsers) return;
-        await actualizarRolUsuarioSilencioso(username, role);
-        await actualizarAsignacionesUsuarioSilencioso(username, assignments);
-        setUsersStatus(`Usuario ${username} actualizado (rol y empresa/sucursal).`);
-        await cargarUsuarios();
+        const fallbackLink = data.reset_url ? ` Link manual: ${data.reset_url}` : "";
+        setUsersStatus(`No se pudo enviar por SMTP. ${data.warning || ""}${fallbackLink}`.trim(), true);
       }
 
       async function eliminarUsuario(username) {

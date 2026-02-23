@@ -1,8 +1,10 @@
 import json
 import os
 import re
+import hashlib
+import secrets
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -13,7 +15,9 @@ BOOL_FALSE = {"0", "false", "no", "off"}
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 ROLE_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
 COMPANY_ID_RE = re.compile(r"^[a-z0-9._-]{2,64}$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 6
+PASSWORD_RESET_TTL_MINUTES = 60
 
 # Permisos disponibles para roles operativos del panel.
 PERM_CONVERSATIONS_VIEW = "conversaciones_ver"
@@ -84,6 +88,24 @@ def _normalize_company_id(value):
     if not COMPANY_ID_RE.fullmatch(raw):
         return ""
     return raw
+
+
+def _normalize_email(value):
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    if len(raw) > 254:
+        return ""
+    if not EMAIL_RE.fullmatch(raw):
+        return ""
+    return raw
+
+
+def _normalize_text(value, max_len=160):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return raw[:max_len]
 
 
 def _normalize_assignments(assignments):
@@ -171,6 +193,10 @@ def _normalize_user_entry(entry):
     if not assignments and legacy_assignments:
         assignments = _normalize_assignments(legacy_assignments)
 
+    email = _normalize_email(entry.get("email"))
+    phone = _normalize_text(entry.get("phone"), max_len=60)
+    area = _normalize_text(entry.get("area"), max_len=120)
+
     return {
         "username": username,
         "display_name": str(entry.get("display_name") or username),
@@ -178,6 +204,9 @@ def _normalize_user_entry(entry):
         "password": password,
         "password_hash": password_hash,
         "assignments": assignments,
+        "email": email,
+        "phone": phone,
+        "area": area,
     }
 
 
@@ -293,6 +322,9 @@ def _load_admin_user_from_env():
             "password": password,
             "password_hash": password_hash,
             "assignments": assignments,
+            "email": os.getenv("RRHH_ADMIN_EMAIL", ""),
+            "phone": os.getenv("RRHH_ADMIN_PHONE", ""),
+            "area": os.getenv("RRHH_ADMIN_AREA", ""),
         }
     )
     return [entry] if entry else []
@@ -314,6 +346,72 @@ def _build_roles_map(role_entries):
             normalized["display_name"] = "Agente de atención"
         roles[normalized["name"]] = normalized
     return roles
+
+
+def _public_user_payload(entry, fallback_username=""):
+    username = str(entry.get("username") or fallback_username).strip()
+    role = _normalize_role(entry.get("role"), default="rrhh")
+    return {
+        "username": username,
+        "display_name": str(entry.get("display_name") or username),
+        "role": role,
+        "permissions": role_permissions(role),
+        "assignments": _normalize_assignments(entry.get("assignments")),
+        "email": _normalize_email(entry.get("email")),
+        "phone": _normalize_text(entry.get("phone"), max_len=60),
+        "area": _normalize_text(entry.get("area"), max_len=120),
+    }
+
+
+def _build_users_from_raw_entries(raw_entries):
+    users = []
+    for item in raw_entries:
+        normalized = _normalize_user_entry(item)
+        if normalized:
+            users.append(normalized)
+    return users
+
+
+def _find_raw_user_index(raw_entries, username_key):
+    key = str(username_key or "").strip().lower()
+    if not key:
+        return -1
+    for idx, item in enumerate(raw_entries):
+        current_key = str(item.get("username") or "").strip().lower()
+        if current_key == key:
+            return idx
+    return -1
+
+
+def _parse_iso_datetime(raw):
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _password_reset_secret():
+    return str(os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-secret")).strip() or "dev-chatbot-secret"
+
+
+def _hash_reset_token(token):
+    payload = f"{_password_reset_secret()}::{str(token or '').strip()}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _clear_password_reset_fields(entry):
+    if not isinstance(entry, dict):
+        return
+    entry.pop("password_reset_token_hash", None)
+    entry.pop("password_reset_expires_at", None)
+    entry.pop("password_reset_requested_at", None)
+    entry.pop("password_reset_requested_by", None)
 
 
 def get_roles_map(path=None):
@@ -446,6 +544,9 @@ def authenticate(username, password):
             "display_name": entry.get("display_name") or entry["username"],
             "role": _normalize_role(entry.get("role"), default="rrhh"),
             "assignments": _normalize_assignments(entry.get("assignments")),
+            "email": _normalize_email(entry.get("email")),
+            "phone": _normalize_text(entry.get("phone"), max_len=60),
+            "area": _normalize_text(entry.get("area"), max_len=120),
         },
         "",
     )
@@ -456,16 +557,7 @@ def list_file_users(path=None):
     users = _load_users_from_file(source)
     rows = []
     for entry in users:
-        role = _normalize_role(entry.get("role"), default="rrhh")
-        rows.append(
-            {
-                "username": entry["username"],
-                "display_name": entry.get("display_name") or entry["username"],
-                "role": role,
-                "permissions": role_permissions(role),
-                "assignments": _normalize_assignments(entry.get("assignments")),
-            }
-        )
+        rows.append(_public_user_payload(entry, fallback_username=entry.get("username")))
     rows.sort(key=lambda row: row["username"].lower())
     return rows
 
@@ -598,6 +690,9 @@ def create_user(
     role="rrhh",
     created_by="",
     assignments=None,
+    email="",
+    phone="",
+    area="",
     path=None,
 ):
     username_clean = str(username or "").strip()
@@ -624,6 +719,13 @@ def create_user(
     if isinstance(assignments, list) and assignments and not normalized_assignments:
         return False, None, "Asignaciones inválidas. Usá empresa y sucursal válidas."
 
+    email_raw = str(email or "").strip()
+    email_clean = _normalize_email(email_raw)
+    if email_raw and not email_clean:
+        return False, None, "Email inválido."
+    phone_clean = _normalize_text(phone, max_len=60)
+    area_clean = _normalize_text(area, max_len=120)
+
     key = username_clean.lower()
     if key in get_users():
         return False, None, "Ese usuario ya existe."
@@ -640,6 +742,9 @@ def create_user(
         "display_name": str(display_name or username_clean).strip() or username_clean,
         "role": role_clean,
         "assignments": normalized_assignments,
+        "email": email_clean,
+        "phone": phone_clean,
+        "area": area_clean,
         "password_hash": generate_password_hash(password_raw),
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -653,26 +758,25 @@ def create_user(
 
     return (
         True,
-        {
-            "username": entry["username"],
-            "display_name": entry["display_name"],
-            "role": entry["role"],
-            "permissions": role_permissions(entry["role"]),
-            "assignments": _normalize_assignments(entry.get("assignments")),
-        },
+        _public_user_payload(entry, fallback_username=username_clean),
         "",
     )
 
 
-def update_user_role(username, role, updated_by="", path=None):
+def update_user_profile(
+    username,
+    role=None,
+    assignments=None,
+    display_name=None,
+    email=None,
+    phone=None,
+    area=None,
+    updated_by="",
+    path=None,
+):
     username_clean = str(username or "").strip()
     if not username_clean:
         return False, None, "Usuario requerido."
-
-    role_clean = _normalize_role(role, default="")
-    roles = get_roles_map()
-    if role_clean not in roles:
-        return False, None, "Rol inválido. Crealo primero desde la sección de roles."
 
     env_users = _load_admin_user_from_env()
     env_usernames = {str(item.get("username") or "").strip().lower() for item in env_users}
@@ -686,49 +790,80 @@ def update_user_role(username, role, updated_by="", path=None):
 
     target_path = path or users_file_path()
     raw_entries = _load_users_raw_entries(target_path)
-    target_idx = -1
-    for idx, item in enumerate(raw_entries):
-        current_key = str(item.get("username") or "").strip().lower()
-        if current_key == key:
-            target_idx = idx
-            break
+    target_idx = _find_raw_user_index(raw_entries, key)
     if target_idx < 0:
         return False, None, "Usuario no encontrado en archivo de usuarios."
 
-    raw_entries[target_idx]["role"] = role_clean
-    raw_entries[target_idx]["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    roles = get_roles_map()
+    updated_entry = dict(raw_entries[target_idx])
+
+    if role is not None:
+        role_clean = _normalize_role(role, default="")
+        if role_clean not in roles:
+            return False, None, "Rol inválido. Crealo primero desde la sección de roles."
+        updated_entry["role"] = role_clean
+
+    if assignments is not None:
+        normalized_assignments = _normalize_assignments(assignments)
+        if isinstance(assignments, list) and assignments and not normalized_assignments:
+            return False, None, "Asignaciones inválidas. Verificá empresa/sucursal."
+        updated_entry["assignments"] = normalized_assignments
+
+    if display_name is not None:
+        updated_entry["display_name"] = str(display_name or "").strip() or username_clean
+
+    if email is not None:
+        email_raw = str(email or "").strip()
+        email_clean = _normalize_email(email_raw)
+        if email_raw and not email_clean:
+            return False, None, "Email inválido."
+        updated_entry["email"] = email_clean
+
+    if phone is not None:
+        updated_entry["phone"] = _normalize_text(phone, max_len=60)
+
+    if area is not None:
+        updated_entry["area"] = _normalize_text(area, max_len=120)
+
+    updated_entry["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     updated_by_clean = str(updated_by or "").strip()
     if updated_by_clean:
-        raw_entries[target_idx]["updated_by"] = updated_by_clean
+        updated_entry["updated_by"] = updated_by_clean
 
-    file_users = _load_users_from_file(users_file_path())
-    for idx, item in enumerate(file_users):
-        if str(item.get("username") or "").strip().lower() == key:
-            file_users[idx]["role"] = role_clean
-            break
-    merged_users = _merge_user_entries(file_users, env_users)
+    new_raw_entries = list(raw_entries)
+    new_raw_entries[target_idx] = updated_entry
+
+    prospective_file_users = _build_users_from_raw_entries(new_raw_entries)
+    merged_users = _merge_user_entries(prospective_file_users, env_users)
     ok_access, error = _validate_management_access(merged_users, roles)
     if not ok_access:
         return False, None, error
 
-    if not _write_users_raw_entries(target_path, raw_entries):
-        return False, None, "No pude actualizar el rol en el archivo de usuarios."
+    if not _write_users_raw_entries(target_path, new_raw_entries):
+        return False, None, "No pude actualizar el usuario en el archivo."
 
-    item = raw_entries[target_idx]
-    return (
-        True,
-        {
-            "username": str(item.get("username") or username_clean),
-            "display_name": str(item.get("display_name") or username_clean),
-            "role": role_clean,
-            "permissions": role_permissions(role_clean),
-            "assignments": _normalize_assignments(item.get("assignments")),
-        },
-        "",
+    return True, _public_user_payload(updated_entry, fallback_username=username_clean), ""
+
+
+def update_user_role(username, role, updated_by="", path=None):
+    return update_user_profile(
+        username=username,
+        role=role,
+        updated_by=updated_by,
+        path=path,
     )
 
 
 def update_user_assignments(username, assignments=None, updated_by="", path=None):
+    return update_user_profile(
+        username=username,
+        assignments=assignments,
+        updated_by=updated_by,
+        path=path,
+    )
+
+
+def create_password_reset_token(username, ttl_minutes=PASSWORD_RESET_TTL_MINUTES, requested_by="", path=None):
     username_clean = str(username or "").strip()
     if not username_clean:
         return False, None, "Usuario requerido."
@@ -740,46 +875,110 @@ def update_user_assignments(username, assignments=None, updated_by="", path=None
         return (
             False,
             None,
-            "Ese usuario se gestiona por variables de entorno y no puede editarse desde el panel.",
+            "Ese usuario se gestiona por variables de entorno y no puede restablecerse desde el panel.",
         )
 
     target_path = path or users_file_path()
     raw_entries = _load_users_raw_entries(target_path)
-    target_idx = -1
-    for idx, item in enumerate(raw_entries):
-        current_key = str(item.get("username") or "").strip().lower()
-        if current_key == key:
-            target_idx = idx
-            break
+    target_idx = _find_raw_user_index(raw_entries, key)
     if target_idx < 0:
         return False, None, "Usuario no encontrado en archivo de usuarios."
 
-    normalized_assignments = _normalize_assignments(assignments)
-    if isinstance(assignments, list) and assignments and not normalized_assignments:
-        return False, None, "Asignaciones inválidas. Verificá empresa/sucursal."
+    entry = dict(raw_entries[target_idx])
+    email = _normalize_email(entry.get("email"))
+    if not email:
+        return False, None, "El usuario no tiene email cargado."
 
-    raw_entries[target_idx]["assignments"] = normalized_assignments
-    raw_entries[target_idx]["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    updated_by_clean = str(updated_by or "").strip()
-    if updated_by_clean:
-        raw_entries[target_idx]["updated_by"] = updated_by_clean
+    try:
+        ttl = int(str(ttl_minutes or PASSWORD_RESET_TTL_MINUTES))
+    except Exception:
+        ttl = PASSWORD_RESET_TTL_MINUTES
+    ttl = max(5, min(ttl, 24 * 60))
 
-    if not _write_users_raw_entries(target_path, raw_entries):
-        return False, None, "No pude actualizar asignaciones del usuario."
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=ttl)
+    token = secrets.token_urlsafe(32)
+    entry["password_reset_token_hash"] = _hash_reset_token(token)
+    entry["password_reset_expires_at"] = expires_at.isoformat(timespec="seconds")
+    entry["password_reset_requested_at"] = now.isoformat(timespec="seconds")
+    requested_by_clean = str(requested_by or "").strip()
+    if requested_by_clean:
+        entry["password_reset_requested_by"] = requested_by_clean
 
-    item = raw_entries[target_idx]
-    role_clean = _normalize_role(item.get("role"), default="rrhh")
+    new_raw_entries = list(raw_entries)
+    new_raw_entries[target_idx] = entry
+    if not _write_users_raw_entries(target_path, new_raw_entries):
+        return False, None, "No pude guardar el token de restablecimiento."
+
     return (
         True,
         {
-            "username": str(item.get("username") or username_clean),
-            "display_name": str(item.get("display_name") or username_clean),
-            "role": role_clean,
-            "permissions": role_permissions(role_clean),
-            "assignments": _normalize_assignments(item.get("assignments")),
+            "username": str(entry.get("username") or username_clean),
+            "display_name": str(entry.get("display_name") or username_clean),
+            "email": email,
+            "token": token,
+            "expires_at": expires_at.isoformat(timespec="seconds"),
         },
         "",
     )
+
+
+def reset_password_with_token(token, new_password, path=None):
+    raw_token = str(token or "").strip()
+    if len(raw_token) < 16:
+        return False, None, "Token inválido o expirado."
+
+    password_raw = str(new_password or "")
+    if len(password_raw) < MIN_PASSWORD_LENGTH:
+        return (
+            False,
+            None,
+            f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.",
+        )
+
+    target_path = path or users_file_path()
+    raw_entries = _load_users_raw_entries(target_path)
+    if not raw_entries:
+        return False, None, "Token inválido o expirado."
+
+    token_hash = _hash_reset_token(raw_token)
+    now = datetime.now(timezone.utc)
+    target_idx = -1
+    target_entry = None
+    expired_idx = -1
+    changed = False
+    for idx, item in enumerate(raw_entries):
+        current_hash = str(item.get("password_reset_token_hash") or "").strip()
+        if not current_hash or current_hash != token_hash:
+            continue
+        expires_at = _parse_iso_datetime(item.get("password_reset_expires_at"))
+        if expires_at is None or expires_at < now:
+            expired_idx = idx
+            continue
+        target_idx = idx
+        target_entry = dict(item)
+        break
+
+    if target_idx < 0:
+        if expired_idx >= 0:
+            expired_entry = dict(raw_entries[expired_idx])
+            _clear_password_reset_fields(expired_entry)
+            raw_entries[expired_idx] = expired_entry
+            changed = True
+        if changed:
+            _write_users_raw_entries(target_path, raw_entries)
+        return False, None, "Token inválido o expirado."
+
+    target_entry["password_hash"] = generate_password_hash(password_raw)
+    target_entry.pop("password", None)
+    _clear_password_reset_fields(target_entry)
+    target_entry["updated_at"] = now.isoformat(timespec="seconds")
+    raw_entries[target_idx] = target_entry
+
+    if not _write_users_raw_entries(target_path, raw_entries):
+        return False, None, "No pude actualizar la contraseña."
+
+    return True, _public_user_payload(target_entry), ""
 
 
 def delete_user(username, deleted_by="", path=None):
