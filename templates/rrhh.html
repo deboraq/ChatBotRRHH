@@ -271,6 +271,23 @@
         return "badge pending";
       }
 
+      const dateTimeFormatter = new Intl.DateTimeFormat("es-AR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+
+      function formatLocalDateTime(isoValue, fallback = "-") {
+        const raw = String(isoValue || "").trim();
+        if (!raw) return fallback;
+        const dt = new Date(raw);
+        if (Number.isNaN(dt.getTime())) return fallback;
+        return dateTimeFormatter.format(dt).replace(",", "");
+      }
+
       function renderActiveAgents() {
         if (activeAgentsStatusEl) {
           activeAgentsStatusEl.textContent = `${activeAgents.length} agente(s) activo(s)`;
@@ -309,7 +326,7 @@
             </div>
             <div class="conv-line">${escapeHtml(conv.ultima_consulta || "Sin consulta")}</div>
             <div class="conv-foot">
-              Agente: ${escapeHtml(conv.rrhh_agente || "sin asignar")} · Actualizado: ${escapeHtml(conv.updated_at || "-")}
+              Agente: ${escapeHtml(conv.rrhh_agente || "sin asignar")} · Actualizado: ${escapeHtml(formatLocalDateTime(conv.updated_at_iso, conv.updated_at || "-"))}
             </div>
           `;
           card.addEventListener("click", () => seleccionarConversacion(conv.conversation_id));
@@ -330,7 +347,7 @@
           bubble.innerHTML = `
             <div class="msg-head">
               <strong>${escapeHtml(senderLabel(msg.remitente, msg.agente))}</strong>
-              <span>${escapeHtml(msg.fecha || "-")}</span>
+              <span>${escapeHtml(formatLocalDateTime(msg.fecha_iso, msg.fecha || "-"))}</span>
             </div>
             <p>${escapeHtml(msg.texto || "")}</p>
           `;
