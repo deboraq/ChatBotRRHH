@@ -1872,7 +1872,7 @@ def configuracion_general_update_api():
 def configuracion_empresas_api():
     if not _can_manage_configuration():
         return _forbidden_json_error("Sin permiso para ver empresas.")
-    companies = _list_companies(include_inactive=True)
+    companies = _list_companies(include_inactive=False)
     return jsonify(
         {
             "ok": True,
@@ -1942,7 +1942,10 @@ def configuracion_seleccionar_empresa_api():
     company_id = _normalize_company_id(data.get("company_id"))
     company = _get_company(company_id, include_inactive=False)
     if not company:
-        return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
+        available = _list_companies(include_inactive=False)
+        if not available:
+            return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
+        company = available[0]
     _set_company_session(company.get("company_id"))
     settings = _read_general_settings()
     _apply_company_branding(settings)
