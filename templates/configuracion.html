@@ -517,7 +517,10 @@
         companies.forEach((company) => {
           const option = document.createElement("option");
           option.value = company.company_id;
-          option.textContent = company.company_name || company.company_id;
+          const companyName = String(company.company_name || company.company_id || "").trim();
+          const companyId = String(company.company_id || "").trim();
+          const inactiveTag = company.active === false ? " · inactiva" : "";
+          option.textContent = `${companyName} (${companyId})${inactiveTag}`;
           if (normalizeCompanyId(company.company_id) === normalizedSelected) {
             option.selected = true;
           }
