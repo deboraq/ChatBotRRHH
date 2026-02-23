@@ -16,6 +16,19 @@ flask_app.config["SECRET_KEY"] = os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-se
 flask_app.config["SESSION_COOKIE_NAME"] = os.getenv("CHATBOT_SESSION_COOKIE_NAME", "__session")
 SERVER_BOOT_AT = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+BOOTSTRAP_COMPANY_NAME = (
+    str(os.getenv("CHATBOT_COMPANY_NAME", getattr(chatbot, "COMPANY_NAME", "Bacar"))).strip()
+    or "Bacar"
+)
+BOOTSTRAP_HR_TEAM_NAME = (
+    str(os.getenv("CHATBOT_HR_TEAM_NAME", getattr(chatbot, "HR_TEAM_NAME", "RRHH"))).strip()
+    or "RRHH"
+)
+BOOTSTRAP_HR_CONTACT = (
+    str(os.getenv("CHATBOT_HR_CONTACT", getattr(chatbot, "HR_CONTACT", "interno 104"))).strip()
+    or "interno 104"
+)
+
 HANDOFF_STATUS_PENDING = "pendiente"
 HANDOFF_STATUS_ACTIVE = "en_atencion"
 HANDOFF_STATUS_CLOSED = "cerrada"
@@ -92,18 +105,9 @@ def _fmt_fecha(dt):
 
 def _default_general_settings():
     return {
-        "company_name": str(
-            os.getenv("CHATBOT_COMPANY_NAME", getattr(chatbot, "COMPANY_NAME", "Bacar"))
-        ).strip()
-        or "Bacar",
-        "hr_team_name": str(
-            os.getenv("CHATBOT_HR_TEAM_NAME", getattr(chatbot, "HR_TEAM_NAME", "RRHH"))
-        ).strip()
-        or "RRHH",
-        "hr_contact": str(
-            os.getenv("CHATBOT_HR_CONTACT", getattr(chatbot, "HR_CONTACT", "interno 104"))
-        ).strip()
-        or "interno 104",
+        "company_name": BOOTSTRAP_COMPANY_NAME,
+        "hr_team_name": BOOTSTRAP_HR_TEAM_NAME,
+        "hr_contact": BOOTSTRAP_HR_CONTACT,
     }
 
 
@@ -178,6 +182,21 @@ def _default_company_entry():
     }
 
 
+def _merge_company_entries(current, candidate):
+    base = dict(current or {})
+    extra = dict(candidate or {})
+    for key in ("company_name", "hr_team_name", "hr_contact"):
+        value = str(extra.get(key) or "").strip()
+        if value:
+            base[key] = value
+    base["branches"] = _normalize_branches(
+        list(base.get("branches") or []) + list(extra.get("branches") or [])
+    )
+    base["active"] = bool(base.get("active", True) or extra.get("active", True))
+    base["company_id"] = str(base.get("company_id") or extra.get("company_id") or "").strip()
+    return base
+
+
 def _list_companies(include_inactive=False):
     rows = []
     if chatbot.db:
@@ -198,6 +217,18 @@ def _list_companies(include_inactive=False):
             normalized = _normalize_company_entry(clone)
             if normalized:
                 rows.append(normalized)
+
+    # Deduplica por company_id para evitar selectores con empresas repetidas.
+    deduped = {}
+    for item in rows:
+        key = str(item.get("company_id") or "").strip()
+        if not key:
+            continue
+        if key in deduped:
+            deduped[key] = _merge_company_entries(deduped[key], item)
+        else:
+            deduped[key] = item
+    rows = list(deduped.values())
 
     if not rows:
         rows = [_default_company_entry()]
@@ -1872,7 +1903,7 @@ def configuracion_general_update_api():
 def configuracion_empresas_api():
     if not _can_manage_configuration():
         return _forbidden_json_error("Sin permiso para ver empresas.")
-    companies = _list_companies(include_inactive=False)
+    companies = _list_companies(include_inactive=True)
     return jsonify(
         {
             "ok": True,
@@ -1940,16 +1971,16 @@ def configuracion_seleccionar_empresa_api():
         return _forbidden_json_error("Sin permiso para cambiar empresa activa.")
     data = request.get_json(silent=True) or {}
     company_id = _normalize_company_id(data.get("company_id"))
-    company = _get_company(company_id, include_inactive=False)
+    company = _get_company(company_id, include_inactive=True)
     if not company:
-        available = _list_companies(include_inactive=False)
+        available = _list_companies(include_inactive=True)
         if not available:
             return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
         company = available[0]
-    _set_company_session(company.get("company_id"))
+    selected = _set_company_session(company.get("company_id"))
     settings = _read_general_settings()
     _apply_company_branding(settings)
-    return jsonify({"ok": True, "company": company, "settings": settings})
+    return jsonify({"ok": True, "company": selected, "settings": settings})
 
 
 @flask_app.get("/api/rrhh/conversaciones")
