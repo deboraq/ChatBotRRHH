@@ -3,7 +3,7 @@ param(
     [string]$Port = "8080",
     [string]$ProjectId = "it-analyzer",
     [string]$AdminUser = "admin",
-    [string]$AdminPassword = "admin123"
+    [string]$AdminPassword = "ImpBac321"
 )
 
 $ErrorActionPreference = "Stop"

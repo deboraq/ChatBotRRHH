@@ -4,7 +4,7 @@ param(
     [string]$ServiceName = "chatbot-rrhh",
     [string]$ServiceAccountName = "chatbot-rrhh-run",
     [string]$AdminUser = "admin",
-    [string]$AdminPassword = "admin123",
+    [string]$AdminPassword = "ImpBac321",
     [string]$WebSecret = "cambiar-por-secreto-largo",
     [switch]$UseHosting = $false,
     [switch]$UseDefaultServiceAccount = $false,

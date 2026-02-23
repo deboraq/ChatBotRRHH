@@ -935,6 +935,8 @@ def _add_handoff_message(
         {
             "updated_at": now,
             "ultimo_mensaje": payload["texto"],
+            "ultimo_remitente": str(remitente or "").strip().lower(),
+            "ultimo_mensaje_fecha": now,
         },
         merge=True,
     )
@@ -1472,6 +1474,7 @@ def responder_chat(mensaje_usuario):
 
 def _serialize_handoff(conv):
     updated_at = _as_utc_aware(conv.get("updated_at"))
+    ultimo_mensaje_fecha = _as_utc_aware(conv.get("ultimo_mensaje_fecha")) or updated_at
     return {
         "conversation_id": conv.get("conversation_id") or conv.get("id"),
         "company_id": conv.get("company_id") or "",
@@ -1480,6 +1483,8 @@ def _serialize_handoff(conv):
         "rrhh_agente": conv.get("rrhh_agente") or "",
         "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
         "ultima_consulta": conv.get("ultima_consulta") or "",
+        "ultimo_remitente": str(conv.get("ultimo_remitente") or "").strip().lower(),
+        "ultimo_mensaje_iso": _iso_utc(ultimo_mensaje_fecha),
         "updated_at": _fmt_fecha(updated_at),
         "updated_at_iso": _iso_utc(updated_at),
     }

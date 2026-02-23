@@ -265,11 +265,26 @@ textarea:focus {
   background: #eef5ff;
 }
 
+.conv-card.has-unread {
+  border-color: #f97316;
+  background: #fff7ed;
+}
+
+.conv-card.has-unread:hover {
+  border-color: #ea580c;
+}
+
 .conv-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+}
+
+.conv-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .conv-line {
@@ -308,6 +323,21 @@ textarea:focus {
 
 .badge.closed {
   background: #64748b;
+}
+
+.badge.new-message {
+  background: #ea580c;
+  animation: pulse-badge 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(234, 88, 12, 0);
+  }
 }
 
 .chat-top {
@@ -392,6 +422,11 @@ textarea:focus {
 .subtle {
   color: var(--text-muted);
   font-size: 0.86rem;
+}
+
+.subtle.alert-text {
+  color: #b45309;
+  font-weight: 700;
 }
 
 .error-text {
@@ -587,6 +622,11 @@ code {
   border-color: #60a5fa;
 }
 
+:root[data-theme="dark"] .conv-card.has-unread {
+  background: #3a2416;
+  border-color: #fb923c;
+}
+
 :root[data-theme="dark"] .conv-line,
 :root[data-theme="dark"] .msg-head,
 :root[data-theme="dark"] .permissions-cell,
@@ -596,6 +636,10 @@ code {
 
 :root[data-theme="dark"] .conv-foot {
   color: #9fb0c6;
+}
+
+:root[data-theme="dark"] .subtle.alert-text {
+  color: #fdba74;
 }
 
 :root[data-theme="dark"] .messages {

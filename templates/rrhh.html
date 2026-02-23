@@ -190,6 +190,8 @@
       const activeAgentsStatusEl = document.getElementById("active-agents-status");
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
+      const rrhhUsername = {{ (rrhh_user.username if rrhh_user else "")|tojson }};
+      const selectedCompanyId = {{ (selected_company_id or "")|tojson }};
       const canManageUsers = {{ can_manage_users|tojson }};
       const canManageRoles = {{ can_manage_roles|tojson }};
       const usersFileEl = document.getElementById("users-file");
@@ -215,10 +217,16 @@
       let currentConversationAgentId = "";
       let isSendingReply = false;
       let pollTimer = null;
-      const AUTO_REFRESH_MS = 60 * 1000;
+      const AUTO_REFRESH_MS = 15 * 1000;
       let validRoles = ["admin", "rrhh"];
       let permissionsCatalog = [];
       const THEME_STORAGE_KEY = "rrhh_panel_theme";
+      const SEEN_MESSAGES_STORAGE_KEY = `rrhh_seen_messages:${selectedCompanyId || "global"}:${rrhhUsername || "anon"}`;
+      const BASE_DOCUMENT_TITLE = document.title || "Panel RRHH";
+      let seenConversationMap = {};
+      let unreadConversationIds = new Set();
+      let notifiedConversationMap = {};
+      let hasConversationSnapshot = false;
 
       function getInitialTheme() {
         try {
@@ -288,6 +296,114 @@
         return dateTimeFormatter.format(dt).replace(",", "");
       }
 
+      function parseIsoMillis(isoValue) {
+        const raw = String(isoValue || "").trim();
+        if (!raw) return 0;
+        const ms = Date.parse(raw);
+        return Number.isFinite(ms) ? ms : 0;
+      }
+
+      function loadSeenConversationMap() {
+        try {
+          const raw = localStorage.getItem(SEEN_MESSAGES_STORAGE_KEY);
+          if (!raw) return {};
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch (error) {
+          return {};
+        }
+      }
+
+      function saveSeenConversationMap() {
+        try {
+          localStorage.setItem(SEEN_MESSAGES_STORAGE_KEY, JSON.stringify(seenConversationMap));
+        } catch (error) {
+          // Ignora errores de storage.
+        }
+      }
+
+      function getConversationSeenIso(conversationId) {
+        if (!conversationId) return "";
+        return String(seenConversationMap[conversationId] || "");
+      }
+
+      function markConversationAsSeen(conversationId, isoValue) {
+        const convId = String(conversationId || "").trim();
+        const iso = String(isoValue || "").trim();
+        if (!convId || !iso) return;
+        const previousIso = getConversationSeenIso(convId);
+        if (parseIsoMillis(iso) <= parseIsoMillis(previousIso)) return;
+        seenConversationMap[convId] = iso;
+        saveSeenConversationMap();
+      }
+
+      function latestMessageIso(mensajes) {
+        if (!Array.isArray(mensajes) || mensajes.length === 0) return "";
+        for (let i = mensajes.length - 1; i >= 0; i -= 1) {
+          const iso = String(mensajes[i]?.fecha_iso || "").trim();
+          if (iso) return iso;
+        }
+        return "";
+      }
+
+      function isUnreadCollaboratorConversation(conv) {
+        const convId = String(conv?.conversation_id || "").trim();
+        if (!convId) return false;
+        const ultimoRemitente = String(conv?.ultimo_remitente || "").toLowerCase();
+        if (ultimoRemitente !== "colaborador") return false;
+        const lastMessageIso = String(conv?.ultimo_mensaje_iso || "").trim();
+        if (!lastMessageIso) return false;
+        const seenIso = getConversationSeenIso(convId);
+        return parseIsoMillis(lastMessageIso) > parseIsoMillis(seenIso);
+      }
+
+      function updateUnreadTitle() {
+        const unreadCount = unreadConversationIds.size;
+        document.title = unreadCount > 0 ? `(${unreadCount}) ${BASE_DOCUMENT_TITLE}` : BASE_DOCUMENT_TITLE;
+      }
+
+      function renderQueueStatus() {
+        const unreadCount = unreadConversationIds.size;
+        let text = `${conversations.length} conversación(es)`;
+        if (unreadCount > 0) {
+          text += ` · ${unreadCount} con mensaje(s) nuevo(s)`;
+        }
+        queueStatusEl.textContent = text;
+        queueStatusEl.classList.toggle("alert-text", unreadCount > 0);
+      }
+
+      function notifyNewMessages(newConversationsCount) {
+        if (!newConversationsCount) return;
+        if (document.hidden) {
+          try {
+            if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+          } catch (error) {
+            // Ignora vibración no soportada.
+          }
+        }
+      }
+
+      function recalculateUnreadConversations({ notify } = { notify: false }) {
+        const nextUnread = new Set();
+        let newConversationsCount = 0;
+        conversations.forEach((conv) => {
+          const convId = String(conv?.conversation_id || "").trim();
+          if (!convId) return;
+          if (!isUnreadCollaboratorConversation(conv)) return;
+          nextUnread.add(convId);
+          if (!notify || convId === currentConversationId) return;
+          const currentIso = String(conv?.ultimo_mensaje_iso || "");
+          const previousIso = String(notifiedConversationMap[convId] || "");
+          if (parseIsoMillis(currentIso) > parseIsoMillis(previousIso)) {
+            notifiedConversationMap[convId] = currentIso;
+            newConversationsCount += 1;
+          }
+        });
+        unreadConversationIds = nextUnread;
+        updateUnreadTitle();
+        notifyNewMessages(newConversationsCount);
+      }
+
       function renderActiveAgents() {
         if (activeAgentsStatusEl) {
           activeAgentsStatusEl.textContent = `${activeAgents.length} agente(s) activo(s)`;
@@ -316,13 +432,17 @@
         }
 
         conversations.forEach((conv) => {
+          const isUnread = unreadConversationIds.has(conv.conversation_id);
           const card = document.createElement("button");
           card.type = "button";
-          card.className = `conv-card ${conv.conversation_id === currentConversationId ? "selected" : ""}`;
+          card.className = `conv-card ${conv.conversation_id === currentConversationId ? "selected" : ""} ${isUnread ? "has-unread" : ""}`;
           card.innerHTML = `
             <div class="conv-head">
               <strong>${escapeHtml(conv.conversation_id)}</strong>
-              <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
+              <div class="conv-badges">
+                <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
+                ${isUnread ? '<span class="badge new-message">nuevo</span>' : ""}
+              </div>
             </div>
             <div class="conv-line">${escapeHtml(conv.ultima_consulta || "Sin consulta")}</div>
             <div class="conv-foot">
@@ -691,6 +811,8 @@
           agentNameEl.value = data.agente_actual;
         }
         conversations = data.conversaciones || [];
+        recalculateUnreadConversations({ notify: hasConversationSnapshot });
+        hasConversationSnapshot = true;
         activeAgents = Array.isArray(data.agentes_activos) ? data.agentes_activos : [];
         if (currentConversationId) {
           const selected = conversations.find((conv) => conv.conversation_id === currentConversationId);
@@ -700,7 +822,7 @@
           }
         }
         renderActiveAgents();
-        queueStatusEl.textContent = `${conversations.length} conversación(es)`;
+        renderQueueStatus();
         renderConversations();
         syncConversationActions();
       }
@@ -711,7 +833,12 @@
         if (!data.ok) throw new Error(data.error || "No se pudo cargar mensajes");
         currentConversationState = data.estado || "";
         currentConversationAgentId = data.rrhh_agente_id || "";
-        renderMessages(data.mensajes || []);
+        const mensajes = Array.isArray(data.mensajes) ? data.mensajes : [];
+        renderMessages(mensajes);
+        markConversationAsSeen(conversationId, latestMessageIso(mensajes));
+        recalculateUnreadConversations({ notify: false });
+        renderQueueStatus();
+        renderConversations();
         chatTitleEl.textContent = `Conversación ${conversationId}`;
         chatMetaEl.textContent = `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
         if (reassignAgentEl && data.rrhh_agente_id) {
@@ -725,6 +852,9 @@
         const selected = conversations.find((conv) => conv.conversation_id === conversationId);
         currentConversationState = selected?.estado || "";
         currentConversationAgentId = selected?.rrhh_agente_id || "";
+        markConversationAsSeen(conversationId, selected?.ultimo_mensaje_iso || "");
+        recalculateUnreadConversations({ notify: false });
+        renderQueueStatus();
         renderConversations();
         syncConversationActions();
         await cargarMensajes(conversationId);
@@ -816,6 +946,7 @@
           await refrescarTodo(keepSelected);
         } catch (error) {
           queueStatusEl.textContent = `Error: ${error.message}`;
+          queueStatusEl.classList.add("alert-text");
         }
       }
 
@@ -889,6 +1020,7 @@
 
       async function init() {
         applyTheme(getInitialTheme());
+        seenConversationMap = loadSeenConversationMap();
         if (authEnabled) {
           agentNameEl.value = currentAgentName;
         }
