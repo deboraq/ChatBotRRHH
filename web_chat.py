@@ -68,6 +68,21 @@ def _as_utc_naive(dt):
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _as_utc_aware(dt):
+    if not isinstance(dt, datetime):
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _iso_utc(dt):
+    dt2 = _as_utc_aware(dt)
+    if not dt2:
+        return ""
+    return dt2.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def _fmt_fecha(dt):
     dt2 = _as_utc_naive(dt)
     if not dt2:
@@ -774,7 +789,7 @@ def _list_chat_history(limit=300):
 
 
 def _serialize_history_item(item):
-    fecha = _as_utc_naive(item.get("fecha"))
+    fecha = _as_utc_aware(item.get("fecha"))
     return {
         "id": str(item.get("id") or item.get("history_id") or ""),
         "conversation_id": str(item.get("conversation_id") or ""),
@@ -783,7 +798,7 @@ def _serialize_history_item(item):
         "agente": str(item.get("agente") or ""),
         "texto": str(item.get("texto") or ""),
         "fecha": _fmt_fecha(fecha),
-        "fecha_iso": fecha.isoformat(timespec="seconds") if fecha else "",
+        "fecha_iso": _iso_utc(fecha),
         "metadata": item.get("metadata") or {},
     }
 
@@ -1456,6 +1471,7 @@ def responder_chat(mensaje_usuario):
 
 
 def _serialize_handoff(conv):
+    updated_at = _as_utc_aware(conv.get("updated_at"))
     return {
         "conversation_id": conv.get("conversation_id") or conv.get("id"),
         "company_id": conv.get("company_id") or "",
@@ -1464,22 +1480,22 @@ def _serialize_handoff(conv):
         "rrhh_agente": conv.get("rrhh_agente") or "",
         "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
         "ultima_consulta": conv.get("ultima_consulta") or "",
-        "updated_at": _fmt_fecha(conv.get("updated_at")),
+        "updated_at": _fmt_fecha(updated_at),
+        "updated_at_iso": _iso_utc(updated_at),
     }
 
 
 def _serialize_messages(messages):
     payload = []
     for msg in messages:
+        fecha = _as_utc_aware(msg.get("fecha"))
         payload.append(
             {
                 "remitente": str(msg.get("remitente") or ""),
                 "texto": str(msg.get("texto") or ""),
                 "agente": str(msg.get("agente") or ""),
-                "fecha": _fmt_fecha(msg.get("fecha")),
-                "fecha_iso": (_as_utc_naive(msg.get("fecha")) or datetime.min).isoformat(
-                    timespec="seconds"
-                ),
+                "fecha": _fmt_fecha(fecha),
+                "fecha_iso": _iso_utc(fecha),
             }
         )
     return payload
