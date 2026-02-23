@@ -142,8 +142,25 @@
                   Sucursales (separadas por coma)
                   <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
                 </label>
+                <label class="field">
+                  Autocierre de conversaciones
+                  <select id="cfg-handoff-auto-close-mode">
+                    <option value="disabled">No cerrar automáticamente</option>
+                    <option value="15">15 minutos</option>
+                    <option value="30">30 minutos</option>
+                    <option value="60">1 hora</option>
+                    <option value="120">2 horas</option>
+                    <option value="240">4 horas</option>
+                    <option value="480">8 horas</option>
+                    <option value="720">12 horas</option>
+                    <option value="1440">24 horas</option>
+                  </select>
+                </label>
                 <div class="form-actions">
                   <button type="submit">Guardar cambios y aplicar</button>
+                  <button id="run-auto-close-now" type="button" class="ghost">
+                    Cerrar vencidas ahora
+                  </button>
                 </div>
               </form>
             </div>
@@ -220,19 +237,48 @@
             </div>
 
             <form id="create-user-form" class="create-user-form">
-              <input id="new-username" type="text" placeholder="Usuario (ej: laura.operaciones)" required />
-              <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
-              <input id="new-user-email" type="email" placeholder="Email (opcional)" />
-              <input id="new-user-phone" type="text" placeholder="Teléfono (opcional)" />
-              <input id="new-user-area" type="text" placeholder="Área (opcional)" />
-              <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
-              <select id="new-role">
-                <option value="rrhh">agente</option>
-                <option value="admin">admin</option>
-              </select>
-              <select id="new-user-company"></select>
-              <input id="new-user-branch" type="text" placeholder="Sucursal (opcional)" />
-              <button type="submit">Crear usuario</button>
+              <label class="field">
+                Usuario
+                <input id="new-username" type="text" placeholder="ej: laura.operaciones" required />
+              </label>
+              <label class="field">
+                Nombre visible
+                <input id="new-display-name" type="text" placeholder="ej: Laura" />
+              </label>
+              <label class="field">
+                Email
+                <input id="new-user-email" type="email" placeholder="Email (opcional)" />
+              </label>
+              <label class="field">
+                Teléfono
+                <input id="new-user-phone" type="text" placeholder="Teléfono (opcional)" />
+              </label>
+              <label class="field">
+                Área
+                <input id="new-user-area" type="text" placeholder="Área (opcional)" />
+              </label>
+              <label class="field">
+                Contraseña inicial
+                <input id="new-password" type="password" placeholder="Mínimo 6 caracteres" required />
+              </label>
+              <label class="field">
+                Rol
+                <select id="new-role">
+                  <option value="rrhh">agente</option>
+                  <option value="admin">admin</option>
+                </select>
+              </label>
+              <label class="field">
+                Empresa asignada
+                <select id="new-user-company"></select>
+              </label>
+              <label class="field">
+                Sucursal asignada
+                <input id="new-user-branch" type="text" placeholder="Sucursal (opcional)" />
+              </label>
+              <div class="form-actions create-user-actions">
+                <button type="submit">Crear usuario</button>
+              </div>
             </form>
 
             <p id="users-status" class="subtle"></p>
@@ -362,6 +408,10 @@
       const cfgCompanyPhoneEl = document.getElementById("cfg-company-phone");
       const cfgCompanyWebsiteEl = document.getElementById("cfg-company-website");
       const cfgCompanyBranchesEl = document.getElementById("cfg-company-branches");
+      const cfgHandoffAutoCloseModeEl = document.getElementById("cfg-handoff-auto-close-mode");
+      const runAutoCloseNowBtn = document.getElementById("run-auto-close-now");
+
+      const AUTO_CLOSE_DISABLED = "disabled";
 
       let validRoles = ["admin", "rrhh"];
       let permissionsCatalog = [];
@@ -500,6 +550,40 @@
         return (Array.isArray(branches) ? branches : []).join(", ");
       }
 
+      function normalizeAutoCloseMinutes(value) {
+        const raw = String(value ?? "").trim();
+        if (!raw || raw.toLowerCase() === AUTO_CLOSE_DISABLED) return 0;
+        const parsed = Number.parseInt(raw, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+        return parsed;
+      }
+
+      function setAutoCloseModeFromSettings(settings) {
+        if (!cfgHandoffAutoCloseModeEl) return;
+        const enabled = Boolean(settings?.handoff_auto_close_enabled);
+        const minutes = normalizeAutoCloseMinutes(settings?.handoff_auto_close_minutes);
+        const modeValue = enabled && minutes > 0 ? String(minutes) : AUTO_CLOSE_DISABLED;
+        const hasOption = Array.from(cfgHandoffAutoCloseModeEl.options).some(
+          (opt) => String(opt.value) === modeValue
+        );
+        if (!hasOption && modeValue !== AUTO_CLOSE_DISABLED) {
+          const customOpt = document.createElement("option");
+          customOpt.value = modeValue;
+          customOpt.textContent = `${modeValue} minutos`;
+          cfgHandoffAutoCloseModeEl.appendChild(customOpt);
+        }
+        cfgHandoffAutoCloseModeEl.value = modeValue;
+      }
+
+      function autoClosePayloadFromUI() {
+        const mode = String(cfgHandoffAutoCloseModeEl?.value || AUTO_CLOSE_DISABLED).trim();
+        const minutes = normalizeAutoCloseMinutes(mode);
+        return {
+          handoff_auto_close_enabled: minutes > 0,
+          handoff_auto_close_minutes: minutes,
+        };
+      }
+
       function assignmentsToText(assignments) {
         const rows = Array.isArray(assignments) ? assignments : [];
         if (!rows.length) return "todas:*";
@@ -567,7 +651,13 @@
         const branches = Array.isArray(company.branches) ? company.branches : [];
         const branchesLabel =
           branches.length > 0 ? branches.join(", ") : "Sin sucursales cargadas";
-        companySummaryEl.textContent = `Editando: ${company.company_name} (${company.company_id}) · Sucursales: ${branchesLabel}`;
+        const autoCloseEnabled = Boolean(company.handoff_auto_close_enabled);
+        const autoCloseMinutes = normalizeAutoCloseMinutes(company.handoff_auto_close_minutes);
+        const autoCloseLabel =
+          autoCloseEnabled && autoCloseMinutes > 0
+            ? `Autocierre: ${autoCloseMinutes} min`
+            : "Autocierre: desactivado";
+        companySummaryEl.textContent = `Editando: ${company.company_name} (${company.company_id}) · Sucursales: ${branchesLabel} · ${autoCloseLabel}`;
         if (companyCurrentBadgeEl) {
           companyCurrentBadgeEl.textContent = `${company.company_name} (${company.company_id})`;
         }
@@ -855,6 +945,7 @@
         if (cfgCompanyBranchesEl) {
           cfgCompanyBranchesEl.value = branchesToText(settings.branches || []);
         }
+        setAutoCloseModeFromSettings(settings);
       }
 
       function refreshCompanySelectors() {
@@ -1009,6 +1100,7 @@
       async function guardarConfiguracionGeneral() {
         if (!canManageGeneral) return;
         const company_id = normalizeCompanyId(companySelectorEl?.value || selectedCompanyId);
+        const autoClosePayload = autoClosePayloadFromUI();
         const payload = {
           company_id,
           company_name: (cfgCompanyNameEl.value || "").trim(),
@@ -1018,6 +1110,8 @@
           company_address: (cfgCompanyAddressEl?.value || "").trim(),
           company_phone: (cfgCompanyPhoneEl?.value || "").trim(),
           company_website: (cfgCompanyWebsiteEl?.value || "").trim(),
+          handoff_auto_close_enabled: autoClosePayload.handoff_auto_close_enabled,
+          handoff_auto_close_minutes: autoClosePayload.handoff_auto_close_minutes,
           branches: parseBranchesText(cfgCompanyBranchesEl?.value || ""),
         };
         if (!payload.company_id || !payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
@@ -1036,6 +1130,29 @@
         if (!data.ok) throw new Error(data.error || "No se pudo guardar configuración.");
         await cargarEmpresas();
         setGeneralStatus("Configuración de empresa actualizada correctamente.");
+      }
+
+      async function ejecutarAutocierreAhora() {
+        if (!canManageGeneral) return;
+        const response = await fetch("/api/configuracion/conversaciones/autocierre/ejecutar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo ejecutar el autocierre.");
+        const minutes = Number(data.auto_close_minutes || 0);
+        if (!data.auto_close_enabled || minutes <= 0) {
+          setGeneralStatus("Autocierre desactivado: no se cerraron conversaciones.");
+          return;
+        }
+        setGeneralStatus(
+          `Autocierre ejecutado (${minutes} min): ${data.closed_count || 0} conversación(es) cerrada(s).`
+        );
       }
 
       async function cargarUsuarios() {
@@ -1300,6 +1417,17 @@
           try {
             await guardarConfiguracionGeneral();
             await cargarUsuarios();
+          } catch (error) {
+            setGeneralStatus(`Error: ${error.message}`, true);
+          }
+        });
+      }
+
+      if (runAutoCloseNowBtn) {
+        runAutoCloseNowBtn.addEventListener("click", async () => {
+          try {
+            await guardarConfiguracionGeneral();
+            await ejecutarAutocierreAhora();
           } catch (error) {
             setGeneralStatus(`Error: ${error.message}`, true);
           }

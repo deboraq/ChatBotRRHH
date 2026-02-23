@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import web_chat
@@ -609,6 +610,102 @@ class WebChatApiTests(unittest.TestCase):
                     stored = json.load(fh)
                 user = stored["users"][0]
                 self.assertTrue(user.get("password_reset_token_hash"))
+
+    def test_rrhh_auto_close_closes_expired_conversations_by_policy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            users_path = os.path.join(tmpdir, "rrhh_users.json")
+            with open(users_path, "w", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "users": [
+                            {
+                                "username": "admin",
+                                "display_name": "Admin",
+                                "password": "admin123",
+                                "role": "admin",
+                            }
+                        ]
+                    },
+                    fh,
+                )
+
+            web_chat.IN_MEMORY_COMPANIES.update(
+                {
+                    "acme": {
+                        "company_id": "acme",
+                        "company_name": "Acme",
+                        "hr_team_name": "People Ops",
+                        "hr_contact": "interno 200",
+                        "branches": ["Centro"],
+                        "active": True,
+                    }
+                }
+            )
+
+            with patch.dict(
+                os.environ,
+                {"RRHH_AUTH_ENABLED": "true", "RRHH_USERS_FILE": users_path},
+                clear=True,
+            ):
+                login_resp = self.client.post(
+                    "/login",
+                    data={
+                        "username": "admin",
+                        "password": "admin123",
+                        "company_id": "acme",
+                        "next": "/rrhh",
+                    },
+                )
+                self.assertEqual(login_resp.status_code, 302)
+
+                stale_at = datetime.now(timezone.utc) - timedelta(minutes=90)
+                conversation_id = "conv-autoclose-001"
+                web_chat._upsert_handoff(
+                    conversation_id,
+                    {
+                        "conversation_id": conversation_id,
+                        "company_id": "acme",
+                        "company_name": "Acme",
+                        "estado": web_chat.HANDOFF_STATUS_PENDING,
+                        "created_at": stale_at,
+                        "updated_at": stale_at,
+                        "ultima_consulta": "Necesito ayuda",
+                        "ultimo_mensaje": "Necesito ayuda",
+                        "ultimo_remitente": "colaborador",
+                        "ultimo_mensaje_fecha": stale_at,
+                    },
+                    merge=False,
+                )
+
+                save_resp = self.client.post(
+                    "/api/configuracion/general",
+                    json={
+                        "company_id": "acme",
+                        "company_name": "Acme",
+                        "hr_team_name": "People Ops",
+                        "hr_contact": "interno 200",
+                        "handoff_auto_close_enabled": True,
+                        "handoff_auto_close_minutes": 30,
+                    },
+                )
+                self.assertEqual(save_resp.status_code, 200)
+
+                convs_resp = self.client.get("/api/rrhh/conversaciones?include_closed=true")
+                self.assertEqual(convs_resp.status_code, 200)
+                convs_body = convs_resp.get_json()
+                self.assertTrue(convs_body["ok"])
+                target = next(
+                    (
+                        item
+                        for item in convs_body["conversaciones"]
+                        if item.get("conversation_id") == conversation_id
+                    ),
+                    None,
+                )
+                self.assertIsNotNone(target)
+                self.assertEqual(target["estado"], web_chat.HANDOFF_STATUS_CLOSED)
+                self.assertTrue(convs_body["autocierre"]["auto_close_enabled"])
+                self.assertEqual(convs_body["autocierre"]["auto_close_minutes"], 30)
 
     def test_admin_can_delete_users_and_custom_roles(self):
         with tempfile.TemporaryDirectory() as tmpdir:

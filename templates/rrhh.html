@@ -246,6 +246,7 @@
       let unreadConversationIds = new Set();
       let notifiedConversationMap = {};
       let hasConversationSnapshot = false;
+      let autoCloseConfig = { auto_close_enabled: false, auto_close_minutes: 0 };
 
       function getInitialTheme() {
         try {
@@ -386,6 +387,9 @@
         let text = `${conversations.length} conversación(es)`;
         if (activeCompanyName) {
           text += ` · empresa: ${activeCompanyName}`;
+        }
+        if (autoCloseConfig.auto_close_enabled && Number(autoCloseConfig.auto_close_minutes) > 0) {
+          text += ` · autocierre ${autoCloseConfig.auto_close_minutes} min`;
         }
         if (unreadCount > 0) {
           text += ` · ${unreadCount} con mensaje(s) nuevo(s)`;
@@ -856,6 +860,12 @@
         }
         if (data.selected_company_name) {
           activeCompanyName = String(data.selected_company_name);
+        }
+        if (data.autocierre && typeof data.autocierre === "object") {
+          autoCloseConfig = {
+            auto_close_enabled: Boolean(data.autocierre.auto_close_enabled),
+            auto_close_minutes: Number(data.autocierre.auto_close_minutes || 0),
+          };
         }
         conversations = data.conversaciones || [];
         recalculateUnreadConversations({ notify: hasConversationSnapshot });
