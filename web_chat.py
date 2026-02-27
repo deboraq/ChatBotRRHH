@@ -1982,12 +1982,17 @@ def chat_page():
     permitir = (company or {}).get("permitir_hablar_con_humano", True)
     temas_habilitados = (company or {}).get("temas_habilitados") or []
     temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
+    company_name = settings.get("company_name") or "Empresa"
+    hr_display = (settings.get("hr_team_name") or "Atención").strip()
+    if hr_display.upper() == "RRHH":
+        hr_display = "Atención"
+    bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
     return render_template(
         "chat.html",
-        bienvenida=chatbot.MENSAJE_BIENVENIDA,
+        bienvenida=bienvenida,
         quick_actions_iniciales=construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
-        company_name=settings.get("company_name"),
-        hr_team_name=settings.get("hr_team_name"),
+        company_name=company_name,
+        hr_team_name=hr_display,
     )
 
 
