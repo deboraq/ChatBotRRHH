@@ -20,7 +20,7 @@ except ImportError:
 # 1. CONFIGURACIÓN INICIAL Y CONEXIÓN CON FIRESTORE
 # ==========================================================
 COMPANY_NAME = str(os.getenv("CHATBOT_COMPANY_NAME", "Bacar")).strip() or "Bacar"
-HR_TEAM_NAME = str(os.getenv("CHATBOT_HR_TEAM_NAME", "RRHH")).strip() or "RRHH"
+HR_TEAM_NAME = str(os.getenv("CHATBOT_HR_TEAM_NAME", "Atención")).strip() or "Atención"
 HR_CONTACT = str(os.getenv("CHATBOT_HR_CONTACT", "interno 104")).strip() or "interno 104"
 
 
@@ -60,7 +60,7 @@ MENSAJE_BIENVENIDA = (
 )
 MENSAJE_CONTACTO = construir_mensaje_contacto()
 MENSAJE_AYUDA = (
-    "🆘 Puedo ayudarte con vacaciones, fraccionamiento, recibo, aguinaldo, ART y otros temas de RRHH.\n"
+    "🆘 Puedo ayudarte con vacaciones, fraccionamiento, recibo, aguinaldo, ART y otros temas.\n"
     "Escribí tu consulta o poné 'menu' para ver todas las opciones."
 )
 RESPUESTA_DIAS_VACACIONES = (
@@ -130,7 +130,7 @@ FAQ_FALLBACK = {
 db = inicializar_firestore(verbose=False)
 if db:
     print(f"✅ SISTEMA {COMPANY_NAME.upper()}: Conexión exitosa con la base de datos.")
-    print("🚀 El asistente virtual de RRHH está listo para operar.\n")
+    print("🚀 El asistente virtual está listo para operar.\n")
 else:
     print("🧪 Se activa modo local con respuestas de respaldo.")
     print("ℹ️ Para usar Firebase, definí FIREBASE_CREDENTIALS con tu archivo JSON.\n")
@@ -284,27 +284,54 @@ def fuzzy_extract(query, choices, limit=3):
     return puntajes[:limit]
 
 
-def obtener_temas_desde_firestore():
+def _normalize_company_id(value):
+    """Normaliza company_id para uso en Firestore (minúsculas, sin espacios)."""
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def obtener_temas_desde_firestore(company_id=None):
+    """
+    Obtiene la lista de temas (FAQs) disponibles.
+    Si company_id está definido, lee de la colección 'faqs' filtrada por company_id.
+    Si no hay resultados o company_id es None, usa la colección legacy 'faq_rrhh'.
+    """
     if not db:
         return []
+    cid = _normalize_company_id(company_id)
+
+    if cid:
+        try:
+            refs = db.collection("faqs").where("company_id", "==", cid).stream()
+            temas = []
+            for doc in refs:
+                data = doc.to_dict() or {}
+                tema = data.get("tema") or doc.id.split("_", 1)[-1] if "_" in doc.id else doc.id
+                temas.append(tema)
+            if temas:
+                return sorted(set(temas), key=normalizar_texto)
+        except Exception as exc:
+            print(f"⚠️ No se pudieron leer temas desde Firestore (faqs): {exc}")
+
     try:
         docs = db.collection("faq_rrhh").stream()
         return sorted((doc.id for doc in docs), key=normalizar_texto)
     except Exception as exc:
-        print(f"⚠️ No se pudieron leer temas desde Firestore: {exc}")
+        print(f"⚠️ No se pudieron leer temas desde Firestore (faq_rrhh): {exc}")
         return []
 
 
 # ==========================================================
 # 3. FUNCIONES DE ADMINISTRACIÓN DE DATOS Y REGISTROS
 # ==========================================================
-def mostrar_menu():
+def mostrar_menu(company_id=None):
     print("\n" + "═" * 55)
-    print(" 🏢 ASISTENTE VIRTUAL DE RRHH - BACAR SA ")
+    print(" 🏢 ASISTENTE VIRTUAL - BACAR SA ")
     print("═" * 55)
     print("Seleccioná un número o escribí el tema de tu consulta:")
 
-    temas_disponibles = obtener_temas_desde_firestore()
+    temas_disponibles = obtener_temas_desde_firestore(company_id=company_id)
     if not temas_disponibles:
         temas_disponibles = sorted(FAQ_FALLBACK.keys(), key=normalizar_texto)
         print("⚠️ Mostrando temas en modo local (sin conexión a Firestore).")
@@ -314,7 +341,7 @@ def mostrar_menu():
         temas_map[str(i)] = tema
         print(f" {i}. {tema.capitalize()}")
 
-    print(" H. Hablar con alguien de RRHH")
+    print(" H. Hablar con un agente")
     print("─" * 55)
     return temas_map
 
@@ -372,8 +399,32 @@ def registrar_pendiente(consulta):
     return True
 
 
-def obtener_respuesta_faq(tema):
+def obtener_respuesta_faq(tema, company_id=None):
+    """
+    Obtiene la respuesta FAQ para un tema.
+    Si company_id está definido, busca primero en la colección 'faqs' (por company_id + tema).
+    Si no encuentra, usa 'faq_rrhh' y luego FAQ_FALLBACK.
+    """
     tema_norm = normalizar_texto(tema)
+    cid = _normalize_company_id(company_id)
+
+    if db and cid:
+        try:
+            doc_id = f"{cid}_{tema_norm}"
+            doc = db.collection("faqs").document(doc_id).get()
+            if doc.exists:
+                respuesta = (doc.to_dict() or {}).get("respuesta")
+                if respuesta:
+                    return respuesta
+            refs = db.collection("faqs").where("company_id", "==", cid).stream()
+            for d in refs:
+                data = d.to_dict() or {}
+                if normalizar_texto(data.get("tema") or d.id) == tema_norm:
+                    respuesta = data.get("respuesta")
+                    if respuesta:
+                        return respuesta
+        except Exception as exc:
+            print(f"⚠️ Error al consultar FAQ en Firestore (faqs): {exc}")
 
     if db:
         try:
@@ -382,8 +433,6 @@ def obtener_respuesta_faq(tema):
                 respuesta = doc.to_dict().get("respuesta")
                 if respuesta:
                     return respuesta
-
-            # Soporte para IDs con mayúsculas/minúsculas distintas (ej. ART vs art).
             for doc in db.collection("faq_rrhh").stream():
                 if normalizar_texto(doc.id) == tema_norm:
                     respuesta = doc.to_dict().get("respuesta")
@@ -513,7 +562,11 @@ def manejar_feedback_interactivo(tema_id, texto_feedback):
     return "continuar", None
 
 
-def obtener_respuesta(entrada, temas_map):
+def obtener_respuesta(entrada, temas_map, company_id=None):
+    """
+    Devuelve (respuesta, tema_id) según la entrada del usuario.
+    company_id se usa para buscar FAQs en la colección 'faqs' por empresa.
+    """
     entrada_norm = normalizar_texto(entrada)
     if not entrada_norm:
         return "⚠️ No llegué a entender tu consulta. ¿Podrías reformularla?", "ayuda"
@@ -525,7 +578,7 @@ def obtener_respuesta(entrada, temas_map):
     saludo_detectado = es_saludo(entrada_norm)
 
     if saludo_detectado and tema_elegido and normalizar_texto(tema_elegido) not in {"hola", "ayuda"}:
-        respuesta = obtener_respuesta_faq(tema_elegido)
+        respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
         if respuesta:
             return f"👋 ¡Hola! Sobre tu consulta de {tema_elegido}:\n{respuesta}", tema_elegido
 
@@ -541,7 +594,7 @@ def obtener_respuesta(entrada, temas_map):
         if tema_norm == "vacaciones" and consulta_sobre_dias_vacaciones(entrada_norm):
             return RESPUESTA_DIAS_VACACIONES, tema_elegido
 
-        respuesta = obtener_respuesta_faq(tema_elegido)
+        respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
         if respuesta:
             return respuesta, tema_elegido
 

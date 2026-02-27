@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chatbot {{ hr_team_name or "RRHH" }} - {{ company_name or "Empresa" }}</title>
+    <title>Chatbot {{ hr_team_name or "Atención" }} - {{ company_name or "Empresa" }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='chat.css') }}" />
   </head>
   <body>
     <main class="chat-wrapper">
       <header class="chat-header">
-        <h1>Asistente Virtual {{ hr_team_name or "RRHH" }}</h1>
+        <h1>Asistente Virtual {{ hr_team_name or "Atención" }}</h1>
         <p>Entorno de prueba previo a WhatsApp</p>
       </header>
 
@@ -17,11 +17,6 @@
 
       <section class="quick-actions">
         <button id="btn-menu" type="button">Ver menú</button>
-        <button id="btn-rrhh" type="button">Hablar con RRHH</button>
-        <a class="quick-link" href="/estadisticas" target="_blank" rel="noopener">Ver estadísticas</a>
-        <a class="quick-link secondary-link" href="/rrhh" target="_blank" rel="noopener">Panel RRHH</a>
-        <a class="quick-link secondary-link" href="/configuracion" target="_blank" rel="noopener">Configuración</a>
-        <a class="quick-link secondary-link" href="/historial" target="_blank" rel="noopener">Historial</a>
         <button id="btn-reset" type="button" class="secondary">Reiniciar chat</button>
       </section>
 
@@ -47,7 +42,6 @@
       const messageInput = document.getElementById("message-input");
       const feedbackHint = document.getElementById("feedback-hint");
       const btnMenu = document.getElementById("btn-menu");
-      const btnRrhh = document.getElementById("btn-rrhh");
       const btnReset = document.getElementById("btn-reset");
       const dynamicActions = document.getElementById("dynamic-actions");
       const initialQuickActions = {{ quick_actions_iniciales|tojson }};
@@ -83,7 +77,7 @@
         if (!msg || !msg.texto) return "";
         const remitente = (msg.remitente || "").toLowerCase();
         if (remitente === "rrhh") {
-          return `👩‍💼 RRHH${msg.agente ? ` (${msg.agente})` : ""}: ${msg.texto}`;
+          return `👩‍💼 Agente${msg.agente ? ` (${msg.agente})` : ""}: ${msg.texto}`;
         }
         if (remitente === "sistema") {
           return `ℹ️ ${msg.texto}`;
@@ -174,9 +168,6 @@
 
       btnMenu.addEventListener("click", () =>
         sendMessage("menu", { displayText: "Ver menú" })
-      );
-      btnRrhh.addEventListener("click", () =>
-        sendMessage("h", { displayText: "Hablar con RRHH" })
       );
       btnReset.addEventListener("click", async () => {
         try {

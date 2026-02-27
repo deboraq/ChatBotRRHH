@@ -3,11 +3,67 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
     <title>Configuración - Asistente</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}?v=30" />
+    <style>
+      /* Correcciones forzadas: sucursales y columna Emp./Suc. */
+      #new-user-branches-label {
+        font-size: 0.875rem !important;
+        font-weight: normal !important;
+        margin-left: 0 !important;
+        padding-left: 0 !important;
+      }
+      #new-user-branches-wrap { margin-left: 0 !important; padding-left: 0 !important; }
+      #new-user-branches-dropdown-panel,
+      #new-user-branches-checkboxes {
+        padding: 0 !important;
+        margin: 0 !important;
+        min-width: 220px !important;
+      }
+      #new-user-branches-dropdown-panel .branch-dropdown-option {
+        padding: 6px 12px 6px 8px !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+      }
+      .users-panel .users-table-wrap { overflow-x: auto !important; }
+      .users-panel .users-table th:nth-child(8),
+      .users-panel .users-table td:nth-child(8) {
+        overflow: visible !important;
+        text-overflow: clip !important;
+      }
+      .users-panel .users-table th:nth-child(8) { white-space: nowrap !important; }
+      .users-panel .emp-suc-cell,
+      .users-panel .emp-suc-trigger,
+      .users-panel .emp-suc-trigger-text {
+        overflow: visible !important;
+        text-overflow: clip !important;
+      }
+      /* Sucursales: evitar superposición y alinear como Roles */
+      .branches-panel .branches-table td { vertical-align: top !important; }
+      .branches-panel .branches-table td:nth-child(2) {
+        overflow: hidden !important;
+        min-width: 0 !important;
+        width: 50% !important;
+      }
+      .branches-panel .branches-table td:nth-child(2) .branches-cell {
+        max-width: 100% !important;
+        width: 100% !important;
+        overflow: hidden !important;
+      }
+      .branches-panel .branches-table td:nth-child(3) {
+        min-width: 200px !important;
+        vertical-align: top !important;
+      }
+      .branches-panel .branches-table .config-actions-cell {
+        gap: 12px !important;
+      }
+    </style>
   </head>
   <body>
+    <div id="config-toast-container" class="config-toast-container" aria-live="polite"></div>
     <main class="config-wrapper">
       <header class="rrhh-header">
         <div>
@@ -18,9 +74,6 @@
           {% endif %}
         </div>
         <div class="header-actions">
-          <a class="btn ghost" href="/rrhh">Panel de atención</a>
-          <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
-          <button id="theme-toggle" class="ghost" type="button">Modo oscuro</button>
           {% if auth_enabled %}
           <form class="logout-form" method="post" action="/logout">
             <button type="submit">Cerrar sesión</button>
@@ -36,6 +89,7 @@
           <nav id="config-nav" class="config-nav">
             {% if can_manage_general %}
             <button type="button" data-section-target="empresas">Empresas</button>
+            <button type="button" data-section-target="sucursales">Sucursales</button>
             {% endif %}
             {% if can_manage_users %}
             <button type="button" data-section-target="usuarios">Usuarios</button>
@@ -51,176 +105,148 @@
           <section class="panel companies-panel config-section" data-section-key="empresas">
             <h2>Empresas</h2>
             <p class="subtle">
-              Elegí una empresa, editá sus datos (nombre, contacto, sucursales) y guardá. Los cambios impactan en login, chat y panel de atención.
+              Listado de empresas. Usá "Agregar" para crear una nueva o "Modificar" en cada fila para editar. Los cambios impactan en login, chat y panel de atención.
             </p>
 
-            <div class="company-step">
-              <h3>Paso 1 · Empresa que estás editando ahora</h3>
-              <div class="general-selector">
-                <label class="field">
-                  Empresa activa
-                  <select id="cfg-company-selector"></select>
-                </label>
-                <button id="company-switch" type="button" class="ghost">Aplicar selección</button>
-                <button id="general-refresh" type="button" class="ghost">Recargar datos</button>
-              </div>
-              <p class="subtle">Tip: al cambiar la empresa en el selector, se aplica automáticamente.</p>
-              <div class="active-company-line">
-                <span class="subtle">Editando:</span>
-                <strong id="company-current-badge">-</strong>
-              </div>
-              <p id="company-summary" class="subtle"></p>
+            <div class="companies-toolbar">
+              <button type="button" id="btn-add-company" class="btn btn-primary">Agregar</button>
+            </div>
+            <p class="subtle">Si no completás el ID al agregar, se genera automáticamente desde el nombre.</p>
+
+            <div class="companies-table-wrap">
+              <table class="companies-table config-table">
+                <thead>
+                  <tr>
+                    <th>Empresa (ID)</th>
+                    <th>Nombre</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="companies-body"></tbody>
+              </table>
             </div>
 
-            <div class="company-step">
-              <h3>Paso 2 · Editá la empresa activa</h3>
-              <form id="general-settings-form" class="general-settings-form">
-                <label class="field">
-                  Nombre visible de la empresa
-                  <input
-                    id="cfg-company-name"
-                    type="text"
-                    value="{{ general_settings.company_name }}"
-                    required
-                  />
-                </label>
-                <label class="field">
-                  Equipo principal (ej: People Ops, Operaciones, Administración)
-                  <input
-                    id="cfg-hr-team-name"
-                    type="text"
-                    value="{{ general_settings.hr_team_name }}"
-                    required
-                  />
-                </label>
-                <label class="field">
-                  Contacto principal
-                  <input
-                    id="cfg-hr-contact"
-                    type="text"
-                    value="{{ general_settings.hr_contact }}"
-                    required
-                  />
-                </label>
-                <label class="field">
-                  Email empresa (opcional)
-                  <input
-                    id="cfg-company-email"
-                    type="email"
-                    value="{{ general_settings.company_email or '' }}"
-                    placeholder="ej: contacto@empresa.com"
-                  />
-                </label>
-                <label class="field">
-                  Dirección (opcional)
-                  <input
-                    id="cfg-company-address"
-                    type="text"
-                    value="{{ general_settings.company_address or '' }}"
-                    placeholder="ej: Av. Siempre Viva 742"
-                  />
-                </label>
-                <label class="field">
-                  Teléfono (opcional)
-                  <input
-                    id="cfg-company-phone"
-                    type="text"
-                    value="{{ general_settings.company_phone or '' }}"
-                    placeholder="ej: +54 11 4000-0000"
-                  />
-                </label>
-                <label class="field">
-                  Sitio web (opcional)
-                  <input
-                    id="cfg-company-website"
-                    type="text"
-                    value="{{ general_settings.company_website or '' }}"
-                    placeholder="ej: https://empresa.com"
-                  />
-                </label>
-                <label class="field">
-                  Sucursales (separadas por coma)
-                  <input id="cfg-company-branches" type="text" value="{{ (general_settings.branches or [])|join(', ') }}" />
-                </label>
-                <label class="field">
-                  Autocierre de conversaciones
-                  <select id="cfg-handoff-auto-close-mode" class="select-autoclose">
-                    <option value="disabled">No cerrar automáticamente</option>
-                    <option value="15">15 minutos</option>
-                    <option value="30">30 minutos</option>
-                    <option value="60">1 hora</option>
-                    <option value="120">2 horas</option>
-                    <option value="240">4 horas</option>
-                    <option value="480">8 horas</option>
-                    <option value="720">12 horas</option>
-                    <option value="1440">24 horas</option>
-                  </select>
-                </label>
-                <div class="form-actions">
-                  <button type="submit">Guardar cambios y aplicar</button>
-                  <button id="run-auto-close-now" type="button" class="ghost">
-                    Cerrar vencidas ahora
-                  </button>
-                </div>
-              </form>
-            </div>
+            <p class="subtle danger-note">
+              Para eliminar una empresa usá el botón Eliminar en la fila correspondiente. Si tiene usuarios asignados, el sistema la bloqueará.
+            </p>
 
-            <div class="company-step create-company-box">
-              <h3>Paso 3 · Agregar otra empresa</h3>
-              <p class="subtle">Si no completás el ID, se genera automáticamente desde el nombre.</p>
-              <form id="new-company-form" class="general-settings-form new-company-form">
+            <p id="general-status" class="subtle"></p>
+          </section>
+
+          <!-- Modal Agregar / Modificar empresa -->
+          <div id="company-form-modal" class="config-modal" role="dialog" aria-labelledby="company-form-modal-title" aria-modal="true" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box config-modal-box--wide">
+              <div class="config-modal-head">
+                <h3 id="company-form-modal-title">Agregar empresa</h3>
+                <button type="button" class="config-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <form id="company-form-modal-form" class="config-modal-form">
+                <input type="hidden" id="modal-company-edit-id" value="" />
                 <label class="field">
                   Nombre empresa
-                  <input id="new-company-name" type="text" placeholder="ej: Bacar Norte" required />
+                  <input id="modal-company-name" type="text" placeholder="ej: Bacar Norte" />
                 </label>
                 <label class="field">
                   Equipo principal
-                  <input id="new-company-hr-team-name" type="text" placeholder="ej: People Ops" required />
+                  <input id="modal-company-hr-team-name" type="text" placeholder="ej: People Ops" />
                 </label>
                 <label class="field">
                   Contacto principal
-                  <input id="new-company-hr-contact" type="text" placeholder="ej: interno 200" required />
+                  <input id="modal-company-hr-contact" type="text" placeholder="ej: interno 200" />
                 </label>
                 <label class="field">
                   Email empresa (opcional)
-                  <input id="new-company-email" type="email" placeholder="ej: contacto@empresa.com" />
+                  <input id="modal-company-email" type="email" placeholder="ej: contacto@empresa.com" />
                 </label>
                 <label class="field">
                   Dirección (opcional)
-                  <input id="new-company-address" type="text" placeholder="ej: Av. Siempre Viva 742" />
+                  <input id="modal-company-address" type="text" placeholder="ej: Av. Siempre Viva 742" />
                 </label>
                 <label class="field">
                   Teléfono (opcional)
-                  <input id="new-company-phone" type="text" placeholder="ej: +54 11 4000-0000" />
+                  <input id="modal-company-phone" type="text" placeholder="ej: +54 11 4000-0000" />
                 </label>
                 <label class="field">
                   Sitio web (opcional)
-                  <input id="new-company-website" type="text" placeholder="ej: https://empresa.com" />
-                </label>
-                <label class="field">
-                  Sucursales (coma)
-                  <input id="new-company-branches" type="text" placeholder="ej: CABA, Rosario, Córdoba" />
+                  <input id="modal-company-website" type="text" placeholder="ej: https://empresa.com" />
                 </label>
                 <label class="field">
                   ID empresa (opcional)
-                  <input id="new-company-id" type="text" placeholder="ej: bacar_norte" />
+                  <input id="modal-company-id" type="text" placeholder="ej: bacar_norte" />
                 </label>
-                <div class="form-actions">
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
                   <button type="submit">Agregar empresa</button>
                 </div>
               </form>
             </div>
+          </div>
 
-            <div class="danger-zone">
-              <h3>Zona de peligro</h3>
-              <p class="subtle">
-                Eliminá solo empresas que ya no se usan. Si tiene usuarios asignados, el sistema la va a bloquear.
-              </p>
-              <button id="company-delete" type="button" class="danger">Eliminar empresa activa</button>
+          <section class="panel branches-panel config-section" data-section-key="sucursales">
+            <h2>Sucursales</h2>
+            <p class="subtle">
+              Gestioná las sucursales por empresa. Elegí una empresa y agregá o eliminá sucursales. Las sucursales se usan en login, chat y asignación de usuarios.
+            </p>
+            <div class="branches-table-wrap">
+              <table class="branches-table config-table">
+                <thead>
+                  <tr>
+                    <th>Empresa</th>
+                    <th>Sucursales</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="branches-body"></tbody>
+              </table>
             </div>
-
-            <p id="general-status" class="subtle"></p>
+            <p id="branches-status" class="subtle"></p>
           </section>
+
+          <!-- Modal Agregar / Editar sucursal -->
+          <div id="branch-form-modal" class="config-modal" role="dialog" aria-labelledby="branch-form-modal-title" aria-modal="true" data-branch-mode="add" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box">
+              <div class="config-modal-head">
+                <h3 id="branch-form-modal-title">Agregar sucursal</h3>
+                <button type="button" class="config-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <form id="branch-form-modal-form" class="config-modal-form">
+                <input type="hidden" id="modal-branch-company-id" value="" />
+                <input type="hidden" id="modal-branch-edit-name" value="" />
+                <label class="field">
+                  Empresa
+                  <input id="modal-branch-company-name" type="text" readonly class="readonly" />
+                </label>
+                <div id="branch-edit-select-wrap" class="field" hidden>
+                  <label for="modal-branch-edit-select">Sucursal a editar</label>
+                  <select id="modal-branch-edit-select" class="branch-edit-select">
+                    <option value="">— Elegí una sucursal —</option>
+                  </select>
+                </div>
+                <label class="field">
+                  Nombre de la sucursal <span class="required">*</span>
+                  <input id="modal-branch-name" type="text" placeholder="ej: CABA, Rosario, Central" required />
+                </label>
+                <label class="field">
+                  Dirección <span class="optional">(opcional)</span>
+                  <input id="modal-branch-address" type="text" placeholder="Calle, número, localidad" />
+                </label>
+                <label class="field">
+                  Teléfono <span class="optional">(opcional)</span>
+                  <input id="modal-branch-phone" type="text" placeholder="ej: 011 1234-5678" />
+                </label>
+                <label class="field">
+                  Encargado <span class="optional">(opcional)</span>
+                  <input id="modal-branch-encargado" type="text" placeholder="Nombre del responsable" />
+                </label>
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
+                  <button type="submit" id="branch-form-submit-btn">Agregar</button>
+                </div>
+              </form>
+            </div>
+          </div>
           {% endif %}
 
           {% if can_manage_users %}
@@ -229,65 +255,17 @@
               <div>
                 <h2>Usuarios y accesos</h2>
                 <p class="subtle">
-                  Alta y edición de usuarios para paneles operativos e historial. Podés enviar links de
-                  restablecimiento al email de cada usuario.
+                  Listado de usuarios. Usá "Agregar usuario" para crear uno nuevo o "Modificar" en cada fila para editar.
                 </p>
               </div>
               <span id="users-file" class="subtle"></span>
             </div>
-
-            <form id="create-user-form" class="create-user-form">
-              <label class="field">
-                Usuario
-                <input id="new-username" type="text" placeholder="ej: laura.operaciones" required />
-              </label>
-              <label class="field">
-                Nombre visible
-                <input id="new-display-name" type="text" placeholder="ej: Laura" />
-              </label>
-              <label class="field">
-                Email
-                <input id="new-user-email" type="email" placeholder="Email (opcional)" />
-              </label>
-              <label class="field">
-                Teléfono
-                <input id="new-user-phone" type="text" placeholder="Teléfono (opcional)" />
-              </label>
-              <label class="field">
-                Área
-                <input id="new-user-area" type="text" placeholder="Área (opcional)" />
-              </label>
-              <label class="field">
-                Contraseña inicial
-                <input id="new-password" type="password" placeholder="Mínimo 6 caracteres" required />
-              </label>
-              <label class="field">
-                Rol
-                <select id="new-role">
-                  <option value="rrhh">agente</option>
-                  <option value="admin">admin</option>
-                </select>
-              </label>
-              <label class="field">
-                Empresa asignada
-                <select id="new-user-company"></select>
-              </label>
-              <label class="field" id="new-user-branches-label">
-                Sucursales (elegí las de la empresa; Ctrl+clic para varias)
-                <span id="new-user-branches-wrap" class="branch-control-wrap">
-                  <input id="new-user-branch" type="text" placeholder="ej: CABA, Rosario (si la empresa no tiene sucursales cargadas)" class="branch-freetext" />
-                  <select id="new-user-branches-select" class="branch-select hidden" multiple aria-hidden="true" size="4"></select>
-                </span>
-              </label>
-              <div class="form-actions create-user-actions">
-                <button type="submit">Crear usuario</button>
-              </div>
-            </form>
-
+            <div class="users-toolbar">
+              <button type="button" id="btn-add-user" class="btn btn-primary">Agregar usuario</button>
+            </div>
             <p id="users-status" class="subtle"></p>
-
             <div class="users-table-wrap">
-              <table class="users-table">
+              <table class="users-table config-table">
                 <thead>
                   <tr>
                     <th>Usuario</th>
@@ -296,7 +274,7 @@
                     <th>Teléfono</th>
                     <th>Área</th>
                     <th>Rol</th>
-                    <th title="Empresa / Sucursal">Emp. / Suc.</th>
+                    <th title="Empresa / Sucursal">Emp./Suc.</th>
                     <th>Permisos</th>
                     <th>Acción</th>
                   </tr>
@@ -305,6 +283,69 @@
               </table>
             </div>
           </section>
+
+          <!-- Modal para Agregar / Modificar usuario -->
+          <div id="user-form-modal" class="config-modal" role="dialog" aria-labelledby="user-form-modal-title" aria-modal="true" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box">
+              <div class="config-modal-head">
+                <h3 id="user-form-modal-title">Agregar usuario</h3>
+                <button type="button" class="config-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <form id="user-form-modal-form" class="config-modal-form">
+                <input type="hidden" id="modal-user-username-edit" value="" />
+                <label class="field">
+                  Usuario
+                  <input id="modal-username" type="text" placeholder="ej: laura.operaciones" />
+                </label>
+                <label class="field">
+                  Nombre visible
+                  <input id="modal-display-name" type="text" placeholder="ej: Laura" />
+                </label>
+                <label class="field">
+                  Email
+                  <input id="modal-email" type="email" placeholder="Email (opcional)" />
+                </label>
+                <label class="field">
+                  Teléfono
+                  <input id="modal-phone" type="text" placeholder="Teléfono (opcional)" />
+                </label>
+                <label class="field">
+                  Área
+                  <input id="modal-area" type="text" placeholder="Área (opcional)" />
+                </label>
+                <label class="field" id="modal-password-wrap">
+                  Contraseña inicial
+                  <input id="modal-password" type="password" placeholder="Mínimo 6 caracteres" />
+                </label>
+                <label class="field">
+                  Rol
+                  <select id="modal-role">
+                    <option value="rrhh">agente</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </label>
+                <label class="field">
+                  Empresa asignada
+                  <select id="modal-company"></select>
+                </label>
+                <label class="field">
+                  Sucursales
+                  <span id="modal-branches-wrap" class="branch-dropdown-wrap modal-branches-select-like">
+                    <button type="button" id="modal-branches-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
+                      <span class="branch-dropdown-trigger-text">Seleccionar sucursales</span>
+                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
+                    </button>
+                    <div id="modal-branches-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
+                  </span>
+                </label>
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
+                  <button type="submit" id="modal-submit-btn">Crear usuario</button>
+                </div>
+              </form>
+            </div>
+          </div>
           {% endif %}
 
           {% if can_manage_roles %}
@@ -312,22 +353,16 @@
             <div class="roles-head">
               <div>
                 <h2>Roles y permisos</h2>
-                <p class="subtle">Creá y editá roles para distintas empresas y equipos.</p>
+                <p class="subtle">Listado de roles. Usá "Agregar" para crear uno nuevo; en cada fila podés editar permisos y guardar.</p>
               </div>
               <span id="roles-file" class="subtle"></span>
             </div>
-
-            <form id="create-role-form" class="create-role-form">
-              <input id="new-role-name" type="text" placeholder="Rol (ej: supervisor_operaciones)" required />
-              <input id="new-role-display-name" type="text" placeholder="Nombre visible del rol" />
-              <div id="new-role-permissions" class="permissions-grid"></div>
-              <button type="submit">Crear rol</button>
-            </form>
-
+            <div class="roles-toolbar">
+              <button type="button" id="btn-add-role" class="btn btn-primary">Agregar</button>
+            </div>
             <p id="roles-status" class="subtle"></p>
-
             <div class="roles-table-wrap">
-              <table class="roles-table">
+              <table class="roles-table config-table">
                 <thead>
                   <tr>
                     <th>Rol</th>
@@ -340,6 +375,35 @@
               </table>
             </div>
           </section>
+
+          <!-- Modal Agregar rol -->
+          <div id="role-form-modal" class="config-modal" role="dialog" aria-labelledby="role-form-modal-title" aria-modal="true" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box">
+              <div class="config-modal-head">
+                <h3 id="role-form-modal-title">Agregar rol</h3>
+                <button type="button" class="config-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <form id="role-form-modal-form" class="config-modal-form">
+                <label class="field">
+                  Rol (ej: supervisor_operaciones)
+                  <input id="modal-role-name" type="text" placeholder="ej: supervisor_operaciones" required />
+                </label>
+                <label class="field">
+                  Nombre visible del rol
+                  <input id="modal-role-display-name" type="text" placeholder="ej: Supervisor de operaciones" />
+                </label>
+                <div class="modal-permissions-wrap">
+                  <span class="field-label">Permisos</span>
+                  <div id="modal-role-permissions" class="permissions-grid permissions-column" role="group" aria-label="Permisos del rol"></div>
+                </div>
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
+                  <button type="submit">Crear rol</button>
+                </div>
+              </form>
+            </div>
+          </div>
           {% endif %}
 
           {% if not (can_manage_general or can_manage_users or can_manage_roles) %}
@@ -366,25 +430,57 @@
       const usersFileEl = document.getElementById("users-file");
       const usersStatusEl = document.getElementById("users-status");
       const usersBodyEl = document.getElementById("users-body");
-      const createUserForm = document.getElementById("create-user-form");
-      const newUsernameEl = document.getElementById("new-username");
-      const newDisplayNameEl = document.getElementById("new-display-name");
-      const newUserEmailEl = document.getElementById("new-user-email");
-      const newUserPhoneEl = document.getElementById("new-user-phone");
-      const newUserAreaEl = document.getElementById("new-user-area");
-      const newPasswordEl = document.getElementById("new-password");
-      const newRoleEl = document.getElementById("new-role");
-      const newUserCompanyEl = document.getElementById("new-user-company");
+      const btnAddUser = document.getElementById("btn-add-user");
+      const userFormModal = document.getElementById("user-form-modal");
+      const userFormModalTitle = document.getElementById("user-form-modal-title");
+      const userFormModalForm = document.getElementById("user-form-modal-form");
+      const modalUsernameEdit = document.getElementById("modal-user-username-edit");
+      const modalUsername = document.getElementById("modal-username");
+      const modalDisplayName = document.getElementById("modal-display-name");
+      const modalEmail = document.getElementById("modal-email");
+      const modalPhone = document.getElementById("modal-phone");
+      const modalArea = document.getElementById("modal-area");
+      const modalPasswordWrap = document.getElementById("modal-password-wrap");
+      const modalPassword = document.getElementById("modal-password");
+      const modalRole = document.getElementById("modal-role");
+      const modalCompany = document.getElementById("modal-company");
+      const modalBranchesWrap = document.getElementById("modal-branches-wrap");
+      const modalBranchesTrigger = document.getElementById("modal-branches-trigger");
+      const modalBranchesPanel = document.getElementById("modal-branches-panel");
+      const modalSubmitBtn = document.getElementById("modal-submit-btn");
+
       const newUserBranchEl = document.getElementById("new-user-branch");
-      const newUserBranchesSelectEl = document.getElementById("new-user-branches-select");
+      const newUserBranchesDropdownWrap = document.getElementById("new-user-branches-dropdown-wrap");
+      const newUserBranchesTrigger = document.getElementById("new-user-branches-trigger");
+      const newUserBranchesDropdownPanel = document.getElementById("new-user-branches-dropdown-panel");
+      const newUserBranchesCheckboxesEl = document.getElementById("new-user-branches-checkboxes");
+      const newUserBranchesFreetextWrap = document.getElementById("new-user-branches-freetext-wrap");
+      const newUserCompanyEl = document.getElementById("new-user-company");
+
+      const branchesBodyEl = document.getElementById("branches-body");
+      const branchesStatusEl = document.getElementById("branches-status");
+      const branchFormModal = document.getElementById("branch-form-modal");
+      const branchFormModalForm = document.getElementById("branch-form-modal-form");
+      const modalBranchCompanyId = document.getElementById("modal-branch-company-id");
+      const modalBranchCompanyName = document.getElementById("modal-branch-company-name");
+      const modalBranchEditName = document.getElementById("modal-branch-edit-name");
+      const modalBranchName = document.getElementById("modal-branch-name");
+      const modalBranchAddress = document.getElementById("modal-branch-address");
+      const modalBranchPhone = document.getElementById("modal-branch-phone");
+      const modalBranchEncargado = document.getElementById("modal-branch-encargado");
+      const branchFormSubmitBtn = document.getElementById("branch-form-submit-btn");
+      const branchEditSelectWrap = document.getElementById("branch-edit-select-wrap");
+      const modalBranchEditSelect = document.getElementById("modal-branch-edit-select");
 
       const rolesFileEl = document.getElementById("roles-file");
       const rolesStatusEl = document.getElementById("roles-status");
       const rolesBodyEl = document.getElementById("roles-body");
-      const createRoleForm = document.getElementById("create-role-form");
-      const newRoleNameEl = document.getElementById("new-role-name");
-      const newRoleDisplayNameEl = document.getElementById("new-role-display-name");
-      const newRolePermissionsEl = document.getElementById("new-role-permissions");
+      const btnAddRole = document.getElementById("btn-add-role");
+      const roleFormModal = document.getElementById("role-form-modal");
+      const roleFormModalForm = document.getElementById("role-form-modal-form");
+      const modalRoleName = document.getElementById("modal-role-name");
+      const modalRoleDisplayName = document.getElementById("modal-role-display-name");
+      const modalRolePermissionsEl = document.getElementById("modal-role-permissions");
 
       const generalForm = document.getElementById("general-settings-form");
       const generalStatusEl = document.getElementById("general-status");
@@ -394,16 +490,20 @@
       const companyDeleteBtn = document.getElementById("company-delete");
       const companySummaryEl = document.getElementById("company-summary");
       const companyCurrentBadgeEl = document.getElementById("company-current-badge");
-      const newCompanyForm = document.getElementById("new-company-form");
-      const newCompanyIdEl = document.getElementById("new-company-id");
-      const newCompanyNameEl = document.getElementById("new-company-name");
-      const newCompanyHrTeamNameEl = document.getElementById("new-company-hr-team-name");
-      const newCompanyHrContactEl = document.getElementById("new-company-hr-contact");
-      const newCompanyEmailEl = document.getElementById("new-company-email");
-      const newCompanyAddressEl = document.getElementById("new-company-address");
-      const newCompanyPhoneEl = document.getElementById("new-company-phone");
-      const newCompanyWebsiteEl = document.getElementById("new-company-website");
-      const newCompanyBranchesEl = document.getElementById("new-company-branches");
+      const btnAddCompany = document.getElementById("btn-add-company");
+      const companiesBodyEl = document.getElementById("companies-body");
+      const companyFormModal = document.getElementById("company-form-modal");
+      const companyFormModalForm = document.getElementById("company-form-modal-form");
+      const companyFormModalTitle = document.getElementById("company-form-modal-title");
+      const modalCompanyEditId = document.getElementById("modal-company-edit-id");
+      const modalCompanyName = document.getElementById("modal-company-name");
+      const modalCompanyId = document.getElementById("modal-company-id");
+      const modalCompanyHrTeamName = document.getElementById("modal-company-hr-team-name");
+      const modalCompanyHrContact = document.getElementById("modal-company-hr-contact");
+      const modalCompanyEmail = document.getElementById("modal-company-email");
+      const modalCompanyAddress = document.getElementById("modal-company-address");
+      const modalCompanyPhone = document.getElementById("modal-company-phone");
+      const modalCompanyWebsite = document.getElementById("modal-company-website");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
       const cfgHrTeamNameEl = document.getElementById("cfg-hr-team-name");
       const cfgHrContactEl = document.getElementById("cfg-hr-contact");
@@ -489,6 +589,18 @@
             // Ignora errores de storage.
           }
         }
+        if (found && key === "roles") {
+          cargarRoles().catch(function() {});
+        }
+        if (found && key === "empresas") {
+          cargarEmpresas().catch(function() {});
+        }
+        if (found && key === "sucursales") {
+          cargarEmpresas().then(function() { renderBranches(); }).catch(function() {});
+        }
+        if (found && key === "usuarios") {
+          cargarUsuarios().catch(function() {});
+        }
         return found;
       }
 
@@ -531,6 +643,33 @@
         rolesStatusEl.classList.toggle("error-text", Boolean(isError));
       }
 
+      const TOAST_DURATION_MS = 1600;
+
+      function showToast(message, isError = false) {
+        const container = document.getElementById("config-toast-container");
+        if (!container || !message) return;
+        const toast = document.createElement("div");
+        toast.className = "config-toast " + (isError ? "config-toast--error" : "config-toast--success");
+        toast.setAttribute("role", "alert");
+        toast.textContent = message;
+        container.appendChild(toast);
+        requestAnimationFrame(() => { toast.offsetHeight; });
+        setTimeout(() => {
+          toast.classList.add("config-toast--hide");
+          setTimeout(() => {
+            if (toast.parentNode) toast.remove();
+          }, 180);
+        }, TOAST_DURATION_MS);
+      }
+
+      function getErrorMessage(error) {
+        const msg = error && error.message ? String(error.message) : String(error);
+        if (/failed to fetch|networkerror|load failed|network error/i.test(msg) || (error instanceof TypeError && msg.toLowerCase().includes("fetch"))) {
+          return "No se pudo conectar al servidor. Comprobá que la aplicación esté corriendo (ej. python/web_chat en localhost).";
+        }
+        return msg;
+      }
+
       function normalizeCompanyId(value) {
         return String(value || "")
           .trim()
@@ -550,8 +689,13 @@
         });
       }
 
+      function branchName(b) {
+        if (b != null && typeof b === "object" && b.name != null) return String(b.name).trim();
+        return String(b || "").trim();
+      }
+
       function branchesToText(branches) {
-        return (Array.isArray(branches) ? branches : []).join(", ");
+        return (Array.isArray(branches) ? branches : []).map(branchName).filter(Boolean).join(", ");
       }
 
       function normalizeAutoCloseMinutes(value) {
@@ -600,6 +744,23 @@
           })
           .filter(Boolean)
           .join(", ");
+      }
+
+      function assignmentsToSummary(assignments) {
+        const rows = Array.isArray(assignments) ? assignments : [];
+        if (!rows.length) return "—";
+        return rows
+          .map((item) => {
+            const companyId = normalizeCompanyId(item.company_id || "");
+            const branch = String(item.branch || "").trim();
+            if (!companyId) return "";
+            const company = getCompanyById(companyId);
+            const name = company?.company_name || companyId;
+            if (!branch) return `${name} (todas)`;
+            return `${name} → ${branch}`;
+          })
+          .filter(Boolean)
+          .join(" · ");
       }
 
       function parseAssignmentsText(value) {
@@ -654,7 +815,7 @@
         }
         const branches = Array.isArray(company.branches) ? company.branches : [];
         const branchesLabel =
-          branches.length > 0 ? branches.join(", ") : "Sin sucursales cargadas";
+          branches.length > 0 ? branchesToText(branches) : "Sin sucursales cargadas";
         const autoCloseEnabled = Boolean(company.handoff_auto_close_enabled);
         const autoCloseMinutes = normalizeAutoCloseMinutes(company.handoff_auto_close_minutes);
         const autoCloseLabel =
@@ -680,7 +841,7 @@
           empty.textContent = "Sin restricción (todas)";
           selectEl.appendChild(empty);
         }
-        companies.forEach((company) => {
+        (companies || []).forEach((company) => {
           const option = document.createElement("option");
           option.value = company.company_id;
           const companyName = String(company.company_name || company.company_id || "").trim();
@@ -692,6 +853,293 @@
           }
           selectEl.appendChild(option);
         });
+      }
+
+      function renderCompanies(companiesList) {
+        if (!companiesBodyEl) return;
+        companiesBodyEl.innerHTML = "";
+        const list = Array.isArray(companiesList) ? companiesList : [];
+        if (list.length === 0) {
+          companiesBodyEl.innerHTML = "<tr><td colspan='3'>Sin empresas. Usá Agregar para crear una.</td></tr>";
+          return;
+        }
+        list.forEach((company) => {
+          const tr = document.createElement("tr");
+          const tdId = document.createElement("td");
+          tdId.innerHTML = `<code>${escapeHtml(company.company_id || "-")}</code>`;
+          const tdName = document.createElement("td");
+          tdName.textContent = company.company_name || "—";
+          const tdAction = document.createElement("td");
+          tdAction.className = "config-actions-cell";
+          const btnModify = document.createElement("button");
+          btnModify.type = "button";
+          btnModify.className = "role-update-btn";
+          btnModify.textContent = "Modificar";
+          btnModify.addEventListener("click", () => openCompanyModal(company));
+          tdAction.appendChild(btnModify);
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "role-update-btn danger";
+          btnDelete.textContent = "Eliminar";
+          btnDelete.addEventListener("click", async () => {
+            try {
+              await eliminarEmpresaPorId(company.company_id);
+            } catch (error) {
+              setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+              showToast(getErrorMessage(error), true);
+            }
+          });
+          tdAction.appendChild(btnDelete);
+          tr.appendChild(tdId);
+          tr.appendChild(tdName);
+          tr.appendChild(tdAction);
+          companiesBodyEl.appendChild(tr);
+        });
+      }
+
+      function setBranchesStatus(text, isError = false) {
+        if (!branchesStatusEl) return;
+        branchesStatusEl.textContent = text || "";
+        branchesStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function renderBranches() {
+        if (!branchesBodyEl) return;
+        branchesBodyEl.innerHTML = "";
+        const list = Array.isArray(companies) ? companies : [];
+        if (list.length === 0) {
+          branchesBodyEl.innerHTML = "<tr><td colspan='3'>No hay empresas. Creá una en Empresas primero.</td></tr>";
+          setBranchesStatus("");
+          return;
+        }
+        list.forEach((company) => {
+          const tr = document.createElement("tr");
+          const tdCompany = document.createElement("td");
+          const name = escapeHtml(company.company_name || company.company_id || "-");
+          const id = escapeHtml(company.company_id || "");
+          tdCompany.innerHTML = `<span class="branch-company-name">${name}</span><code class="branch-company-id">${id}</code>`;
+
+          const tdBranches = document.createElement("td");
+          tdBranches.className = "branches-cell";
+          const branchList = Array.isArray(company.branches) ? company.branches : [];
+          if (branchList.length === 0) {
+            tdBranches.appendChild(document.createTextNode("Sin sucursales"));
+          } else {
+            branchList.forEach((b) => {
+              const span = document.createElement("span");
+              span.className = "branch-tag";
+              const nameStr = branchName(b);
+              span.appendChild(document.createTextNode(nameStr));
+              const btnRemove = document.createElement("button");
+              btnRemove.type = "button";
+              btnRemove.className = "branch-tag-action branch-tag-remove";
+              btnRemove.setAttribute("aria-label", "Eliminar sucursal");
+              btnRemove.textContent = " × ";
+              btnRemove.addEventListener("click", (e) => { e.stopPropagation(); removeBranch(company.company_id, nameStr); });
+              span.appendChild(btnRemove);
+              tdBranches.appendChild(span);
+            });
+          }
+
+          const tdAction = document.createElement("td");
+          tdAction.className = "config-actions-cell";
+          const btnAdd = document.createElement("button");
+          btnAdd.type = "button";
+          btnAdd.className = "role-update-btn";
+          btnAdd.textContent = "Agregar sucursal";
+          btnAdd.addEventListener("click", () => openBranchModal(company));
+          tdAction.appendChild(btnAdd);
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "role-update-btn";
+          btnEdit.textContent = "Editar sucursal";
+          btnEdit.disabled = branchList.length === 0;
+          btnEdit.addEventListener("click", () => openBranchModalForEdit(company));
+          tdAction.appendChild(btnEdit);
+
+          tr.appendChild(tdCompany);
+          tr.appendChild(tdBranches);
+          tr.appendChild(tdAction);
+          branchesBodyEl.appendChild(tr);
+        });
+        setBranchesStatus(`${list.length} empresa(s) cargada(s).`);
+      }
+
+      function openBranchModal(company) {
+        if (!branchFormModal || !modalBranchCompanyId || !modalBranchCompanyName) return;
+        const titleEl = document.getElementById("branch-form-modal-title");
+        branchFormModal.setAttribute("data-branch-mode", "add");
+        modalBranchCompanyId.value = company.company_id || "";
+        modalBranchCompanyName.value = [company.company_name, company.company_id].filter(Boolean).join(" (") + (company.company_id ? ")" : "");
+        if (branchEditSelectWrap) { branchEditSelectWrap.hidden = true; branchEditSelectWrap.setAttribute("hidden", ""); }
+        if (modalBranchEditName) modalBranchEditName.value = "";
+        if (modalBranchName) modalBranchName.value = "";
+        if (modalBranchAddress) modalBranchAddress.value = "";
+        if (modalBranchPhone) modalBranchPhone.value = "";
+        if (modalBranchEncargado) modalBranchEncargado.value = "";
+        if (titleEl) titleEl.textContent = "Agregar sucursal";
+        if (branchFormSubmitBtn) branchFormSubmitBtn.textContent = "Agregar";
+        if (modalBranchName) modalBranchName.focus();
+        branchFormModal.hidden = false;
+      }
+
+      function openBranchModalForEdit(company) {
+        if (!branchFormModal || !modalBranchCompanyId || !modalBranchCompanyName || !modalBranchEditSelect || !branchEditSelectWrap) return;
+        const titleEl = document.getElementById("branch-form-modal-title");
+        branchFormModal.setAttribute("data-branch-mode", "edit");
+        modalBranchCompanyId.value = company.company_id || "";
+        modalBranchCompanyName.value = [company.company_name, company.company_id].filter(Boolean).join(" (") + (company.company_id ? ")" : "");
+        branchEditSelectWrap.hidden = false;
+        branchEditSelectWrap.removeAttribute("hidden");
+        modalBranchEditName.value = "";
+        modalBranchName.value = "";
+        modalBranchAddress.value = "";
+        modalBranchPhone.value = "";
+        modalBranchEncargado.value = "";
+        if (titleEl) titleEl.textContent = "Editar sucursal";
+        if (branchFormSubmitBtn) branchFormSubmitBtn.textContent = "Guardar";
+
+        modalBranchEditSelect.innerHTML = "";
+        const opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = "— Elegí una sucursal —";
+        modalBranchEditSelect.appendChild(opt0);
+        const branchList = Array.isArray(company.branches) ? company.branches : [];
+        branchList.forEach((b) => {
+          const opt = document.createElement("option");
+          opt.value = branchName(b);
+          opt.textContent = branchName(b);
+          modalBranchEditSelect.appendChild(opt);
+        });
+
+        function onEditSelectChange() {
+          const name = (modalBranchEditSelect.value || "").trim();
+          if (!name) {
+            modalBranchEditName.value = "";
+            modalBranchName.value = "";
+            modalBranchAddress.value = "";
+            modalBranchPhone.value = "";
+            modalBranchEncargado.value = "";
+            return;
+          }
+          const b = branchList.find((x) => branchName(x) === name);
+          if (!b) return;
+          modalBranchEditName.value = name;
+          modalBranchName.value = name;
+          modalBranchAddress.value = (b && b.address) ? String(b.address) : "";
+          modalBranchPhone.value = (b && b.phone) ? String(b.phone) : "";
+          modalBranchEncargado.value = (b && b.encargado) ? String(b.encargado) : "";
+        }
+
+        modalBranchEditSelect.onchange = onEditSelectChange;
+        branchFormModal.hidden = false;
+      }
+
+      function closeBranchModal() {
+        if (branchFormModal) branchFormModal.hidden = true;
+      }
+
+      async function submitBranchModal(e) {
+        e.preventDefault();
+        if (!canManageGeneral) return;
+        const company_id = (modalBranchCompanyId?.value || "").trim();
+        const company = getCompanyById(company_id);
+        if (!company) {
+          setBranchesStatus("Empresa no encontrada.", true);
+          return;
+        }
+        const name = (modalBranchName?.value || "").trim();
+        if (!name) {
+          setBranchesStatus("Escribí el nombre de la sucursal.", true);
+          return;
+        }
+        const branchObj = {
+          name,
+          address: (modalBranchAddress?.value || "").trim(),
+          phone: (modalBranchPhone?.value || "").trim(),
+          encargado: (modalBranchEncargado?.value || "").trim(),
+        };
+        const currentBranches = Array.isArray(company.branches) ? company.branches : [];
+        const editName = (modalBranchEditName?.value || "").trim().toLowerCase();
+        let newList;
+        if (editName) {
+          newList = currentBranches.map((b) =>
+            branchName(b).toLowerCase() === editName ? branchObj : (typeof b === "object" && b ? b : { name: branchName(b), address: "", phone: "", encargado: "" })
+          );
+        } else {
+          if (currentBranches.some((b) => branchName(b).toLowerCase() === name.toLowerCase())) {
+            setBranchesStatus("Ya existe una sucursal con ese nombre.", true);
+            return;
+          }
+          newList = currentBranches.map((b) =>
+            typeof b === "object" && b ? b : { name: branchName(b), address: "", phone: "", encargado: "" }
+          );
+          newList.push(branchObj);
+        }
+        try {
+          await actualizarBranchesEmpresa(company_id, newList);
+          closeBranchModal();
+          await cargarEmpresas();
+          renderBranches();
+          setBranchesStatus(editName ? "Sucursal actualizada." : `Sucursal agregada a ${company.company_name}.`);
+          showToast(editName ? "Sucursal actualizada" : "Sucursal agregada");
+        } catch (err) {
+          setBranchesStatus(`Error: ${getErrorMessage(err)}`, true);
+          showToast(getErrorMessage(err), true);
+        }
+      }
+
+      async function actualizarBranchesEmpresa(company_id, branches) {
+        const company = getCompanyById(company_id);
+        if (!company) throw new Error("Empresa no encontrada.");
+        const response = await fetch(`/api/configuracion/empresas/${encodeURIComponent(company_id)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            company_name: company.company_name,
+            hr_team_name: company.hr_team_name,
+            hr_contact: company.hr_contact,
+            company_email: company.company_email,
+            company_address: company.company_address,
+            company_phone: company.company_phone,
+            company_website: company.company_website,
+            handoff_auto_close_enabled: company.handoff_auto_close_enabled,
+            handoff_auto_close_minutes: company.handoff_auto_close_minutes,
+            branches: branches,
+            active: company.active,
+          }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar sucursales.");
+        const idx = companies.findIndex((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(company_id));
+        if (idx !== -1 && data.company) companies[idx] = data.company;
+      }
+
+      async function removeBranch(company_id, branchNameStr) {
+        if (!canManageGeneral) return;
+        const company = getCompanyById(company_id);
+        if (!company) return;
+        const current = Array.isArray(company.branches) ? company.branches : [];
+        const key = String(branchNameStr || "").toLowerCase();
+        const filtered = current.filter((b) => branchName(b).toLowerCase() !== key);
+        if (filtered.length === current.length) return;
+        const toSend = filtered.map((b) =>
+          typeof b === "object" && b && b.name != null ? b : { name: branchName(b), address: "", phone: "", encargado: "" }
+        );
+        try {
+          await actualizarBranchesEmpresa(company_id, toSend);
+          await cargarEmpresas();
+          renderBranches();
+          setBranchesStatus("Sucursal eliminada.");
+          showToast("Sucursal eliminada");
+        } catch (err) {
+          setBranchesStatus(`Error: ${getErrorMessage(err)}`, true);
+          showToast(getErrorMessage(err), true);
+        }
       }
 
       function permisosTexto(perms) {
@@ -707,8 +1155,25 @@
       function renderPermissionsInputs(containerEl, selectedPermissions = []) {
         if (!containerEl) return;
         containerEl.innerHTML = "";
+        const catalog = Array.isArray(permissionsCatalog) ? permissionsCatalog : [];
+        if (catalog.length === 0) {
+          const msg = document.createElement("p");
+          msg.className = "permissions-empty-msg";
+          msg.textContent = "Cargando permisos…";
+          containerEl.appendChild(msg);
+          cargarRoles().then(function() {
+            if (permissionsCatalog.length > 0) {
+              renderPermissionsInputs(containerEl, selectedPermissions);
+            } else {
+              msg.textContent = "No hay permisos disponibles. Recargá la página.";
+            }
+          }).catch(function() {
+            msg.textContent = "No se pudieron cargar los permisos. Recargá la página.";
+          });
+          return;
+        }
         const selected = new Set((selectedPermissions || []).map((value) => String(value)));
-        permissionsCatalog.forEach((perm) => {
+        catalog.forEach((perm) => {
           const label = document.createElement("label");
           label.className = "perm-item";
           const checkbox = document.createElement("input");
@@ -743,63 +1208,28 @@
         users.forEach((user) => {
           const tr = document.createElement("tr");
           const username = String(user.username || "");
-          const currentRole = String(user.role || "rrhh").toLowerCase();
-          const roles = Array.isArray(validRoles) && validRoles.length ? validRoles : ["rrhh", "admin"];
 
           const tdUsername = document.createElement("td");
           tdUsername.innerHTML = `<code>${escapeHtml(username || "-")}</code>`;
 
           const tdName = document.createElement("td");
-          const nameInput = document.createElement("input");
-          nameInput.type = "text";
-          nameInput.className = "role-display-input";
-          nameInput.value = user.display_name || "";
-          nameInput.placeholder = "Nombre visible";
-          tdName.appendChild(nameInput);
+          tdName.textContent = user.display_name || "—";
 
           const tdEmail = document.createElement("td");
-          const emailInput = document.createElement("input");
-          emailInput.type = "email";
-          emailInput.className = "role-display-input";
-          emailInput.value = user.email || "";
-          emailInput.placeholder = "—";
-          tdEmail.appendChild(emailInput);
-
-          const tdArea = document.createElement("td");
-          const areaInput = document.createElement("input");
-          areaInput.type = "text";
-          areaInput.className = "role-display-input";
-          areaInput.value = user.area || "";
-          areaInput.placeholder = "—";
-          tdArea.appendChild(areaInput);
+          tdEmail.textContent = user.email || "—";
 
           const tdPhone = document.createElement("td");
-          const phoneInput = document.createElement("input");
-          phoneInput.type = "text";
-          phoneInput.className = "role-display-input";
-          phoneInput.value = user.phone || "";
-          phoneInput.placeholder = "—";
-          tdPhone.appendChild(phoneInput);
+          tdPhone.textContent = user.phone || "—";
+
+          const tdArea = document.createElement("td");
+          tdArea.textContent = user.area || "—";
 
           const tdRole = document.createElement("td");
-          const selectRole = document.createElement("select");
-          selectRole.className = "role-select";
-          roles.forEach((role) => {
-            const opt = document.createElement("option");
-            opt.value = role;
-            opt.textContent = role.toLowerCase() === "rrhh" ? "agente" : role;
-            if (role.toLowerCase() === currentRole) opt.selected = true;
-            selectRole.appendChild(opt);
-          });
-          tdRole.appendChild(selectRole);
+          const roleLabel = String(user.role || "rrhh").toLowerCase() === "rrhh" ? "agente" : (user.role || "—");
+          tdRole.textContent = roleLabel;
 
           const tdAssignments = document.createElement("td");
-          const assignmentsInput = document.createElement("input");
-          assignmentsInput.type = "text";
-          assignmentsInput.className = "role-display-input";
-          assignmentsInput.value = assignmentsToText(user.assignments || []);
-          assignmentsInput.placeholder = "empresa:sucursal, empresa2:*";
-          tdAssignments.appendChild(assignmentsInput);
+          tdAssignments.textContent = assignmentsToSummary(user.assignments || []) || "—";
 
           const tdPerms = document.createElement("td");
           tdPerms.className = "permissions-cell";
@@ -808,40 +1238,12 @@
           const tdAction = document.createElement("td");
           tdAction.className = "config-actions-cell";
 
-          const btnSaveAll = document.createElement("button");
-          btnSaveAll.type = "button";
-          btnSaveAll.className = "role-update-btn";
-          btnSaveAll.textContent = "Guardar cambios";
-          btnSaveAll.addEventListener("click", async () => {
-            try {
-              const assignments = parseAssignmentsText(assignmentsInput.value);
-              await guardarCambiosUsuario(
-                username,
-                nameInput.value,
-                selectRole.value,
-                assignments,
-                emailInput.value,
-                phoneInput.value,
-                areaInput.value
-              );
-            } catch (error) {
-              setUsersStatus(`Error: ${error.message}`, true);
-            }
-          });
-          tdAction.appendChild(btnSaveAll);
-
-          const btnReset = document.createElement("button");
-          btnReset.type = "button";
-          btnReset.className = "role-update-btn ghost";
-          btnReset.textContent = "Enviar reset";
-          btnReset.addEventListener("click", async () => {
-            try {
-              await enviarResetPasswordUsuario(username);
-            } catch (error) {
-              setUsersStatus(`Error: ${error.message}`, true);
-            }
-          });
-          tdAction.appendChild(btnReset);
+          const btnModify = document.createElement("button");
+          btnModify.type = "button";
+          btnModify.className = "role-update-btn";
+          btnModify.textContent = "Modificar";
+          btnModify.addEventListener("click", () => openUserModal("edit", user));
+          tdAction.appendChild(btnModify);
 
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
@@ -851,7 +1253,8 @@
             try {
               await eliminarUsuario(username);
             } catch (error) {
-              setUsersStatus(`Error: ${error.message}`, true);
+              setUsersStatus(`Error: ${getErrorMessage(error)}`, true);
+              showToast(getErrorMessage(error), true);
             }
           });
           tdAction.appendChild(btnDelete);
@@ -867,6 +1270,169 @@
           tr.appendChild(tdAction);
           usersBodyEl.appendChild(tr);
         });
+      }
+
+      function updateModalBranchesDropdown() {
+        if (!modalBranchesPanel) return;
+        modalBranchesPanel.innerHTML = "";
+        const companyId = normalizeCompanyId(modalCompany?.value || "");
+        const company = getCompanyById(companyId);
+        const branches = Array.isArray(company?.branches) ? company.branches : [];
+
+        function addCheckbox(companyIdVal, branchVal, label) {
+          const labelEl = document.createElement("label");
+          labelEl.className = "branch-dropdown-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "modal-branch-cb";
+          cb.dataset.companyId = companyIdVal;
+          cb.dataset.branch = branchVal || "";
+          labelEl.appendChild(cb);
+          labelEl.appendChild(document.createTextNode(label));
+          modalBranchesPanel.appendChild(labelEl);
+        }
+
+        if (companyId && company) {
+          addCheckbox(companyId, "", "Todas las sucursales");
+          branches.forEach((b) => addCheckbox(companyId, branchName(b), branchName(b)));
+        } else {
+          (companies || []).forEach((c) => {
+            const cid = c.company_id || "";
+            const name = c.company_name || cid;
+            const brs = Array.isArray(c.branches) ? c.branches : [];
+            addCheckbox(cid, "", `${name} (todas)`);
+            brs.forEach((b) => addCheckbox(cid, branchName(b), `${name} → ${branchName(b)}`));
+          });
+        }
+        updateModalBranchesTriggerLabel();
+      }
+
+      function getModalAssignmentsFromCheckboxes() {
+        if (!modalBranchesPanel) return [];
+        const cbs = modalBranchesPanel.querySelectorAll(".modal-branch-cb:checked");
+        const list = [];
+        cbs.forEach((cb) => {
+          const companyId = (cb.dataset.companyId || "").trim();
+          const branch = (cb.dataset.branch || "").trim();
+          if (companyId) list.push({ company_id: companyId, branch });
+        });
+        return list;
+      }
+
+      function updateModalBranchesTriggerLabel() {
+        const labelEl = modalBranchesTrigger?.querySelector(".branch-dropdown-trigger-text");
+        if (!labelEl) return;
+        const list = getModalAssignmentsFromCheckboxes();
+        if (list.length === 0) labelEl.textContent = "Seleccionar sucursales";
+        else if (list.length === 1 && list[0].branch === "") labelEl.textContent = "Todas las sucursales";
+        else if (list.length === 1) labelEl.textContent = list[0].branch;
+        else labelEl.textContent = list.length + " sucursales";
+      }
+
+      function getModalAssignments() {
+        if (modalBranchesPanel && modalBranchesPanel.querySelectorAll(".modal-branch-cb").length > 0) {
+          const list = getModalAssignmentsFromCheckboxes();
+          if (list.length > 0) return list;
+        }
+        const companyId = normalizeCompanyId(modalCompany?.value || "");
+        if (!companyId) return [];
+        return [{ company_id: companyId, branch: "" }];
+      }
+
+      function openUserModal(mode, user) {
+        if (!userFormModal || !userFormModalForm) return;
+        modalUsernameEdit.value = "";
+        modalUsername.value = "";
+        modalUsername.disabled = false;
+        modalDisplayName.value = "";
+        modalEmail.value = "";
+        modalPhone.value = "";
+        modalArea.value = "";
+        modalPassword.value = "";
+        modalPassword.required = false;
+        modalRole.value = "rrhh";
+        if (modalPasswordWrap) modalPasswordWrap.style.display = "";
+        fillCompanySelect(modalCompany, "", true);
+
+        if (mode === "add") {
+          userFormModalTitle.textContent = "Agregar usuario";
+          modalSubmitBtn.textContent = "Crear usuario";
+          modalPassword.required = true;
+          fillCompanySelect(modalCompany, selectedCompanyId || "", true);
+          updateModalBranchesDropdown();
+          modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => { cb.checked = false; });
+          const firstAll = modalBranchesPanel?.querySelector(".modal-branch-cb[data-branch='']");
+          if (firstAll) firstAll.checked = true;
+          updateModalBranchesTriggerLabel();
+        } else {
+          userFormModalTitle.textContent = "Modificar usuario";
+          modalSubmitBtn.textContent = "Guardar";
+          if (modalPasswordWrap) modalPasswordWrap.style.display = "none";
+          modalUsernameEdit.value = user.username || "";
+          modalUsername.value = user.username || "";
+          modalUsername.disabled = true;
+          modalDisplayName.value = user.display_name || "";
+          modalEmail.value = user.email || "";
+          modalPhone.value = user.phone || "";
+          modalArea.value = user.area || "";
+          modalRole.value = (user.role || "rrhh").toLowerCase();
+          const assignments = Array.isArray(user.assignments) ? user.assignments : [];
+          const companyIds = [...new Set(assignments.map((a) => normalizeCompanyId(a.company_id)).filter(Boolean))];
+          const oneCompany = companyIds.length === 1 ? companyIds[0] : "";
+          fillCompanySelect(modalCompany, oneCompany || "", true);
+          updateModalBranchesDropdown();
+          modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => { cb.checked = false; });
+          assignments.forEach((a) => {
+            const cid = normalizeCompanyId(a.company_id);
+            const branch = String(a.branch || "").trim();
+            modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => {
+              if (normalizeCompanyId(cb.dataset.companyId) === cid && (cb.dataset.branch || "").trim() === branch) cb.checked = true;
+            });
+          });
+          updateModalBranchesTriggerLabel();
+        }
+        userFormModalForm.dataset.mode = mode;
+        userFormModal.hidden = false;
+      }
+
+      function closeUserModal() {
+        if (userFormModal) userFormModal.hidden = true;
+      }
+
+      async function submitUserModal() {
+        const mode = userFormModalForm?.dataset.mode || "add";
+        const username = (modalUsername?.value || "").trim();
+        const display_name = (modalDisplayName?.value || "").trim();
+        const email = (modalEmail?.value || "").trim();
+        const phone = (modalPhone?.value || "").trim();
+        const area = (modalArea?.value || "").trim();
+        const password = (modalPassword?.value || "").trim();
+        const role = (modalRole?.value || "rrhh").trim();
+        const assignments = getModalAssignments();
+
+        if (mode === "add") {
+          if (!username || !password) throw new Error("Completá usuario y contraseña.");
+          const response = await fetch("/api/rrhh/usuarios", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, display_name, email, phone, area, password, role, assignments }),
+          });
+          if (response.status === 401) {
+            window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+            return;
+          }
+          const data = await response.json();
+          if (!data.ok) throw new Error(data.error || "No se pudo crear el usuario.");
+          setUsersStatus(`Usuario ${data.user.username} creado correctamente.`);
+          showToast("Usuario creado");
+        } else {
+          const editUsername = (modalUsernameEdit?.value || username).trim();
+          if (!editUsername) throw new Error("Usuario no indicado.");
+          showToast("Guardando…");
+          await guardarCambiosUsuario(editUsername, display_name, role, assignments, email, phone, area);
+        }
+        closeUserModal();
+        await cargarUsuarios();
       }
 
       function renderRoles(roles) {
@@ -911,7 +1477,8 @@
                 getSelectedPermissions(permsContainer)
               );
             } catch (error) {
-              setRolesStatus(`Error: ${error.message}`, true);
+              setRolesStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
             }
           });
           tdAction.appendChild(btnSave);
@@ -924,7 +1491,8 @@
             try {
               await eliminarRol(role.name);
             } catch (error) {
-              setRolesStatus(`Error: ${error.message}`, true);
+              setRolesStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
             }
           });
           tdAction.appendChild(btnDelete);
@@ -953,43 +1521,112 @@
       }
 
       function updateNewUserBranchControl() {
-        if (!newUserBranchEl || !newUserBranchesSelectEl) return;
+        if (!newUserBranchEl || !newUserBranchesDropdownWrap || !newUserBranchesTrigger || !newUserBranchesDropdownPanel || !newUserBranchesCheckboxesEl || !newUserBranchesFreetextWrap) return;
         const companyId = normalizeCompanyId(newUserCompanyEl?.value || "");
         const company = getCompanyById(companyId);
         const branches = Array.isArray(company?.branches) ? company.branches : [];
-        const useSelect = branches.length > 0;
-        if (useSelect) {
-          newUserBranchEl.classList.add("hidden");
+        const useCheckboxes = branches.length > 0;
+        newUserBranchesDropdownPanel.classList.remove("branch-dropdown-panel--open");
+        newUserBranchesTrigger.setAttribute("aria-expanded", "false");
+        newUserBranchesDropdownPanel.setAttribute("aria-hidden", "true");
+        if (useCheckboxes) {
+          newUserBranchesCheckboxesEl.innerHTML = "";
+          newUserBranchesCheckboxesEl.classList.remove("hidden");
+          newUserBranchesFreetextWrap.classList.add("hidden");
           newUserBranchEl.setAttribute("aria-hidden", "true");
-          newUserBranchesSelectEl.classList.remove("hidden");
-          newUserBranchesSelectEl.removeAttribute("aria-hidden");
-          newUserBranchesSelectEl.innerHTML = "";
-          const optAll = document.createElement("option");
-          optAll.value = "";
-          optAll.textContent = "Todas las sucursales";
-          newUserBranchesSelectEl.appendChild(optAll);
+          const labelAll = document.createElement("label");
+          labelAll.className = "branch-dropdown-option";
+          labelAll.style.paddingLeft = "8px";
+          labelAll.style.paddingRight = "12px";
+          labelAll.style.whiteSpace = "nowrap";
+          const cbAll = document.createElement("input");
+          cbAll.type = "checkbox";
+          cbAll.className = "branch-cb branch-cb-all";
+          cbAll.dataset.branch = "";
+          cbAll.checked = true;
+          labelAll.appendChild(cbAll);
+          labelAll.appendChild(document.createTextNode("Todas las sucursales"));
+          newUserBranchesCheckboxesEl.appendChild(labelAll);
           branches.forEach((b) => {
-            const opt = document.createElement("option");
-            opt.value = b;
-            opt.textContent = b;
-            newUserBranchesSelectEl.appendChild(opt);
+            const label = document.createElement("label");
+            label.className = "branch-dropdown-option";
+            label.style.paddingLeft = "8px";
+            label.style.paddingRight = "12px";
+            label.style.whiteSpace = "nowrap";
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.className = "branch-cb";
+            cb.dataset.branch = b;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(b));
+            newUserBranchesCheckboxesEl.appendChild(label);
           });
+          updateBranchesTriggerLabel();
         } else {
-          newUserBranchesSelectEl.classList.add("hidden");
-          newUserBranchesSelectEl.setAttribute("aria-hidden", "true");
-          newUserBranchEl.classList.remove("hidden");
+          newUserBranchesCheckboxesEl.classList.add("hidden");
+          newUserBranchesCheckboxesEl.innerHTML = "";
+          newUserBranchesFreetextWrap.classList.remove("hidden");
           newUserBranchEl.removeAttribute("aria-hidden");
+          const labelEl = newUserBranchesTrigger?.querySelector(".branch-dropdown-trigger-text");
+          if (labelEl) labelEl.textContent = "Escribir sucursales (ej: CABA, Rosario)";
         }
+      }
+
+      function getBranchesTriggerLabel() {
+        if (!newUserBranchesCheckboxesEl || newUserBranchesCheckboxesEl.classList.contains("hidden")) return "Seleccionar sucursales";
+        const allCb = newUserBranchesCheckboxesEl.querySelector(".branch-cb-all");
+        const branchCbs = Array.from(newUserBranchesCheckboxesEl.querySelectorAll(".branch-cb:not(.branch-cb-all)"));
+        if (allCb && allCb.checked) return "Todas las sucursales";
+        const n = branchCbs.filter((c) => c.checked).length;
+        if (n === 0) return "Seleccionar sucursales";
+        if (n === 1) return branchCbs.find((c) => c.checked)?.dataset.branch || "Seleccionar sucursales";
+        return n + " sucursales";
+      }
+
+      function updateBranchesTriggerLabel() {
+        const labelEl = newUserBranchesTrigger?.querySelector(".branch-dropdown-trigger-text");
+        if (labelEl) labelEl.textContent = getBranchesTriggerLabel();
+      }
+
+      function setupBranchesDropdownToggle() {
+        if (!newUserBranchesTrigger || !newUserBranchesDropdownPanel) return;
+        newUserBranchesTrigger.addEventListener("click", (e) => {
+          e.preventDefault();
+          const isOpen = newUserBranchesDropdownPanel.classList.toggle("branch-dropdown-panel--open");
+          newUserBranchesTrigger.setAttribute("aria-expanded", String(isOpen));
+          newUserBranchesDropdownPanel.setAttribute("aria-hidden", String(!isOpen));
+        });
+        document.addEventListener("click", (e) => {
+          if (!newUserBranchesDropdownPanel.classList.contains("branch-dropdown-panel--open")) return;
+          if (newUserBranchesDropdownWrap && newUserBranchesDropdownWrap.contains(e.target)) return;
+          newUserBranchesDropdownPanel.classList.remove("branch-dropdown-panel--open");
+          newUserBranchesTrigger.setAttribute("aria-expanded", "false");
+          newUserBranchesDropdownPanel.setAttribute("aria-hidden", "true");
+        });
+        newUserBranchesDropdownPanel.addEventListener("change", (e) => {
+          if (!newUserBranchesCheckboxesEl || newUserBranchesCheckboxesEl.classList.contains("hidden")) return;
+          const allCb = newUserBranchesCheckboxesEl.querySelector(".branch-cb-all");
+          const others = newUserBranchesCheckboxesEl.querySelectorAll(".branch-cb:not(.branch-cb-all)");
+          if (e.target && e.target.classList.contains("branch-cb-all")) {
+            if (e.target.checked) others.forEach((c) => { c.checked = false; });
+          } else {
+            if (allCb && Array.from(others).every((c) => c.checked)) { allCb.checked = true; others.forEach((c) => { c.checked = false; }); }
+            else if (allCb) allCb.checked = false;
+          }
+          updateBranchesTriggerLabel();
+        });
       }
 
       function getNewUserAssignments() {
         const company_id = normalizeCompanyId(newUserCompanyEl?.value || "");
         if (!company_id) return [];
-        if (newUserBranchesSelectEl && !newUserBranchesSelectEl.classList.contains("hidden")) {
-          const selected = Array.from(newUserBranchesSelectEl.selectedOptions || []);
-          const hasAll = selected.some((opt) => (opt.value || "").trim() === "");
-          if (hasAll || selected.length === 0) return [{ company_id, branch: "" }];
-          return selected.map((opt) => ({ company_id, branch: String(opt.value || "").trim() }));
+        if (newUserBranchesCheckboxesEl && !newUserBranchesCheckboxesEl.classList.contains("hidden")) {
+          const allCb = newUserBranchesCheckboxesEl.querySelector(".branch-cb-all");
+          const branchCbs = Array.from(newUserBranchesCheckboxesEl.querySelectorAll(".branch-cb:not(.branch-cb-all)"));
+          if (allCb && allCb.checked) return [{ company_id, branch: "" }];
+          const selected = branchCbs.filter((c) => c.checked).map((c) => (c.dataset.branch || "").trim()).filter(Boolean);
+          if (selected.length === 0) return [{ company_id, branch: "" }];
+          return selected.map((branch) => ({ company_id, branch }));
         }
         const raw = (newUserBranchEl?.value || "").trim();
         if (!raw) return [{ company_id, branch: "" }];
@@ -998,9 +1635,8 @@
       }
 
       function refreshCompanySelectors() {
-        fillCompanySelect(companySelectorEl, selectedCompanyId);
-        fillCompanySelect(newUserCompanyEl, selectedCompanyId || "", true);
-        updateNewUserBranchControl();
+        if (companySelectorEl) fillCompanySelect(companySelectorEl, selectedCompanyId);
+        if (modalCompany) fillCompanySelect(modalCompany, selectedCompanyId || "", true);
         renderCompanySummary();
       }
 
@@ -1019,6 +1655,7 @@
           selectedCompanyId = firstAvailableCompanyId();
         }
         refreshCompanySelectors();
+        renderCompanies(companies);
       }
 
       async function cargarConfiguracionGeneral() {
@@ -1078,26 +1715,73 @@
         refreshCompanySelectors();
         syncGeneralInputs(data.settings || {});
         setGeneralStatus(`Empresa activa: ${data.company.company_name}`);
+        showToast("Empresa aplicada");
       }
 
-      async function crearEmpresa() {
+      function openCompanyModal(company) {
+        if (!companyFormModal || !companyFormModalForm) return;
+        if (modalCompanyEditId) modalCompanyEditId.value = "";
+        if (modalCompanyName) modalCompanyName.value = "";
+        if (modalCompanyId) modalCompanyId.value = "";
+        if (modalCompanyHrTeamName) modalCompanyHrTeamName.value = "";
+        if (modalCompanyHrContact) modalCompanyHrContact.value = "";
+        if (modalCompanyEmail) modalCompanyEmail.value = "";
+        if (modalCompanyAddress) modalCompanyAddress.value = "";
+        if (modalCompanyPhone) modalCompanyPhone.value = "";
+        if (modalCompanyWebsite) modalCompanyWebsite.value = "";
+        if (companyFormModalTitle) companyFormModalTitle.textContent = "Agregar empresa";
+        if (modalCompanyId) {
+          modalCompanyId.disabled = false;
+          modalCompanyId.placeholder = "ej: bacar_norte";
+        }
+        if (company) {
+          if (modalCompanyEditId) modalCompanyEditId.value = company.company_id || "";
+          if (modalCompanyName) modalCompanyName.value = company.company_name || "";
+          if (modalCompanyId) {
+            modalCompanyId.value = company.company_id || "";
+            modalCompanyId.disabled = true;
+          }
+          if (modalCompanyHrTeamName) modalCompanyHrTeamName.value = company.hr_team_name || "";
+          if (modalCompanyHrContact) modalCompanyHrContact.value = company.hr_contact || "";
+          if (modalCompanyEmail) modalCompanyEmail.value = company.company_email || "";
+          if (modalCompanyAddress) modalCompanyAddress.value = company.company_address || "";
+          if (modalCompanyPhone) modalCompanyPhone.value = company.company_phone || "";
+          if (modalCompanyWebsite) modalCompanyWebsite.value = company.company_website || "";
+          if (companyFormModalTitle) companyFormModalTitle.textContent = "Modificar empresa";
+        }
+        companyFormModal.hidden = false;
+      }
+
+      function closeCompanyModal() {
+        if (companyFormModal) companyFormModal.hidden = true;
+      }
+
+      async function submitCompanyModal() {
         if (!canManageGeneral) return;
-        const inferredId = normalizeCompanyId(newCompanyNameEl?.value || "");
+        const editId = (modalCompanyEditId?.value || "").trim();
+        const inferredId = normalizeCompanyId(modalCompanyName?.value || "");
+        const company_id = editId ? normalizeCompanyId(editId) : (normalizeCompanyId((modalCompanyId?.value || "").trim()) || inferredId);
+        const currentCompany = editId ? getCompanyById(editId) : null;
         const payload = {
-          company_id: normalizeCompanyId((newCompanyIdEl?.value || "").trim()) || inferredId,
-          company_name: (newCompanyNameEl?.value || "").trim(),
-          hr_team_name: (newCompanyHrTeamNameEl?.value || "").trim(),
-          hr_contact: (newCompanyHrContactEl?.value || "").trim(),
-          company_email: (newCompanyEmailEl?.value || "").trim(),
-          company_address: (newCompanyAddressEl?.value || "").trim(),
-          company_phone: (newCompanyPhoneEl?.value || "").trim(),
-          company_website: (newCompanyWebsiteEl?.value || "").trim(),
-          branches: parseBranchesText(newCompanyBranchesEl?.value || ""),
+          company_name: (modalCompanyName?.value || "").trim(),
+          hr_team_name: (modalCompanyHrTeamName?.value || "").trim(),
+          hr_contact: (modalCompanyHrContact?.value || "").trim(),
+          company_email: (modalCompanyEmail?.value || "").trim(),
+          company_address: (modalCompanyAddress?.value || "").trim(),
+          company_phone: (modalCompanyPhone?.value || "").trim(),
+          company_website: (modalCompanyWebsite?.value || "").trim(),
+          branches: currentCompany && Array.isArray(currentCompany.branches) ? currentCompany.branches : [],
         };
         if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
           throw new Error("Completá nombre, equipo y contacto.");
         }
-        const response = await fetch("/api/configuracion/empresas", {
+        const url = editId
+          ? `/api/configuracion/empresas/${encodeURIComponent(editId)}`
+          : "/api/configuracion/empresas";
+        if (!editId) {
+          payload.company_id = company_id;
+        }
+        const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -1107,23 +1791,37 @@
           return;
         }
         const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo crear empresa.");
-        if (newCompanyIdEl) newCompanyIdEl.value = "";
-        if (newCompanyNameEl) newCompanyNameEl.value = "";
-        if (newCompanyHrTeamNameEl) newCompanyHrTeamNameEl.value = "";
-        if (newCompanyHrContactEl) newCompanyHrContactEl.value = "";
-        if (newCompanyEmailEl) newCompanyEmailEl.value = "";
-        if (newCompanyAddressEl) newCompanyAddressEl.value = "";
-        if (newCompanyPhoneEl) newCompanyPhoneEl.value = "";
-        if (newCompanyWebsiteEl) newCompanyWebsiteEl.value = "";
-        if (newCompanyBranchesEl) newCompanyBranchesEl.value = "";
+        if (!data.ok) throw new Error(data.error || (editId ? "No se pudo actualizar empresa." : "No se pudo crear empresa."));
+        closeCompanyModal();
         selectedCompanyId = normalizeCompanyId(data.company.company_id);
         await cargarEmpresas();
         if (companySelectorEl) {
           companySelectorEl.value = selectedCompanyId;
         }
         await seleccionarEmpresaActiva();
-        setGeneralStatus(`Empresa ${data.company.company_name} creada y seleccionada.`);
+        setGeneralStatus(editId ? `Empresa ${data.company.company_name} actualizada.` : `Empresa ${data.company.company_name} creada y seleccionada.`);
+        showToast(editId ? "Empresa actualizada" : "Empresa creada");
+      }
+
+      async function eliminarEmpresaPorId(company_id) {
+        if (!canManageGeneral) return;
+        const target = getCompanyById(company_id);
+        const name = target ? target.company_name : company_id;
+        const ok = window.confirm(`¿Eliminar la empresa ${name} (${company_id})?`);
+        if (!ok) return;
+        const response = await fetch(`/api/configuracion/empresas/${encodeURIComponent(company_id)}`, {
+          method: "DELETE",
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo eliminar empresa.");
+        await cargarEmpresas();
+        await cargarConfiguracionGeneral();
+        setGeneralStatus("Empresa eliminada.");
+        showToast("Empresa eliminada");
       }
 
       async function eliminarEmpresaActiva() {
@@ -1145,27 +1843,43 @@
         await cargarEmpresas();
         await cargarConfiguracionGeneral();
         setGeneralStatus("Empresa eliminada correctamente.");
+        showToast("Empresa eliminada");
       }
 
       async function guardarConfiguracionGeneral() {
         if (!canManageGeneral) return;
+        showToast("Guardando…");
         const company_id = normalizeCompanyId(companySelectorEl?.value || selectedCompanyId);
         const autoClosePayload = autoClosePayloadFromUI();
+        const curCompany = getCompanyById(company_id);
+        const useFormFields = cfgCompanyNameEl && cfgHrTeamNameEl && cfgHrContactEl;
+        const branchesFromForm = parseBranchesText(cfgCompanyBranchesEl?.value || "");
+        let branchesToSend;
+        if (useFormFields && curCompany && Array.isArray(curCompany.branches) && branchesFromForm.length > 0) {
+          const existingByName = new Map((curCompany.branches || []).map((b) => [branchName(b).toLowerCase(), (typeof b === "object" && b ? b : { name: branchName(b), address: "", phone: "", encargado: "" })]));
+          branchesToSend = branchesFromForm.map((n) => existingByName.get(n.toLowerCase()) || { name: n, address: "", phone: "", encargado: "" });
+        } else if (curCompany && Array.isArray(curCompany.branches)) {
+          branchesToSend = curCompany.branches;
+        } else if (useFormFields && branchesFromForm.length > 0) {
+          branchesToSend = branchesFromForm.map((n) => ({ name: n, address: "", phone: "", encargado: "" }));
+        } else {
+          branchesToSend = (curCompany && Array.isArray(curCompany.branches)) ? curCompany.branches : [];
+        }
         const payload = {
           company_id,
-          company_name: (cfgCompanyNameEl.value || "").trim(),
-          hr_team_name: (cfgHrTeamNameEl.value || "").trim(),
-          hr_contact: (cfgHrContactEl.value || "").trim(),
-          company_email: (cfgCompanyEmailEl?.value || "").trim(),
-          company_address: (cfgCompanyAddressEl?.value || "").trim(),
-          company_phone: (cfgCompanyPhoneEl?.value || "").trim(),
-          company_website: (cfgCompanyWebsiteEl?.value || "").trim(),
+          company_name: useFormFields ? (cfgCompanyNameEl.value || "").trim() : (curCompany?.company_name || "").trim(),
+          hr_team_name: useFormFields ? (cfgHrTeamNameEl.value || "").trim() : (curCompany?.hr_team_name || "").trim(),
+          hr_contact: useFormFields ? (cfgHrContactEl.value || "").trim() : (curCompany?.hr_contact || "").trim(),
+          company_email: useFormFields ? (cfgCompanyEmailEl?.value || "").trim() : (curCompany?.company_email || "").trim(),
+          company_address: useFormFields ? (cfgCompanyAddressEl?.value || "").trim() : (curCompany?.company_address || "").trim(),
+          company_phone: useFormFields ? (cfgCompanyPhoneEl?.value || "").trim() : (curCompany?.company_phone || "").trim(),
+          company_website: useFormFields ? (cfgCompanyWebsiteEl?.value || "").trim() : (curCompany?.company_website || "").trim(),
           handoff_auto_close_enabled: autoClosePayload.handoff_auto_close_enabled,
           handoff_auto_close_minutes: autoClosePayload.handoff_auto_close_minutes,
-          branches: parseBranchesText(cfgCompanyBranchesEl?.value || ""),
+          branches: branchesToSend,
         };
         if (!payload.company_id || !payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
-          throw new Error("Completá empresa, equipo y contacto.");
+          throw new Error("Seleccioná una empresa con nombre, equipo y contacto.");
         }
         const response = await fetch("/api/configuracion/general", {
           method: "POST",
@@ -1180,6 +1894,7 @@
         if (!data.ok) throw new Error(data.error || "No se pudo guardar configuración.");
         await cargarEmpresas();
         setGeneralStatus("Configuración de empresa actualizada correctamente.");
+        showToast("Cambios guardados");
       }
 
       async function ejecutarAutocierreAhora() {
@@ -1198,11 +1913,13 @@
         const minutes = Number(data.auto_close_minutes || 0);
         if (!data.auto_close_enabled || minutes <= 0) {
           setGeneralStatus("Autocierre desactivado: no se cerraron conversaciones.");
+          showToast("Autocierre desactivado");
           return;
         }
         setGeneralStatus(
           `Autocierre ejecutado (${minutes} min): ${data.closed_count || 0} conversación(es) cerrada(s).`
         );
+        showToast("Autocierre ejecutado");
       }
 
       async function cargarUsuarios() {
@@ -1234,45 +1951,6 @@
         setUsersStatus(userCount ? `${userCount} usuario(s) cargado(s).` : "Sin usuarios en archivo.");
       }
 
-      async function crearUsuario() {
-        if (!canManageUsers) return;
-        const username = (newUsernameEl?.value || "").trim();
-        const display_name = (newDisplayNameEl?.value || "").trim();
-        const email = (newUserEmailEl?.value || "").trim();
-        const phone = (newUserPhoneEl?.value || "").trim();
-        const area = (newUserAreaEl?.value || "").trim();
-        const password = newPasswordEl?.value || "";
-        const role = (newRoleEl?.value || "rrhh").trim();
-        const assignments = getNewUserAssignments();
-        if (!username || !password) {
-          throw new Error("Completá usuario y contraseña.");
-        }
-        const response = await fetch("/api/rrhh/usuarios", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username, display_name, email, phone, area, password, role, assignments }),
-        });
-        if (response.status === 401) {
-          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
-          return;
-        }
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo crear el usuario.");
-        if (newUsernameEl) newUsernameEl.value = "";
-        if (newDisplayNameEl) newDisplayNameEl.value = "";
-        if (newUserEmailEl) newUserEmailEl.value = "";
-        if (newUserPhoneEl) newUserPhoneEl.value = "";
-        if (newUserAreaEl) newUserAreaEl.value = "";
-        if (newPasswordEl) newPasswordEl.value = "";
-        if (newRoleEl) newRoleEl.value = "rrhh";
-        if (newUserBranchEl) newUserBranchEl.value = "";
-        if (newUserBranchesSelectEl) {
-          Array.from(newUserBranchesSelectEl.options).forEach((opt) => { opt.selected = false; });
-        }
-        setUsersStatus(`Usuario ${data.user.username} creado correctamente.`);
-        await cargarUsuarios();
-      }
-
       async function guardarCambiosUsuario(
         username,
         display_name,
@@ -1295,6 +1973,7 @@
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo actualizar el usuario.");
         setUsersStatus(`Usuario ${username} actualizado.`);
+        showToast("Usuario actualizado");
         await cargarUsuarios();
       }
 
@@ -1314,10 +1993,12 @@
 
         if (data.mail_sent) {
           setUsersStatus(`Reset enviado a ${data.email}.`);
+          showToast("Reset enviado");
           return;
         }
         const fallbackLink = data.reset_url ? ` Link manual: ${data.reset_url}` : "";
         setUsersStatus(`No se pudo enviar por SMTP. ${data.warning || ""}${fallbackLink}`.trim(), true);
+        showToast("No se pudo enviar el reset por email", true);
       }
 
       async function eliminarUsuario(username) {
@@ -1334,6 +2015,7 @@
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo eliminar usuario.");
         setUsersStatus(`Usuario ${username} eliminado.`);
+        showToast("Usuario eliminado");
         await cargarUsuarios();
       }
 
@@ -1350,35 +2032,8 @@
           permissionsCatalog = data.permissions_catalog;
         }
         if (rolesFileEl) rolesFileEl.textContent = data.roles_file ? "Fuente: archivo local" : "";
-        renderPermissionsInputs(newRolePermissionsEl, []);
         renderRoles(data.roles || []);
         setRolesStatus(`${(data.roles || []).length} rol(es) cargado(s).`);
-      }
-
-      async function crearRol() {
-        if (!canManageRoles) return;
-        const name = (newRoleNameEl?.value || "").trim().toLowerCase();
-        const display_name = (newRoleDisplayNameEl?.value || "").trim();
-        const permissions = getSelectedPermissions(newRolePermissionsEl);
-        if (!name) throw new Error("Completá nombre de rol.");
-        if (permissions.length === 0) throw new Error("Seleccioná al menos un permiso.");
-        const response = await fetch("/api/rrhh/roles", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, display_name, permissions }),
-        });
-        if (response.status === 401) {
-          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
-          return;
-        }
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "No se pudo crear el rol.");
-        if (newRoleNameEl) newRoleNameEl.value = "";
-        if (newRoleDisplayNameEl) newRoleDisplayNameEl.value = "";
-        renderPermissionsInputs(newRolePermissionsEl, []);
-        setRolesStatus(`Rol ${data.role.name} creado correctamente.`);
-        await cargarRoles();
-        await cargarUsuarios();
       }
 
       async function actualizarRolDefinicion(roleName, displayName, permissions) {
@@ -1395,6 +2050,7 @@
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo actualizar el rol.");
         setRolesStatus(`Rol ${data.role.name} actualizado.`);
+        showToast("Rol actualizado");
         await cargarRoles();
         await cargarUsuarios();
       }
@@ -1413,6 +2069,49 @@
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo eliminar el rol.");
         setRolesStatus(`Rol ${roleName} eliminado.`);
+        showToast("Rol eliminado");
+        await cargarRoles();
+        await cargarUsuarios();
+      }
+
+      function openRoleModal() {
+        if (!roleFormModal || !roleFormModalForm) return;
+        if (modalRoleName) modalRoleName.value = "";
+        if (modalRoleDisplayName) modalRoleDisplayName.value = "";
+        if (permissionsCatalog.length === 0) {
+          cargarRoles().then(function() {
+            renderPermissionsInputs(modalRolePermissionsEl, []);
+          }).catch(function() {});
+        } else {
+          renderPermissionsInputs(modalRolePermissionsEl, []);
+        }
+        roleFormModal.hidden = false;
+      }
+
+      function closeRoleModal() {
+        if (roleFormModal) roleFormModal.hidden = true;
+      }
+
+      async function submitRoleModal() {
+        const name = (modalRoleName?.value || "").trim().toLowerCase();
+        const display_name = (modalRoleDisplayName?.value || "").trim();
+        const permissions = getSelectedPermissions(modalRolePermissionsEl);
+        if (!name) throw new Error("Completá nombre de rol.");
+        if (permissions.length === 0) throw new Error("Seleccioná al menos un permiso.");
+        const response = await fetch("/api/rrhh/roles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, display_name, permissions }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo crear el rol.");
+        setRolesStatus(`Rol ${data.role.name} creado correctamente.`);
+        showToast("Rol creado");
+        closeRoleModal();
         await cargarRoles();
         await cargarUsuarios();
       }
@@ -1421,15 +2120,69 @@
         themeToggleBtn.addEventListener("click", toggleTheme);
       }
 
-      if (newCompanyForm) {
-        newCompanyForm.addEventListener("submit", async (event) => {
-          event.preventDefault();
+      if (btnAddCompany) {
+        btnAddCompany.addEventListener("click", openCompanyModal);
+      }
+      if (companyFormModalForm) {
+        companyFormModalForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
           try {
-            await crearEmpresa();
+            await submitCompanyModal();
             await cargarUsuarios();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
+        });
+      }
+      if (companyFormModal) {
+        const backdrop = companyFormModal.querySelector(".config-modal-backdrop");
+        const closeBtn = companyFormModal.querySelector(".config-modal-close");
+        const cancelBtn = companyFormModal.querySelector(".config-modal-cancel");
+        if (backdrop) backdrop.addEventListener("click", closeCompanyModal);
+        if (closeBtn) closeBtn.addEventListener("click", closeCompanyModal);
+        if (cancelBtn) cancelBtn.addEventListener("click", closeCompanyModal);
+      }
+
+      if (branchFormModalForm) {
+        branchFormModalForm.addEventListener("submit", submitBranchModal);
+      }
+      if (branchFormModal) {
+        const backdrop = branchFormModal.querySelector(".config-modal-backdrop");
+        const closeBtn = branchFormModal.querySelector(".config-modal-close");
+        const cancelBtn = branchFormModal.querySelector(".config-modal-cancel");
+        if (backdrop) backdrop.addEventListener("click", closeBranchModal);
+        if (closeBtn) closeBtn.addEventListener("click", closeBranchModal);
+        if (cancelBtn) cancelBtn.addEventListener("click", closeBranchModal);
+      }
+
+      if (modalCompany) {
+        modalCompany.addEventListener("change", function() {
+          updateModalBranchesDropdown();
+        });
+      }
+      if (modalBranchesTrigger && modalBranchesPanel) {
+        modalBranchesTrigger.addEventListener("click", function(e) {
+          e.preventDefault();
+          const isOpen = modalBranchesPanel.classList.toggle("branch-dropdown-panel--open");
+          modalBranchesTrigger.setAttribute("aria-expanded", String(isOpen));
+          modalBranchesPanel.setAttribute("aria-hidden", String(!isOpen));
+        });
+        document.addEventListener("click", function(e) {
+          if (!modalBranchesPanel.classList.contains("branch-dropdown-panel--open")) return;
+          if (modalBranchesWrap && modalBranchesWrap.contains(e.target)) return;
+          modalBranchesPanel.classList.remove("branch-dropdown-panel--open");
+          modalBranchesTrigger.setAttribute("aria-expanded", "false");
+          modalBranchesPanel.setAttribute("aria-hidden", "true");
+        });
+        modalBranchesPanel.addEventListener("change", function(e) {
+          if (e.target && e.target.classList.contains("modal-branch-cb")) {
+            const allCb = modalBranchesPanel.querySelector(".modal-branch-cb[data-branch='']");
+            const others = modalBranchesPanel.querySelectorAll(".modal-branch-cb:not([data-branch=''])");
+            if (e.target === allCb && allCb.checked) others.forEach((c) => { c.checked = false; });
+            else if (allCb && Array.from(others).some((c) => c.checked)) allCb.checked = false;
+          }
+          updateModalBranchesTriggerLabel();
         });
       }
 
@@ -1439,7 +2192,8 @@
             await seleccionarEmpresaActiva();
             await cargarUsuarios();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
@@ -1451,7 +2205,8 @@
           try {
             await seleccionarEmpresaActiva();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
@@ -1462,7 +2217,8 @@
             await eliminarEmpresaActiva();
             await cargarUsuarios();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
@@ -1474,7 +2230,8 @@
             await guardarConfiguracionGeneral();
             await cargarUsuarios();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
@@ -1485,7 +2242,8 @@
             await guardarConfiguracionGeneral();
             await ejecutarAutocierreAhora();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
@@ -1496,64 +2254,74 @@
             await cargarEmpresas();
             await cargarConfiguracionGeneral();
           } catch (error) {
-            setGeneralStatus(`Error: ${error.message}`, true);
+            setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
 
-      if (createUserForm) {
-        createUserForm.addEventListener("submit", async (event) => {
-          event.preventDefault();
+      if (btnAddUser) {
+        btnAddUser.addEventListener("click", () => openUserModal("add"));
+      }
+      if (userFormModalForm) {
+        userFormModalForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
           try {
-            await crearUsuario();
+            await submitUserModal();
           } catch (error) {
-            setUsersStatus(`Error: ${error.message}`, true);
+            setUsersStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
       }
-
-      if (newUserCompanyEl) {
-        newUserCompanyEl.addEventListener("change", () => {
-          updateNewUserBranchControl();
-        });
+      if (userFormModal) {
+        const backdrop = userFormModal.querySelector(".config-modal-backdrop");
+        const closeBtn = userFormModal.querySelector(".config-modal-close");
+        const cancelBtn = userFormModal.querySelector(".config-modal-cancel");
+        if (backdrop) backdrop.addEventListener("click", closeUserModal);
+        if (closeBtn) closeBtn.addEventListener("click", closeUserModal);
+        if (cancelBtn) cancelBtn.addEventListener("click", closeUserModal);
       }
 
-      if (createRoleForm) {
-        createRoleForm.addEventListener("submit", async (event) => {
-          event.preventDefault();
+      if (btnAddRole) {
+        btnAddRole.addEventListener("click", openRoleModal);
+      }
+      if (roleFormModalForm) {
+        roleFormModalForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
           try {
-            await crearRol();
+            await submitRoleModal();
           } catch (error) {
-            setRolesStatus(`Error: ${error.message}`, true);
+            setRolesStatus(`Error: ${getErrorMessage(error)}`, true);
+            showToast(getErrorMessage(error), true);
           }
         });
+      }
+      if (roleFormModal) {
+        const backdrop = roleFormModal.querySelector(".config-modal-backdrop");
+        const closeBtn = roleFormModal.querySelector(".config-modal-close");
+        const cancelBtn = roleFormModal.querySelector(".config-modal-cancel");
+        if (backdrop) backdrop.addEventListener("click", closeRoleModal);
+        if (closeBtn) closeBtn.addEventListener("click", closeRoleModal);
+        if (cancelBtn) cancelBtn.addEventListener("click", closeRoleModal);
       }
 
       async function init() {
         applyTheme(getInitialTheme());
         setupSectionNavigation();
+        setupBranchesDropdownToggle();
         if (canManageGeneral) {
           try {
             await cargarEmpresas();
             await cargarConfiguracionGeneral();
           } catch (error) {
-            setGeneralStatus(`Error cargando configuración: ${error.message}`, true);
+            setGeneralStatus(`Error cargando configuración: ${getErrorMessage(error)}`, true);
           }
         }
-        if (canManageUsers) {
-          try {
-            await cargarUsuarios();
-          } catch (error) {
-            setUsersStatus(`Error cargando usuarios: ${error.message}`, true);
-          }
-        }
-        if (canManageRoles) {
-          try {
-            await cargarRoles();
-          } catch (error) {
-            setRolesStatus(`Error cargando roles: ${error.message}`, true);
-          }
-        }
+        const loads = [];
+        if (canManageUsers) loads.push(cargarUsuarios().catch((e) => { setUsersStatus(`Error: ${getErrorMessage(e)}`, true); }));
+        if (canManageRoles) loads.push(cargarRoles().catch((e) => { setRolesStatus(`Error: ${getErrorMessage(e)}`, true); }));
+        if (loads.length) await Promise.all(loads);
       }
 
       init();

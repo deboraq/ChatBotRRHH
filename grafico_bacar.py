@@ -32,7 +32,7 @@ def crear_grafico():
     plt.pie(sizes, explode=explode, labels=labels, colors=colores, 
             autopct='%1.1f%%', shadow=True, startangle=140)
     
-    plt.title("Nivel de Satisfacción - Asistente RRHH Bacar SA")
+    plt.title("Nivel de Satisfacción - Asistente Virtual Bacar SA")
     plt.axis('equal') 
     
     print("📊 Generando gráfico de satisfacción...")

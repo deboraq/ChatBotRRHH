@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Estadísticas Chatbot RRHH</title>
+    <title>Estadísticas del Chatbot</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='stats.css') }}" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
@@ -15,7 +15,6 @@
           <p>Métricas en tiempo real desde Firestore (sin exportar a Sheets).</p>
         </div>
         <div class="actions">
-          <a class="btn" href="/">Ir al Chat</a>
           <button id="btn-refresh" type="button">Actualizar</button>
         </div>
       </header>
@@ -49,12 +48,12 @@
           <small>Click para ver consultas</small>
         </article>
         <article class="kpi-card actionable" id="card-rrhh-abiertas" data-drilldown="rrhh_abiertas">
-          <h3>RRHH abiertas</h3>
+          <h3>Derivaciones abiertas</h3>
           <p id="kpi-rrhh-abiertas">0</p>
           <small>Pendientes + en atención</small>
         </article>
         <article class="kpi-card actionable" id="card-rrhh-atencion" data-drilldown="rrhh_en_atencion">
-          <h3>RRHH en atención</h3>
+          <h3>En atención</h3>
           <p id="kpi-rrhh-atencion">0</p>
           <small>Click para ver conversaciones</small>
         </article>
@@ -202,7 +201,7 @@
             (row) => row.estado !== "cerrada"
           );
           setDetailTable(
-            "Conversaciones RRHH abiertas",
+            "Conversaciones abiertas",
             [
               { label: "Conversación", key: "conversation_id" },
               { label: "Estado", key: "estado" },
@@ -211,7 +210,7 @@
               { label: "Fecha", key: "fecha" },
             ],
             rows,
-            "No hay conversaciones RRHH abiertas."
+            "No hay conversaciones abiertas."
           );
           return;
         }
@@ -221,7 +220,7 @@
             (row) => row.estado === "en_atencion"
           );
           setDetailTable(
-            "Conversaciones RRHH en atención",
+            "Conversaciones en atención",
             [
               { label: "Conversación", key: "conversation_id" },
               { label: "Agente", key: "agente" },
@@ -229,7 +228,7 @@
               { label: "Fecha", key: "fecha" },
             ],
             rows,
-            "No hay conversaciones en atención por RRHH."
+            "No hay conversaciones en atención."
           );
           return;
         }

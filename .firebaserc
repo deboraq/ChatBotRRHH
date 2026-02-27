@@ -1,0 +1,16 @@
+{
+  "projects": {},
+  "targets": {
+    "it-analyzer": {
+      "hosting": {
+        "debo-chat": [
+          "debo-chat"
+        ],
+        "it-analyzer": [
+          "it-analyzer"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

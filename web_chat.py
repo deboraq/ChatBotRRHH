@@ -23,8 +23,8 @@ BOOTSTRAP_COMPANY_NAME = (
     or "Bacar"
 )
 BOOTSTRAP_HR_TEAM_NAME = (
-    str(os.getenv("CHATBOT_HR_TEAM_NAME", getattr(chatbot, "HR_TEAM_NAME", "RRHH"))).strip()
-    or "RRHH"
+    str(os.getenv("CHATBOT_HR_TEAM_NAME", getattr(chatbot, "HR_TEAM_NAME", "Atención"))).strip()
+    or "Atención"
 )
 BOOTSTRAP_HR_CONTACT = (
     str(os.getenv("CHATBOT_HR_CONTACT", getattr(chatbot, "HR_CONTACT", "interno 104"))).strip()
@@ -209,6 +209,31 @@ def _default_company_id():
     return _normalize_company_id(_default_general_settings().get("company_name")) or "empresa"
 
 
+def _normalize_branch_item(item):
+    """Normaliza un ítem de sucursal: string -> objeto con name; dict -> objeto con name, address, phone, encargado."""
+    if item is None:
+        return None
+    if isinstance(item, dict):
+        name = str(item.get("name") or "").strip()
+        if not name:
+            return None
+        return {
+            "name": name,
+            "address": _normalize_optional_company_text(item.get("address"), max_len=240),
+            "phone": _normalize_optional_company_text(item.get("phone"), max_len=80),
+            "encargado": _normalize_optional_company_text(item.get("encargado"), max_len=120),
+        }
+    branch = str(item or "").strip()
+    if not branch:
+        return None
+    return {
+        "name": branch,
+        "address": "",
+        "phone": "",
+        "encargado": "",
+    }
+
+
 def _normalize_branches(raw_branches):
     if raw_branches is None:
         return []
@@ -216,10 +241,10 @@ def _normalize_branches(raw_branches):
     cleaned = []
     seen = set()
     for item in values:
-        branch = str(item or "").strip()
+        branch = _normalize_branch_item(item)
         if not branch:
             continue
-        key = branch.lower()
+        key = branch["name"].lower()
         if key in seen:
             continue
         cleaned.append(branch)
@@ -266,7 +291,7 @@ def _normalize_company_entry(entry):
     company_id = _normalize_company_id(entry.get("company_id") or company_name)
     if not company_id:
         return None
-    hr_team_name = str(entry.get("hr_team_name") or "RRHH").strip() or "RRHH"
+    hr_team_name = str(entry.get("hr_team_name") or "Atención").strip() or "Atención"
     hr_contact = str(entry.get("hr_contact") or "").strip() or "interno 104"
     branches = _normalize_branches(entry.get("branches"))
     company_email = _normalize_optional_company_text(entry.get("company_email"), max_len=200).lower()
@@ -280,6 +305,12 @@ def _normalize_company_entry(entry):
     )
     if not auto_close_enabled:
         auto_close_minutes = 0
+    permitir_humano = _normalize_bool_flag(entry.get("permitir_hablar_con_humano"), default=True)
+    temas_hab_raw = entry.get("temas_habilitados")
+    if isinstance(temas_hab_raw, list):
+        temas_habilitados = [str(t).strip().lower() for t in temas_hab_raw if str(t).strip()]
+    else:
+        temas_habilitados = []
     return {
         "company_id": company_id,
         "company_name": company_name,
@@ -293,6 +324,8 @@ def _normalize_company_entry(entry):
         "handoff_auto_close_minutes": auto_close_minutes,
         "branches": branches,
         "active": bool(entry.get("active", True)),
+        "permitir_hablar_con_humano": permitir_humano,
+        "temas_habilitados": temas_habilitados,
     }
 
 
@@ -301,7 +334,7 @@ def _default_company_entry():
     return {
         "company_id": _default_company_id(),
         "company_name": defaults.get("company_name") or "Empresa",
-        "hr_team_name": defaults.get("hr_team_name") or "RRHH",
+        "hr_team_name": defaults.get("hr_team_name") or "Atención",
         "hr_contact": defaults.get("hr_contact") or "interno 104",
         "company_email": "",
         "company_address": "",
@@ -311,6 +344,8 @@ def _default_company_entry():
         "handoff_auto_close_minutes": AUTO_CLOSE_DEFAULT_MINUTES,
         "branches": [],
         "active": True,
+        "permitir_hablar_con_humano": True,
+        "temas_habilitados": [],
     }
 
 
@@ -341,6 +376,14 @@ def _merge_company_entries(current, candidate):
     )
     base["active"] = bool(base.get("active", True) or extra.get("active", True))
     base["company_id"] = str(base.get("company_id") or extra.get("company_id") or "").strip()
+    if "permitir_hablar_con_humano" in extra:
+        base["permitir_hablar_con_humano"] = _normalize_bool_flag(extra.get("permitir_hablar_con_humano"), default=True)
+    else:
+        base.setdefault("permitir_hablar_con_humano", True)
+    if "temas_habilitados" in extra and isinstance(extra.get("temas_habilitados"), list):
+        base["temas_habilitados"] = [str(t).strip().lower() for t in extra["temas_habilitados"] if str(t).strip()]
+    else:
+        base.setdefault("temas_habilitados", [])
     return base
 
 
@@ -464,7 +507,7 @@ def _set_company_session(company_id):
             company = allowed[0]
     session["company_id"] = company["company_id"]
     session["company_name"] = company["company_name"]
-    session["company_hr_team_name"] = company.get("hr_team_name") or "RRHH"
+    session["company_hr_team_name"] = company.get("hr_team_name") or "Atención"
     return company
 
 
@@ -518,6 +561,8 @@ def _read_general_settings():
         "handoff_auto_close_enabled": auto_close_enabled,
         "handoff_auto_close_minutes": auto_close_minutes,
         "branches": list(company.get("branches") or []),
+        "permitir_hablar_con_humano": _normalize_bool_flag(company.get("permitir_hablar_con_humano"), default=True),
+        "temas_habilitados": list(company.get("temas_habilitados") or []),
     }
 
 
@@ -583,6 +628,18 @@ def _write_general_settings(payload):
         auto_close_minutes = 0
     branches = _normalize_branches((payload or {}).get("branches") or current.get("branches") or [])
 
+    permitir_humano = _normalize_bool_flag(
+        data.get("permitir_hablar_con_humano")
+        if "permitir_hablar_con_humano" in data
+        else current.get("permitir_hablar_con_humano", True),
+        default=True,
+    )
+    temas_hab_raw = data.get("temas_habilitados") if "temas_habilitados" in data else current.get("temas_habilitados")
+    temas_habilitados = (
+        [str(t).strip().lower() for t in temas_hab_raw if str(t).strip()]
+        if isinstance(temas_hab_raw, list)
+        else []
+    )
     ok, company, error = _upsert_company(
         {
             "company_id": company_id or current.get("company_id"),
@@ -597,6 +654,8 @@ def _write_general_settings(payload):
             "handoff_auto_close_minutes": auto_close_minutes,
             "branches": branches,
             "active": True,
+            "permitir_hablar_con_humano": permitir_humano,
+            "temas_habilitados": temas_habilitados,
         }
     )
     if not ok:
@@ -619,7 +678,7 @@ def _apply_company_branding(settings=None):
 def _farewell_message():
     cfg = _apply_company_branding()
     return (
-        f"Gracias por comunicarte con {cfg.get('hr_team_name', 'RRHH')} "
+        f"Gracias por comunicarte con {cfg.get('hr_team_name', 'Atención')} "
         f"de {cfg.get('company_name', 'la empresa')}. ¡Buen día!"
     )
 
@@ -632,7 +691,7 @@ def _manual_agent_id(name):
 
 
 def _agent_payload(display_name, agent_id="", role="rrhh", company_id=""):
-    shown = str(display_name or "RRHH").strip() or "RRHH"
+    shown = str(display_name or "Agente").strip() or "Agente"
     identifier = str(agent_id or "").strip().lower() or _manual_agent_id(shown)
     company_key = _normalize_company_id(company_id)
     return {
@@ -649,7 +708,7 @@ def _active_agent_from_current_user():
         return None
     company_id = _selected_company_id_for_rrhh()
     return _agent_payload(
-        display_name=current.get("display_name") or current.get("username") or "RRHH",
+        display_name=current.get("display_name") or current.get("username") or "Agente",
         agent_id=str(current.get("username") or "").strip().lower(),
         role=current.get("role") or "rrhh",
         company_id=company_id,
@@ -715,7 +774,7 @@ def _clear_rrhh_user():
     session.pop("rrhh_assignments", None)
 
 
-def _rrhh_agent_name(default="RRHH"):
+def _rrhh_agent_name(default="Agente"):
     current = _current_rrhh_user()
     if not current:
         return default
@@ -727,13 +786,13 @@ def _resolve_rrhh_agent(payload):
         current_agent = _active_agent_from_current_user()
         if current_agent:
             return current_agent
-    fallback_name = str((payload or {}).get("agente") or "RRHH").strip() or "RRHH"
+    fallback_name = str((payload or {}).get("agente") or "Agente").strip() or "Agente"
     return _agent_payload(display_name=fallback_name, company_id=_selected_company_id_for_rrhh())
 
 
 def _upsert_active_agent(agent, source="heartbeat"):
     payload = _agent_payload(
-        display_name=agent.get("display_name") or "RRHH",
+        display_name=agent.get("display_name") or "Agente",
         agent_id=agent.get("agent_id") or "",
         role=agent.get("role") or "rrhh",
         company_id=agent.get("company_id") or _selected_company_id_for_rrhh(),
@@ -1232,7 +1291,7 @@ def _join_messages_for_user(messages):
         agente = str(msg.get("agente") or "").strip()
         fecha = _fmt_fecha(msg.get("fecha"))
         if remitente == "rrhh":
-            prefijo = f"👩‍💼 RRHH{f' ({agente})' if agente else ''}"
+            prefijo = f"👩‍💼 Agente{f' ({agente})' if agente else ''}"
         elif remitente == "sistema":
             prefijo = "ℹ️ Sistema"
         else:
@@ -1290,14 +1349,14 @@ def _take_handoff(conversation_id, agente, auto_taken=False):
         _add_handoff_message(
             conversation_id,
             remitente="sistema",
-            texto=f"Tu conversación fue asignada automáticamente a RRHH ({agent['display_name']}).",
+            texto=f"Tu conversación fue asignada automáticamente a un agente ({agent['display_name']}).",
             visible_to_colaborador=False,
         )
     else:
         _add_handoff_message(
             conversation_id,
             remitente="sistema",
-            texto=f"Tu conversación fue tomada por RRHH ({agent['display_name']}).",
+            texto=f"Tu conversación fue tomada por un agente ({agent['display_name']}).",
         )
     return True
 
@@ -1468,22 +1527,32 @@ def _collect_new_messages_for_collaborator(conversation_id):
     return nuevos
 
 
-def construir_temas_map():
-    temas = chatbot.obtener_temas_desde_firestore()
+def construir_temas_map(company_id=None, temas_habilitados=None):
+    """
+    Construye el mapa número -> tema para el menú.
+    Si temas_habilitados es una lista no vacía, solo se incluyen esos temas (normalizados).
+    """
+    if company_id is None:
+        company_id = (_current_company() or {}).get("company_id")
+    temas = chatbot.obtener_temas_desde_firestore(company_id=company_id)
     if not temas:
         temas = sorted(chatbot.FAQ_FALLBACK.keys(), key=chatbot.normalizar_texto)
+    if temas_habilitados and isinstance(temas_habilitados, list):
+        allow_set = {chatbot.normalizar_texto(t) for t in temas_habilitados}
+        temas = [t for t in temas if chatbot.normalizar_texto(t) in allow_set]
     return {str(i): tema for i, tema in enumerate(temas, start=1)}
 
 
-def construir_menu_texto(temas_map):
+def construir_menu_texto(temas_map, permitir_hablar_con_humano=True):
     lineas = ["📚 Menú de temas disponibles:"]
     for numero, tema in temas_map.items():
         lineas.append(f"{numero}. {tema.capitalize()}")
-    lineas.append("H. Hablar con alguien de RRHH")
+    if permitir_hablar_con_humano:
+        lineas.append("H. Hablar con un agente")
     return "\n".join(lineas)
 
 
-def construir_acciones_menu(temas_map, limite=8):
+def construir_acciones_menu(temas_map, limite=8, permitir_hablar_con_humano=True):
     acciones = []
     for numero, tema in list(temas_map.items())[:limite]:
         acciones.append(_accion(f"{numero}. {tema.capitalize()}", numero, "topic"))
@@ -1491,7 +1560,8 @@ def construir_acciones_menu(temas_map, limite=8):
     if len(temas_map) > limite:
         acciones.append(_accion("Ver menú completo", "menu", "secondary"))
 
-    acciones.append(_accion("Hablar con RRHH", "h", "secondary"))
+    if permitir_hablar_con_humano:
+        acciones.append(_accion("Hablar con un agente", "h", "secondary"))
     return acciones
 
 
@@ -1503,20 +1573,21 @@ def construir_acciones_feedback():
     ]
 
 
-def construir_acciones_sugerencias(consulta, temas_map):
+def construir_acciones_sugerencias(consulta, temas_map, permitir_hablar_con_humano=True):
     sugerencias = chatbot.sugerir_temas(consulta, temas_map)
     acciones = []
     for tema in sugerencias[:4]:
         acciones.append(_accion(tema.capitalize(), tema, "topic"))
     acciones.append(_accion("Ver menú", "menu", "secondary"))
-    acciones.append(_accion("Hablar con RRHH", "h", "secondary"))
+    if permitir_hablar_con_humano:
+        acciones.append(_accion("Hablar con un agente", "h", "secondary"))
     return acciones
 
 
 def construir_acciones_handoff():
     return [
-        _accion("Actualizar mensajes RRHH", "__poll_rrhh__", "secondary"),
-        _accion("Finalizar chat con RRHH", "__cerrar_rrhh__", "negative"),
+        _accion("Actualizar mensajes", "__poll_rrhh__", "secondary"),
+        _accion("Finalizar chat con agente", "__cerrar_rrhh__", "negative"),
     ]
 
 
@@ -1593,7 +1664,7 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
                 "rrhh_agente": assigned_agent.get("display_name", "") if assigned_agent else "",
                 "rrhh_agente_id": assigned_agent.get("agent_id", "") if assigned_agent else "",
                 "ultimo_mensaje": "",
-                "ultima_consulta": mensaje_usuario.strip() or "Solicitud de contacto RRHH",
+                "ultima_consulta": mensaje_usuario.strip() or "Solicitud de derivación",
                 "chat_session_id": chat_session_id,
             },
             merge=False,
@@ -1601,7 +1672,7 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
         _add_handoff_message(
             conversation_id,
             remitente="sistema",
-            texto="El colaborador solicitó hablar con RRHH.",
+            texto="El colaborador solicitó hablar con un agente.",
             visible_to_colaborador=False,
         )
         if assigned_agent:
@@ -1627,7 +1698,7 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
     return conversation_id
 
 
-def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map):
+def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=True):
     tipo, texto_norm = chatbot.clasificar_input_feedback(texto_usuario)
 
     if tipo == "feedback":
@@ -1645,14 +1716,14 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map):
             )
         return _payload(
             texto,
-            quick_actions=construir_acciones_menu(temas_map, limite=6),
+            quick_actions=construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir_hablar_con_humano),
         )
 
     if tipo == "menu":
         limpiar_estado_conversacion()
         return _payload(
-            construir_menu_texto(temas_map),
-            quick_actions=construir_acciones_menu(temas_map),
+            construir_menu_texto(temas_map, permitir_hablar_con_humano=permitir_hablar_con_humano),
+            quick_actions=construir_acciones_menu(temas_map, permitir_hablar_con_humano=permitir_hablar_con_humano),
         )
 
     if tipo == "salir":
@@ -1671,13 +1742,20 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map):
 
 
 def responder_chat(mensaje_usuario):
-    temas_map = construir_temas_map()
+    company = _current_company()
+    company_id = (company or {}).get("company_id")
+    permitir = (company or {}).get("permitir_hablar_con_humano", True)
+    temas_habilitados = (company or {}).get("temas_habilitados") or []
+    temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
     mensaje_norm = chatbot.normalizar_texto(mensaje_usuario)
+
+    def _acciones_menu(limite=8):
+        return construir_acciones_menu(temas_map, limite=limite, permitir_hablar_con_humano=permitir)
 
     if not mensaje_norm:
         return _payload(
             "No llegué a entender tu consulta. ¿Podés reformularla?",
-            quick_actions=construir_acciones_menu(temas_map, limite=6),
+            quick_actions=_acciones_menu(6),
         )
 
     if mensaje_norm in chatbot.PALABRAS_SALIDA:
@@ -1700,8 +1778,22 @@ def responder_chat(mensaje_usuario):
             _close_handoff(handoff_id, "colaborador")
             _clear_handoff_session()
             return _payload(
-                "✅ Cerré la conversación con RRHH. Si querés, seguimos con el asistente virtual.",
-                quick_actions=construir_acciones_menu(temas_map, limite=6),
+                "✅ Cerré la conversación con el agente. Si querés, seguimos con el asistente virtual.",
+                quick_actions=_acciones_menu(6),
+            )
+
+        # Si es un saludo, asumimos que quiere volver al bot (no derivar a agente).
+        if chatbot.es_saludo(mensaje_norm) or mensaje_norm == "menu":
+            _close_handoff(handoff_id, "colaborador")
+            _clear_handoff_session()
+            if mensaje_norm == "menu":
+                return _payload(
+                    construir_menu_texto(temas_map, permitir_hablar_con_humano=permitir),
+                    quick_actions=construir_acciones_menu(temas_map, permitir_hablar_con_humano=permitir),
+                )
+            return _payload(
+                chatbot.MENSAJE_BIENVENIDA,
+                quick_actions=_acciones_menu(6),
             )
 
         if mensaje_norm in HANDOFF_POLL_COMMANDS:
@@ -1715,9 +1807,9 @@ def responder_chat(mensaje_usuario):
             conv = _fetch_handoff(handoff_id) or {}
             estado = str(conv.get("estado") or "").strip().lower()
             if estado == HANDOFF_STATUS_PENDING:
-                texto = "⏳ Tu consulta sigue en cola. RRHH te responde en breve."
+                texto = "⏳ Tu consulta sigue en cola. Un agente te responde en breve."
             else:
-                agente = conv.get("rrhh_agente") or "equipo RRHH"
+                agente = conv.get("rrhh_agente") or "el equipo"
                 texto = f"🟢 Chat activo con {agente}. Aún no hay nuevos mensajes."
             return _payload(
                 texto,
@@ -1735,9 +1827,9 @@ def responder_chat(mensaje_usuario):
         conv = _fetch_handoff(handoff_id) or {}
         estado = str(conv.get("estado") or "").strip().lower()
         if estado == HANDOFF_STATUS_PENDING:
-            texto = "📨 Mensaje enviado. RRHH todavía no tomó la conversación."
+            texto = "📨 Mensaje enviado. Un agente todavía no tomó la conversación."
         else:
-            agente = conv.get("rrhh_agente") or "RRHH"
+            agente = conv.get("rrhh_agente") or "un agente"
             texto = f"📨 Mensaje enviado a {agente}. Te responderán por este chat."
         return _payload(
             texto,
@@ -1747,23 +1839,28 @@ def responder_chat(mensaje_usuario):
 
     tema_pendiente = session.get("pending_feedback_topic")
     if tema_pendiente:
-        payload = procesar_feedback_pendiente(mensaje_usuario, tema_pendiente, temas_map)
+        payload = procesar_feedback_pendiente(mensaje_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=permitir)
         if payload is not None:
             return payload
         # Si llega una nueva consulta durante feedback, sigue flujo normal.
 
     if chatbot.solicita_contacto_rrhh(mensaje_norm):
+        if not permitir:
+            return _payload(
+                "En este momento no está disponible la derivación a un agente. Podés consultar el menú de temas.",
+                quick_actions=_acciones_menu(6),
+            )
         conversation_id = _iniciar_handoff_rrhh(mensaje_usuario)
         conv = _fetch_handoff(conversation_id) or {}
         assigned = str(conv.get("rrhh_agente") or "").strip()
         if assigned:
             respuesta = (
-                "👩‍💼 Perfecto. Derivé tu consulta al equipo de RRHH.\n"
+                "👩‍💼 Perfecto. Derivé tu consulta al equipo de atención.\n"
                 f"Te asigné automáticamente con {assigned}. Podés seguir escribiendo por este chat."
             )
         else:
             respuesta = (
-                "👩‍💼 Perfecto. Derivé tu consulta al equipo de RRHH.\n"
+                "👩‍💼 Perfecto. Derivé tu consulta al equipo de atención.\n"
                 "Te van a responder por este mismo chat. Podés seguir escribiendo aquí."
             )
         return _payload(
@@ -1774,11 +1871,11 @@ def responder_chat(mensaje_usuario):
 
     if mensaje_norm == "menu":
         return _payload(
-            construir_menu_texto(temas_map),
-            quick_actions=construir_acciones_menu(temas_map),
+            construir_menu_texto(temas_map, permitir_hablar_con_humano=permitir),
+            quick_actions=construir_acciones_menu(temas_map, permitir_hablar_con_humano=permitir),
         )
 
-    respuesta, tema_id = chatbot.obtener_respuesta(mensaje_usuario, temas_map)
+    respuesta, tema_id = chatbot.obtener_respuesta(mensaje_usuario, temas_map, company_id=company_id)
     if respuesta:
         requiere_feedback = tema_id not in chatbot.TEMAS_SIN_FEEDBACK
         if requiere_feedback:
@@ -1791,7 +1888,7 @@ def responder_chat(mensaje_usuario):
             )
         return _payload(
             respuesta,
-            quick_actions=construir_acciones_menu(temas_map, limite=4),
+            quick_actions=_acciones_menu(4),
         )
 
     guardado_pendiente = chatbot.registrar_pendiente(mensaje_usuario)
@@ -1800,7 +1897,7 @@ def responder_chat(mensaje_usuario):
         respuesta += "\nℹ️ No pude registrar esta consulta en la base de datos."
     return _payload(
         respuesta,
-        quick_actions=construir_acciones_sugerencias(mensaje_usuario, temas_map),
+        quick_actions=construir_acciones_sugerencias(mensaje_usuario, temas_map, permitir_hablar_con_humano=permitir),
     )
 
 
@@ -1857,17 +1954,38 @@ def reset_in_memory_handoffs():
 
 @flask_app.get("/")
 def home():
+    """Vista principal: layout con sidebar de módulos y contenido en iframe (por defecto chat)."""
     requested_company = _normalize_company_id(request.args.get("empresa"))
     if requested_company and _get_company(requested_company, include_inactive=False):
         _set_company_session(requested_company)
     else:
         _set_company_session(session.get("company_id") or _default_company_id())
     settings = _apply_company_branding(_read_general_settings())
-    temas_map = construir_temas_map()
+    return render_template(
+        "index.html",
+        company_name=settings.get("company_name"),
+        hr_team_name=settings.get("hr_team_name"),
+    )
+
+
+@flask_app.get("/chat")
+def chat_page():
+    """Contenido del chatbot para incrustar en el layout principal (iframe o vista por defecto)."""
+    requested_company = _normalize_company_id(request.args.get("empresa"))
+    if requested_company and _get_company(requested_company, include_inactive=False):
+        _set_company_session(requested_company)
+    else:
+        _set_company_session(session.get("company_id") or _default_company_id())
+    settings = _apply_company_branding(_read_general_settings())
+    company = _current_company()
+    company_id = (company or {}).get("company_id")
+    permitir = (company or {}).get("permitir_hablar_con_humano", True)
+    temas_habilitados = (company or {}).get("temas_habilitados") or []
+    temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
     return render_template(
         "chat.html",
         bienvenida=chatbot.MENSAJE_BIENVENIDA,
-        quick_actions_iniciales=construir_acciones_menu(temas_map, limite=6),
+        quick_actions_iniciales=construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
         company_name=settings.get("company_name"),
         hr_team_name=settings.get("hr_team_name"),
     )
@@ -1946,6 +2064,12 @@ def historial_page():
 @flask_app.get("/estadisticas")
 def stats_page():
     return render_template("stats.html")
+
+
+@flask_app.get("/preferencias")
+def preferencias_page():
+    """Preferencias de uso: modo oscuro/claro y enlace a autocierre (Configuración > Empresas)."""
+    return render_template("preferencias.html")
 
 
 @flask_app.post("/api/chat")
@@ -2406,7 +2530,15 @@ def configuracion_editar_empresa_api(company_id):
         ),
         "branches": data.get("branches", current.get("branches") or []),
         "active": bool(data.get("active", current.get("active", True))),
+        "permitir_hablar_con_humano": _normalize_bool_flag(
+            data.get("permitir_hablar_con_humano", current.get("permitir_hablar_con_humano", True)),
+            default=True,
+        ),
+        "temas_habilitados": current.get("temas_habilitados") or [],
     }
+    th = data.get("temas_habilitados")
+    if isinstance(th, list):
+        payload["temas_habilitados"] = [str(t).strip().lower() for t in th if str(t).strip()]
     ok, company, error = _upsert_company(payload)
     if not ok:
         return jsonify({"ok": False, "error": error}), 400
@@ -2966,12 +3098,16 @@ def reset_api():
     limpiar_estado_conversacion()
     _clear_handoff_session()
     session["chat_session_id"] = _new_conversation_id()
-    temas_map = construir_temas_map()
+    company = _current_company()
+    company_id = (company or {}).get("company_id")
+    permitir = (company or {}).get("permitir_hablar_con_humano", True)
+    temas_habilitados = (company or {}).get("temas_habilitados") or []
+    temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
     return jsonify(
         {
             "ok": True,
             "reply": "Sesión reiniciada. ¿En qué puedo ayudarte?",
-            "quick_actions": construir_acciones_menu(temas_map, limite=6),
+            "quick_actions": construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
             "handoff_active": False,
         }
     )

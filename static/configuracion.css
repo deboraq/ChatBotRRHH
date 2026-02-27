@@ -13,8 +13,8 @@
 
 .config-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 8px;
   align-items: start;
   min-width: 0;
 }
@@ -88,9 +88,457 @@
 .config-section.panel,
 .companies-panel,
 .users-panel,
-.roles-panel {
+.roles-panel,
+.branches-panel {
   min-width: 0;
   max-width: 100%;
+}
+
+/* Estilo unificado para los 4 módulos: misma letra, Acción siempre a la derecha */
+.config-section .config-table {
+  font-size: 0.875rem;
+}
+
+.config-section .config-table thead th {
+  background: #f8fafc;
+  font-weight: 600;
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.config-section .config-table th:last-child,
+.config-section .config-table td:last-child {
+  text-align: left;
+  padding-right: 16px;
+  padding-left: 12px;
+}
+
+.config-section .config-table td:last-child .config-actions-cell {
+  justify-content: flex-start;
+}
+
+.config-section .config-table td {
+  padding: 12px 16px;
+  vertical-align: middle;
+}
+
+/* Títulos de sección iguales en los 4 módulos */
+.config-section.panel > h2,
+.companies-panel > h2,
+.branches-panel > h2,
+.users-panel .users-head h2,
+.roles-panel .roles-head h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--text, #1e293b);
+}
+
+.branches-panel > .subtle,
+.branches-panel #branches-status {
+  font-size: 0.82rem;
+  color: var(--text-soft, #64748b);
+}
+
+.branches-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+
+.branches-panel .branches-table {
+  display: table !important;
+  width: 100%;
+  min-width: 640px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.branches-panel .branches-table tbody {
+  display: table-row-group !important;
+}
+
+.branches-panel .branches-table tr {
+  display: table-row !important;
+}
+
+.branches-panel .branches-table td,
+.branches-panel .branches-table th {
+  display: table-cell !important;
+}
+
+.branches-panel .branches-table thead {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.branches-panel .branches-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  color: #334155;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.branches-panel .branches-table td {
+  padding: 14px 14px;
+  vertical-align: top;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.88rem;
+}
+
+.branches-panel .branches-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.branches-panel .branches-table th:nth-child(1),
+.branches-panel .branches-table td:nth-child(1) { width: 18%; min-width: 100px; }
+.branches-panel .branches-table th:nth-child(2),
+.branches-panel .branches-table td:nth-child(2) { width: 52%; min-width: 200px; }
+.branches-panel .branches-table th:nth-child(3),
+.branches-panel .branches-table td:nth-child(3) { width: 30%; min-width: 220px; }
+
+/* Evitar que los tags se superpongan con la columna Acción */
+.branches-panel .branches-table td:nth-child(2) {
+  min-width: 0;
+  width: 50%;
+  overflow: hidden;
+  vertical-align: top;
+}
+.branches-panel .branches-table td:nth-child(2) .branches-cell {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.branches-panel .branches-table th:nth-child(3) {
+  padding-right: 16px;
+  padding-left: 12px;
+  text-align: left;
+}
+.branches-panel .branches-table td:nth-child(3) {
+  overflow: visible;
+  width: 30%;
+  min-width: 200px;
+  white-space: nowrap;
+  vertical-align: top;
+  padding-right: 16px;
+  padding-left: 12px;
+  text-align: left;
+}
+
+.branches-panel .branches-table td:nth-child(1) {
+  color: var(--text, #1e293b);
+}
+
+.branches-panel .branches-table .branch-company-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text, #1e293b);
+}
+
+.branches-panel .branches-table .branch-company-id {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  background: #f1f5f9;
+  color: #64748b;
+  border-radius: 4px;
+  font-weight: normal;
+}
+
+.branches-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  padding: 10px 0;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.branches-cell:empty::before,
+.branches-panel .branches-table td.branches-cell {
+  color: #64748b;
+}
+
+.branch-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px 6px 12px;
+  margin: 0 8px 10px 0;
+  background: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.06);
+}
+
+.branch-tag:hover {
+  border-color: #a5b4fc;
+  background: #e8ecff;
+}
+
+.branch-tag .branch-tag-action,
+.branch-tag .branch-tag-remove {
+  margin-left: 4px;
+  padding: 2px 4px;
+  opacity: 0.9;
+}
+
+.branch-tag-action {
+  padding: 2px 4px;
+  margin: 0;
+  margin-left: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #4f46e5;
+  font-size: 0.9rem;
+  line-height: 1;
+  opacity: 0.9;
+  border-radius: 4px;
+}
+
+.branch-tag-action:hover {
+  color: #4338ca;
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.branch-tag-remove {
+  padding: 2px 4px;
+  margin: 0;
+  margin-left: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #4f46e5;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.9;
+  border-radius: 4px;
+}
+
+.branch-tag-remove:hover {
+  color: #b91c1c;
+  opacity: 1;
+  background: rgba(185, 28, 28, 0.1);
+}
+
+.config-modal-form label .optional {
+  font-weight: normal;
+  color: #64748b;
+  font-size: 0.85em;
+}
+
+.config-modal-form label .required {
+  color: #dc2626;
+}
+
+.branch-edit-select {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.9375rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.branch-edit-select:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+/* En "Agregar sucursal" no se muestra "Sucursal a editar" */
+#branch-form-modal[data-branch-mode="add"] #branch-edit-select-wrap {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Acciones en Sucursales: mismo estilo que Roles (bien separados y redondeados, letra chica) */
+.branches-panel .branches-table .config-actions-cell {
+  display: flex !important;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 18px !important;
+  min-width: 0;
+  padding: 10px 14px !important;
+}
+
+.branches-panel .branches-table .config-actions-cell .role-update-btn {
+  white-space: nowrap;
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.branches-panel .branches-table .config-actions-cell .role-update-btn:first-child {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.branches-panel .branches-table .config-actions-cell .role-update-btn:first-child:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.branches-panel .branches-table .config-actions-cell .role-update-btn:hover:not(:first-child):not(:disabled) {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.branches-panel .branches-table .config-actions-cell .role-update-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input.readonly {
+  background: var(--bg-muted, #f3f4f6);
+  cursor: default;
+}
+
+/* Formulario de roles: fila con Rol, Nombre, columna de permisos y botón (como antes) */
+.roles-panel .create-role-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 24px;
+  border: 1px solid #e6ebf5;
+  border-radius: 12px;
+  padding: 18px;
+  background: rgba(248, 250, 254, 0.85);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.roles-panel .create-role-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.roles-panel .create-role-form .field-role,
+.roles-panel .create-role-form .field-name {
+  flex: 0 1 200px;
+}
+
+.roles-panel .create-role-form .field-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text, #1a1d26);
+}
+
+.roles-panel .create-role-form .permissions-field {
+  flex: 0 0 auto;
+  min-width: 220px;
+}
+
+.roles-panel .permissions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px 20px;
+  padding: 12px 0;
+  min-height: 80px;
+}
+
+.roles-panel .permissions-grid.permissions-column {
+  grid-template-columns: 1fr;
+  gap: 8px 0;
+  padding: 0;
+  min-height: 0;
+}
+
+.roles-panel .permissions-empty-msg {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 0.95rem;
+  color: #64748b;
+  grid-column: 1 / -1;
+}
+
+.roles-panel .perm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid #e2e8f0;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.roles-panel .permissions-column .perm-item {
+  padding: 6px 10px;
+  font-size: 0.875rem;
+}
+
+.roles-panel .perm-item:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.roles-panel .perm-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.roles-panel .perm-item span {
+  flex: 1;
+  min-width: 0;
+}
+
+.roles-panel .create-role-form .form-actions {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin-top: 0;
+}
+
+.roles-panel .create-role-form .form-actions button {
+  min-height: 40px;
+  min-width: 120px;
+}
+
+/* Tabla de roles: permisos en columna compacta por fila */
+.roles-panel .roles-table .permissions-grid.compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px 0;
+  padding: 0;
+  min-height: 0;
+  grid-template-columns: none;
+}
+
+.roles-panel .roles-table .permissions-grid.compact .perm-item {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.roles-panel .roles-table .permissions-grid.compact .perm-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
 }
 
 .config-section .field,
@@ -212,7 +660,32 @@
 .config-actions-cell {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 12px;
+}
+
+/* Botones de acción chicos en todos los módulos */
+.config-section .config-actions-cell .role-update-btn,
+.companies-panel .config-actions-cell .role-update-btn,
+.branches-panel .config-actions-cell .role-update-btn,
+.users-panel .config-actions-cell .role-update-btn,
+.roles-panel .config-actions-cell .role-update-btn {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 8px;
+}
+
+/* Roles: botones de acción bien separados y redondeados (modelo para Sucursales) */
+.roles-panel .roles-table th:last-child,
+.roles-panel .roles-table td:last-child {
+  text-align: left;
+  padding-right: 16px;
+  padding-left: 12px;
+}
+
+.roles-panel .config-actions-cell {
+  gap: 12px;
+  padding: 8px 6px;
 }
 
 .users-panel .create-user-form {
@@ -270,11 +743,437 @@
   flex-shrink: 0;
 }
 
+/* Bloque empresa activa y autocierre (Empresas) */
+.autocierre-block {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.autocierre-title {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.autocierre-form .field {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.autocierre-form .field select {
+  display: block;
+  margin-top: 4px;
+  padding: 8px 10px;
+  min-width: 200px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  font-size: 0.9rem;
+}
+
+.autocierre-form .form-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.autocierre-form .form-actions button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+}
+
+.autocierre-form .form-actions button[type="submit"] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.autocierre-form .form-actions button[type="submit"]:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.autocierre-form .form-actions button.ghost {
+  background: transparent;
+  color: #64748b;
+}
+
+.autocierre-form .form-actions button.ghost:hover {
+  background: #f1f5f9;
+}
+
+.users-toolbar,
+.roles-toolbar,
+.companies-toolbar {
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.users-toolbar .btn,
+.roles-toolbar .btn,
+.companies-toolbar .btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.users-toolbar .btn-primary,
+.roles-toolbar .btn-primary,
+.companies-toolbar .btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.users-toolbar .btn-primary:hover,
+.roles-toolbar .btn-primary:hover,
+.companies-toolbar .btn-primary:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.users-toolbar .btn.ghost,
+.roles-toolbar .btn.ghost,
+.companies-toolbar .btn.ghost {
+  background: transparent;
+  color: #64748b;
+  border-color: #e2e8f0;
+}
+
+.users-toolbar .btn.ghost:hover,
+.roles-toolbar .btn.ghost:hover,
+.companies-toolbar .btn.ghost:hover {
+  background: #f1f5f9;
+}
+
+/* Modal usuario (agregar / modificar) */
+.config-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.config-modal[hidden] {
+  display: none !important;
+}
+
+.config-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.config-modal-box {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  border: 1px solid #e2e8f0;
+}
+
+.config-modal-box--wide {
+  max-width: 560px;
+}
+
+.config-modal-box--wide .config-modal-form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px 20px;
+}
+
+.config-modal-box--wide .config-modal-form .field {
+  min-width: 0;
+}
+
+.config-modal-box--wide .config-modal-actions {
+  grid-column: 1 / -1;
+}
+
+.config-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.config-modal-head h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.config-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #64748b;
+  padding: 4px;
+}
+
+.config-modal-close:hover {
+  color: #1e293b;
+}
+
+.config-modal-form {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.config-modal-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.config-modal-form input,
+.config-modal-form select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+}
+
+/* Sucursales: idéntico al select Empresa asignada, sin espacio a la izquierda */
+.config-modal-form label.field:has(.modal-branches-select-like) {
+  align-items: stretch;
+}
+.config-modal-form .modal-branches-select-like,
+.config-modal-form #modal-branches-wrap {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+}
+
+.config-modal-form #modal-branches-wrap:has(.branch-dropdown-panel--open) {
+  overflow: visible;
+}
+.config-modal-form .modal-branches-trigger {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  min-height: unset !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 8px 28px 8px 12px !important;
+  border: 1px solid #c5cdda !important;
+  border-radius: 6px !important;
+  font-size: 0.875rem !important;
+  font-family: inherit !important;
+  background: #fff !important;
+  color: #1a1d26 !important;
+  line-height: 1.35 !important;
+  appearance: none !important;
+  box-shadow: none !important;
+}
+.config-modal-form .modal-branches-trigger .branch-dropdown-trigger-text {
+  font-size: 0.875rem !important;
+}
+.config-modal-form .modal-branches-trigger:hover {
+  border-color: #7b8ab8 !important;
+  background: #fff !important;
+}
+.config-modal-form .modal-branches-trigger:focus {
+  outline: none !important;
+  border-color: #5b6ab0 !important;
+  background: #fff !important;
+}
+.config-modal-form .modal-branches-select-like .branch-dropdown-chevron {
+  right: 10px;
+  font-size: 0.6rem;
+  opacity: 0.7;
+}
+
+.config-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.config-modal-actions .btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.config-modal-cancel.btn.ghost {
+  background: transparent;
+  color: #64748b;
+  border-color: #e2e8f0;
+}
+
+.config-modal-cancel.btn.ghost:hover {
+  background: #f1f5f9;
+}
+
+.config-modal-actions button[type="submit"] {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.config-modal-actions button[type="submit"]:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.modal-permissions-wrap {
+  padding: 0;
+  margin: 0 0 14px 0;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.modal-permissions-wrap .field-label {
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.config-modal .permissions-grid.permissions-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px 0;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  grid-template-columns: none;
+  list-style: none;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+
+.config-modal .permissions-grid .perm-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  margin: 0;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: var(--surface, #fff);
+  cursor: pointer;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.config-modal .permissions-grid .perm-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.config-modal .permissions-grid .perm-item span {
+  flex: 1;
+  min-width: 0;
+}
+
+.config-modal .field-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 6px;
+  margin-left: 0;
+  display: block;
+}
+
+.companies-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e6ebf5;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.companies-panel .companies-table {
+  width: 100%;
+  min-width: 320px;
+  border-collapse: collapse;
+}
+
+.companies-panel .companies-table th,
+.companies-panel .companies-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.companies-panel .companies-table th {
+  background: #f1f5f9;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #334155;
+}
+
+.companies-panel .companies-table th:last-child,
+.companies-panel .companies-table td:last-child {
+  padding-right: 16px;
+  padding-left: 12px;
+  text-align: left;
+}
+
+.companies-panel .companies-table .config-actions-cell {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.companies-panel .danger-note {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border-radius: 8px;
+  border-left: 3px solid #dc2626;
+  font-size: 0.9rem;
+}
+
 .users-table-wrap {
   flex: 0 1 auto;
   max-height: min(52vh, 420px);
+  min-height: 120px;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   border: 1px solid #e6ebf5;
   border-radius: 10px;
   background: var(--surface, #fff);
@@ -284,7 +1183,25 @@
 
 .users-panel .users-table {
   width: 100%;
+  min-width: 1150px;
   table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.users-panel .users-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f1f5f9;
+}
+
+.users-panel .users-table th {
+  padding: 14px 16px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .users-panel .users-table td,
@@ -294,6 +1211,19 @@
   text-overflow: ellipsis;
 }
 
+.users-panel .users-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.users-panel .users-table td:nth-child(8),
+.users-panel .users-table th:nth-child(8) {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  min-width: 0;
+}
+
 .users-panel .users-table td:nth-child(9),
 .users-panel .users-table th:nth-child(9) {
   overflow: visible;
@@ -301,23 +1231,30 @@
 }
 
 .users-panel .users-table th:nth-child(1),
-.users-panel .users-table td:nth-child(1) { width: 12%; }
+.users-panel .users-table td:nth-child(1) { width: 10%; min-width: 90px; }
 .users-panel .users-table th:nth-child(2),
-.users-panel .users-table td:nth-child(2) { width: 12%; }
+.users-panel .users-table td:nth-child(2) { width: 10%; min-width: 90px; }
 .users-panel .users-table th:nth-child(3),
-.users-panel .users-table td:nth-child(3) { width: 14%; }
+.users-panel .users-table td:nth-child(3) { width: 14%; min-width: 120px; }
 .users-panel .users-table th:nth-child(4),
-.users-panel .users-table td:nth-child(4) { width: 10%; }
+.users-panel .users-table td:nth-child(4) { width: 11%; min-width: 95px; }
 .users-panel .users-table th:nth-child(5),
-.users-panel .users-table td:nth-child(5) { width: 8%; }
+.users-panel .users-table td:nth-child(5) { width: 8%; min-width: 70px; }
 .users-panel .users-table th:nth-child(6),
-.users-panel .users-table td:nth-child(6) { width: 8%; }
+.users-panel .users-table td:nth-child(6) { width: 8%; min-width: 70px; }
 .users-panel .users-table th:nth-child(7),
-.users-panel .users-table td:nth-child(7) { width: 10%; }
+.users-panel .users-table td:nth-child(7) { width: 10%; min-width: 85px; }
 .users-panel .users-table th:nth-child(8),
-.users-panel .users-table td:nth-child(8) { width: 14%; }
+.users-panel .users-table td:nth-child(8) { width: 22%; min-width: 200px; }
 .users-panel .users-table th:nth-child(9),
-.users-panel .users-table td:nth-child(9) { width: 12%; }
+.users-panel .users-table td:nth-child(9) { width: 14%; min-width: 130px; }
+
+.users-panel .users-table th:last-child,
+.users-panel .users-table td:last-child {
+  text-align: left;
+  padding-right: 16px;
+  padding-left: 12px;
+}
 
 .users-panel .permissions-cell {
   font-size: 0.8rem;
@@ -336,20 +1273,197 @@
 
 .users-panel .config-actions-cell {
   min-width: 0;
-  align-items: flex-start;
+  align-items: center;
   flex-direction: row;
   flex-wrap: wrap;
   justify-content: flex-start;
-  gap: 6px;
-  padding: 6px 4px;
+  gap: 12px;
+  padding: 8px 6px;
   overflow: visible;
 }
 
 .users-panel .config-actions-cell .role-update-btn {
   flex: 0 0 auto;
   white-space: nowrap;
-  font-size: 0.78rem;
-  padding: 6px 10px;
+}
+
+/* Estilo tipo "Empresa asignada" para desplegables */
+.select-like-trigger {
+  min-height: 38px;
+  padding: 6px 28px 6px 12px;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  font-size: 0.95rem;
+  color: var(--text, #1a1d26);
+  box-sizing: border-box;
+}
+
+.select-like-panel {
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  padding: 4px 0;
+  min-width: 100%;
+}
+
+.select-like-option {
+  padding: 8px 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+/* Celda Emp. / Suc. – mismo estilo que Empresa asignada, sin cortar texto */
+.emp-suc-cell {
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+}
+
+.emp-suc-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 28px 6px 12px;
+  text-align: left;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: var(--text, #1a1d26);
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: normal;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.emp-suc-trigger:hover {
+  border-color: #7b8ab8;
+}
+
+.emp-suc-trigger-text {
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  white-space: nowrap;
+  line-height: 1.35;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.emp-suc-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.5rem;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.emp-suc-cell:has(.emp-suc-panel--open) .emp-suc-chevron {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.emp-suc-panel {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 2px);
+  z-index: 20;
+  min-width: 260px;
+  width: max-content;
+  max-width: 340px;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  padding: 4px 0;
+}
+
+.emp-suc-panel.emp-suc-panel--open {
+  display: block;
+}
+
+.emp-suc-panel .role-display-input {
+  width: 100%;
+  min-width: 200px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  margin: 4px 8px;
+}
+
+.emp-suc-panel .emp-suc-option {
+  display: block;
+  width: 100%;
+  min-width: max-content;
+  padding: 8px 12px;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: normal;
+  color: var(--text, #1a1d26);
+  margin: 0;
+  white-space: nowrap;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.emp-suc-panel .emp-suc-option:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+.emp-suc-panel .emp-suc-option.selected {
+  background: #2563eb;
+  color: #fff;
+}
+
+.emp-suc-options-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.emp-suc-empty {
+  margin: 0;
+  padding: 8px 0;
+  font-size: 0.88rem;
+  color: var(--text-muted, #666);
+}
+
+.emp-suc-raw-wrap {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e6ebf5;
+}
+
+.emp-suc-toggle-raw {
+  display: block;
+  margin-bottom: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 0.8rem;
+  color: #5b6ab0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.emp-suc-toggle-raw:hover {
+  color: #1f3b74;
 }
 
 .branch-control-wrap {
@@ -366,10 +1480,182 @@
   display: none !important;
 }
 
-.branch-control-wrap select:not(.hidden) {
+/* Desplegable de sucursales – misma fuente y tamaño que Empresa asignada, sin espacio a la izquierda */
+.branch-dropdown-wrap {
   display: block;
+  position: relative;
+  min-width: 0;
+}
+
+.branch-dropdown-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   min-width: 0;
+  min-height: 38px;
+  padding: 6px 28px 6px 12px;
+  text-align: left;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: var(--text, #1a1d26);
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: normal;
+  cursor: pointer;
+  appearance: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.branch-dropdown-trigger:hover {
+  border-color: #7b8ab8;
+}
+
+.branch-dropdown-trigger:focus {
+  outline: none;
+  border-color: #5b6ab0;
+}
+
+.branch-dropdown-trigger-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.branch-dropdown-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.5rem;
+  opacity: 0.8;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+
+.branch-dropdown-wrap:has(.branch-dropdown-panel--open) .branch-dropdown-chevron {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.branch-dropdown-panel {
+  display: none !important;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 2px);
+  min-width: max(100%, 260px);
+  max-width: 320px;
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  z-index: 25;
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: normal;
+}
+
+#new-user-branches-checkboxes {
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none;
+}
+
+.branch-dropdown-panel.branch-dropdown-panel--open {
+  display: block !important;
+  animation: branch-panel-in 0.2s ease-out;
+}
+
+#modal-branches-panel.branch-dropdown-panel {
+  left: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  min-width: 100%;
+  max-width: none;
+  height: auto !important;
+  max-height: min(280px, 80vh) !important;
+  z-index: 100;
+}
+
+#modal-branches-panel .branch-dropdown-option {
+  padding: 8px 12px 8px 6px !important;
+  margin: 0 !important;
+  min-height: 2.25rem;
+}
+
+#modal-branches-panel .branch-dropdown-option input[type="checkbox"] {
+  margin: 0 !important;
+  flex-shrink: 0;
+}
+
+.branch-freetext-wrap {
+  padding: 8px 12px;
+}
+
+.branch-freetext-wrap.hidden {
+  display: none !important;
+}
+
+.branch-freetext-wrap .branch-freetext {
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 12px;
+  border: 1px solid #c5cdda;
+  border-radius: 6px;
+  box-sizing: border-box;
+  font-size: 0.875rem;
+  font-family: inherit;
+}
+
+#new-user-branches-checkboxes.hidden {
+  display: none !important;
+}
+
+@keyframes branch-panel-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Opciones – checkbox y texto con poco margen a la izquierda */
+.branch-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 6px !important;
+  margin: 0 !important;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: inherit;
+  font-weight: normal;
+  white-space: nowrap;
+  border-radius: 0;
+  line-height: 1.35;
+}
+
+.branch-dropdown-option:hover {
+  background: rgba(0,0,0,0.06);
+}
+
+.branch-dropdown-option input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
+  width: 0.875rem;
+  height: 0.875rem;
+  accent-color: #2563eb;
 }
 
 .branch-checkboxes {
@@ -524,4 +1810,75 @@
     width: auto;
   }
 
+}
+
+/* Toast: notificación temporal arriba a la derecha */
+.config-toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  max-width: min(360px, 90vw);
+}
+
+.config-toast {
+  padding: 12px 18px;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  font-size: 0.95rem;
+  line-height: 1.35;
+  animation: config-toast-in 0.2s ease-out;
+  pointer-events: auto;
+}
+
+.config-toast--success {
+  background: #059669;
+  color: #fff;
+  border: 1px solid #047857;
+}
+
+.config-toast--error {
+  background: #dc2626;
+  color: #fff;
+  border: 1px solid #b91c1c;
+}
+
+.config-toast--hide {
+  animation: config-toast-out 0.18s ease-in forwards;
+}
+
+@keyframes config-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes config-toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+:root[data-theme="dark"] .config-toast--success {
+  background: #047857;
+  border-color: #065f46;
+}
+
+:root[data-theme="dark"] .config-toast--error {
+  background: #b91c1c;
+  border-color: #991b1b;
 }

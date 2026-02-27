@@ -11,13 +11,12 @@
       <header class="history-header">
         <div>
           <h1>Historial completo</h1>
-          <p>Incluye mensajes de colaborador, bot, RRHH y sistema.</p>
+          <p>Incluye mensajes de colaborador, bot, agente y sistema.</p>
           {% if auth_enabled and rrhh_user %}
           <p>Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
           {% endif %}
         </div>
         <div class="actions">
-          <a href="/" class="btn">Ir al chat</a>
           {% if auth_enabled %}
           <form class="logout-form" method="post" action="/logout">
             <button type="submit">Cerrar sesión</button>
@@ -34,7 +33,7 @@
             <option value="">Todos</option>
             <option value="colaborador">Colaborador</option>
             <option value="bot">Bot</option>
-            <option value="rrhh">RRHH</option>
+            <option value="rrhh">Agente</option>
             <option value="sistema">Sistema</option>
           </select>
         </label>
@@ -44,7 +43,7 @@
           <select id="f-canal">
             <option value="">Todos</option>
             <option value="asistente">Asistente</option>
-            <option value="rrhh">RRHH</option>
+            <option value="rrhh">Agente</option>
           </select>
         </label>
 

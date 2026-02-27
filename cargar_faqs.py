@@ -40,7 +40,7 @@ def cargar_datos():
         coleccion.document(tema).set(payload)
         print(f"✅ Categoría cargada: {tema}")
     
-    print("\n¡Éxito! Tu base de datos de RRHH ya está completa.")
+    print("\n¡Éxito! Tu base de datos ya está completa.")
 
 if __name__ == "__main__":
     cargar_datos()

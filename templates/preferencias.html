@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preferencias</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
+    <style>
+      .pref-wrapper {
+        max-width: 620px;
+        margin: 0 auto;
+        padding: 28px 24px 40px;
+      }
+      .pref-page-title {
+        margin: 0 0 6px;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1e293b;
+        letter-spacing: -0.02em;
+      }
+      .pref-page-desc {
+        margin: 0 0 32px;
+        font-size: 0.95rem;
+        color: #64748b;
+        line-height: 1.45;
+      }
+      .pref-section {
+        margin-bottom: 28px;
+        padding: 20px 22px;
+        background: var(--surface, #fff);
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      }
+      .pref-section:last-of-type {
+        margin-bottom: 0;
+      }
+      .pref-section-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+      .pref-section-num {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background: #e0e7ff;
+        color: #3730a3;
+        font-size: 0.85rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .pref-section h2 {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: #1e293b;
+      }
+      .pref-section-desc {
+        margin: 0 0 16px 40px;
+        font-size: 0.875rem;
+        color: #64748b;
+        line-height: 1.45;
+      }
+      .pref-section .field {
+        display: block;
+        margin-bottom: 14px;
+      }
+      .pref-section .field:last-of-type {
+        margin-bottom: 0;
+      }
+      .pref-section label .field-label {
+        display: block;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: #475569;
+        margin-bottom: 5px;
+      }
+      .pref-section .field select {
+        display: block;
+        width: 100%;
+        max-width: 320px;
+        padding: 9px 12px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        font-size: 0.9rem;
+        background: #fff;
+      }
+      .pref-section .form-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 18px;
+        flex-wrap: wrap;
+      }
+      .pref-section .form-actions button {
+        padding: 9px 16px;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #334155;
+      }
+      .pref-section .form-actions button.primary {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+      }
+      .pref-section .form-actions button.primary:hover {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+      }
+      .pref-section .form-actions button.ghost {
+        background: transparent;
+        color: #64748b;
+      }
+      .pref-section .form-actions button.ghost:hover {
+        background: #f1f5f9;
+      }
+      .pref-status {
+        margin-top: 12px;
+        font-size: 0.8125rem;
+        color: #0f766e;
+        min-height: 1.25em;
+      }
+      .pref-status.error {
+        color: #b91c1c;
+      }
+      .pref-checkbox-wrap {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .pref-checkbox-wrap input[type="checkbox"] {
+        width: 1.125rem;
+        height: 1.125rem;
+        margin-top: 2px;
+        flex-shrink: 0;
+      }
+      .pref-checkbox-wrap span {
+        font-size: 0.875rem;
+        color: #334155;
+        line-height: 1.45;
+      }
+      .pref-section textarea {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        min-height: 88px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        font-size: 0.875rem;
+        font-family: inherit;
+        resize: vertical;
+      }
+      .pref-hint {
+        margin-top: 6px;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      #autocierre-section .pref-section-num { background: #d1fae5; color: #065f46; }
+      #reglas-section .pref-section-num { background: #fef3c7; color: #92400e; }
+    </style>
+  </head>
+  <body>
+    <main class="pref-wrapper">
+      <h1 class="pref-page-title">Preferencias</h1>
+      <p class="pref-page-desc">Organizá la apariencia, la empresa activa y las reglas del chat por sección.</p>
+
+      <!-- Sección 1: Apariencia -->
+      <section class="pref-section">
+        <div class="pref-section-head">
+          <span class="pref-section-num" aria-hidden="true">1</span>
+          <h2>Apariencia</h2>
+        </div>
+        <p class="pref-section-desc">Modo claro u oscuro para el panel y la configuración.</p>
+        <button id="theme-toggle" type="button" class="btn">Modo oscuro</button>
+      </section>
+
+      <!-- Sección 2: Empresa activa y autocierre -->
+      <section class="pref-section" id="autocierre-section">
+        <div class="pref-section-head">
+          <span class="pref-section-num" aria-hidden="true">2</span>
+          <h2>Empresa activa y autocierre</h2>
+        </div>
+        <p class="pref-section-desc">Elegí la empresa que se usa en el panel y cuándo se cierran solas las conversaciones derivadas.</p>
+        <label class="field">
+          <span class="field-label">Empresa activa</span>
+          <select id="pref-company-selector"></select>
+        </label>
+        <label class="field">
+          <span class="field-label">Cerrar conversaciones derivadas automáticamente</span>
+          <select id="pref-handoff-auto-close-mode">
+            <option value="disabled">No cerrar automáticamente</option>
+            <option value="15">15 minutos</option>
+            <option value="30">30 minutos</option>
+            <option value="60">1 hora</option>
+            <option value="120">2 horas</option>
+            <option value="240">4 horas</option>
+            <option value="480">8 horas</option>
+            <option value="720">12 horas</option>
+            <option value="1440">24 horas</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button type="button" id="pref-save-autoclose" class="primary">Guardar y aplicar</button>
+          <button type="button" id="pref-run-autoclose-now" class="ghost">Cerrar vencidas ahora</button>
+        </div>
+        <p id="pref-autoclose-status" class="pref-status" aria-live="polite"></p>
+      </section>
+
+      <!-- Sección 3: Reglas del chat -->
+      <section class="pref-section" id="reglas-section">
+        <div class="pref-section-head">
+          <span class="pref-section-num" aria-hidden="true">3</span>
+          <h2>Reglas del chat (por empresa)</h2>
+        </div>
+        <p class="pref-section-desc">Definí si en el chat se puede derivar a un agente humano y qué temas mostrar. Aplican a la empresa seleccionada arriba. Guardá con «Guardar y aplicar».</p>
+        <div class="pref-checkbox-wrap">
+          <input type="checkbox" id="pref-permitir-humano" checked />
+          <span>Mostrar botón de derivación y permitir hablar con un agente</span>
+        </div>
+        <label class="field">
+          <span class="field-label">Solo estos temas en el menú (opcional)</span>
+          <textarea id="pref-temas-habilitados" rows="4" placeholder="vacaciones&#10;recibo&#10;aguinaldo"></textarea>
+          <p class="pref-hint">Uno por línea. Si dejás vacío, se muestran todos los temas de la empresa.</p>
+        </label>
+      </section>
+    </main>
+
+    <script>
+      (function() {
+        const THEME_STORAGE_KEY = "rrhh_panel_theme";
+        const themeBtn = document.getElementById("theme-toggle");
+        const autocierreSection = document.getElementById("autocierre-section");
+        const companySelect = document.getElementById("pref-company-selector");
+        const autoCloseSelect = document.getElementById("pref-handoff-auto-close-mode");
+        const saveBtn = document.getElementById("pref-save-autoclose");
+        const runNowBtn = document.getElementById("pref-run-autoclose-now");
+        const statusEl = document.getElementById("pref-autoclose-status");
+        const permitirHumanoEl = document.getElementById("pref-permitir-humano");
+        const temasHabilitadosEl = document.getElementById("pref-temas-habilitados");
+        const AUTO_CLOSE_DISABLED = "disabled";
+        let companies = [];
+
+        function setStatus(text, isError) {
+          if (!statusEl) return;
+          statusEl.textContent = text || "";
+          statusEl.classList.toggle("error", !!isError);
+        }
+
+        function normalizeCompanyId(id) {
+          return typeof id === "string" ? id.trim().toLowerCase() : "";
+        }
+
+        function normalizeAutoCloseMinutes(mode) {
+          if (mode === AUTO_CLOSE_DISABLED || !mode) return 0;
+          const parsed = parseInt(mode, 10);
+          return isFinite(parsed) && parsed > 0 ? parsed : 0;
+        }
+
+        function getAutoClosePayload() {
+          const mode = String(autoCloseSelect?.value || AUTO_CLOSE_DISABLED).trim();
+          const minutes = normalizeAutoCloseMinutes(mode);
+          return { handoff_auto_close_enabled: minutes > 0, handoff_auto_close_minutes: minutes };
+        }
+
+        // —— Tema ——
+        function getInitialTheme() {
+          try {
+            const stored = localStorage.getItem(THEME_STORAGE_KEY);
+            if (stored === "dark" || stored === "light") return stored;
+          } catch (e) {}
+          return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+
+        function applyTheme(theme) {
+          const normalized = theme === "dark" ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", normalized);
+          if (themeBtn) themeBtn.textContent = normalized === "dark" ? "Modo claro" : "Modo oscuro";
+        }
+
+        function toggleTheme() {
+          const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+          const next = current === "dark" ? "light" : "dark";
+          applyTheme(next);
+          try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (e) {}
+        }
+
+        applyTheme(getInitialTheme());
+        if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+
+        // —— Autocierre (solo si hay permiso) ——
+        function fillCompanySelect(selectedId) {
+          if (!companySelect) return;
+          companySelect.innerHTML = "";
+          companies.forEach(function(c) {
+            const opt = document.createElement("option");
+            opt.value = c.company_id || "";
+            opt.textContent = (c.company_name || c.company_id || "") + " (" + (c.company_id || "") + ")";
+            if (normalizeCompanyId(c.company_id) === normalizeCompanyId(selectedId)) opt.selected = true;
+            companySelect.appendChild(opt);
+          });
+        }
+
+        function setAutoCloseFromSettings(settings) {
+          if (!autoCloseSelect) return;
+          const enabled = Boolean(settings && settings.handoff_auto_close_enabled);
+          const minutes = normalizeAutoCloseMinutes(settings && settings.handoff_auto_close_minutes);
+          const modeValue = enabled && minutes > 0 ? String(minutes) : AUTO_CLOSE_DISABLED;
+          const hasOpt = Array.from(autoCloseSelect.options).some(function(o) { return o.value === modeValue; });
+          if (!hasOpt && modeValue !== AUTO_CLOSE_DISABLED) {
+            const o = document.createElement("option");
+            o.value = modeValue;
+            o.textContent = modeValue + " minutos";
+            autoCloseSelect.appendChild(o);
+          }
+          autoCloseSelect.value = modeValue;
+        }
+
+        function getCompanyById(companyId) {
+          const id = normalizeCompanyId(companyId);
+          return companies.find(function(c) { return normalizeCompanyId(c.company_id) === id; }) || null;
+        }
+
+        async function loadAutocierre() {
+          setStatus("");
+          try {
+            const empRes = await fetch("/api/configuracion/empresas");
+            if (empRes.status === 401) {
+              window.location.href = "/login?next=" + encodeURIComponent("/preferencias");
+              return;
+            }
+            if (empRes.status === 403 || !empRes.ok) {
+              if (autocierreSection) autocierreSection.style.display = "none";
+              return;
+            }
+            const empData = await empRes.json();
+            if (!empData.ok || !Array.isArray(empData.companies)) {
+              if (autocierreSection) autocierreSection.style.display = "none";
+              return;
+            }
+            companies = empData.companies;
+            const selectedId = normalizeCompanyId(empData.selected_company_id || "");
+
+            const genRes = await fetch("/api/configuracion/general");
+            if (genRes.status === 401 || genRes.status === 403 || !genRes.ok) {
+              fillCompanySelect(selectedId);
+              setAutoCloseFromSettings({});
+              return;
+            }
+            const genData = await genRes.json();
+            if (genData.ok && genData.settings) {
+              setAutoCloseFromSettings(genData.settings);
+              if (permitirHumanoEl) permitirHumanoEl.checked = genData.settings.permitir_hablar_con_humano !== false;
+              if (temasHabilitadosEl) {
+                const th = genData.settings.temas_habilitados;
+                temasHabilitadosEl.value = Array.isArray(th) ? th.join("\n") : "";
+              }
+            } else {
+              if (permitirHumanoEl) permitirHumanoEl.checked = true;
+              if (temasHabilitadosEl) temasHabilitadosEl.value = "";
+            }
+            fillCompanySelect(selectedId || (genData.settings && genData.settings.company_id));
+          } catch (e) {
+            setStatus("Error al cargar datos.", true);
+          }
+        }
+
+        async function saveAutocierre() {
+          const companyId = normalizeCompanyId(companySelect?.value || "");
+          const cur = getCompanyById(companyId);
+          if (!cur) {
+            setStatus("Seleccioná una empresa.", true);
+            return;
+          }
+          const temasLines = (temasHabilitadosEl && temasHabilitadosEl.value) ? temasHabilitadosEl.value.split(/\r?\n/) : [];
+          const temasList = temasLines.map(function(t) { return t.trim().toLowerCase(); }).filter(Boolean);
+          const payload = {
+            company_id: cur.company_id,
+            company_name: (cur.company_name || "").trim(),
+            hr_team_name: (cur.hr_team_name || "").trim(),
+            hr_contact: (cur.hr_contact || "").trim(),
+            company_email: (cur.company_email || "").trim(),
+            company_address: (cur.company_address || "").trim(),
+            company_phone: (cur.company_phone || "").trim(),
+            company_website: (cur.company_website || "").trim(),
+            branches: Array.isArray(cur.branches) ? cur.branches : [],
+            handoff_auto_close_enabled: getAutoClosePayload().handoff_auto_close_enabled,
+            handoff_auto_close_minutes: getAutoClosePayload().handoff_auto_close_minutes,
+            permitir_hablar_con_humano: permitirHumanoEl ? permitirHumanoEl.checked : true,
+            temas_habilitados: temasList,
+          };
+          if (!payload.company_id || !payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
+            setStatus("La empresa no tiene datos suficientes.", true);
+            return;
+          }
+          setStatus("Guardando…");
+          try {
+            const res = await fetch("/api/configuracion/general", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (res.status === 401) {
+              window.location.href = "/login?next=" + encodeURIComponent("/preferencias");
+              return;
+            }
+            const data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "No se pudo guardar.", true);
+              return;
+            }
+            setStatus("Configuración guardada.");
+          } catch (e) {
+            setStatus("Error al guardar.", true);
+          }
+        }
+
+        async function runAutocloseNow() {
+          setStatus("");
+          try {
+            await saveAutocierre();
+            const res = await fetch("/api/configuracion/conversaciones/autocierre/ejecutar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            });
+            if (res.status === 401) {
+              window.location.href = "/login?next=" + encodeURIComponent("/preferencias");
+              return;
+            }
+            const data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "No se pudo ejecutar.", true);
+              return;
+            }
+            const minutes = Number(data.auto_close_minutes || 0);
+            if (!data.auto_close_enabled || minutes <= 0) {
+              setStatus("Autocierre desactivado: no se cerraron conversaciones.");
+              return;
+            }
+            setStatus("Autocierre ejecutado (" + minutes + " min): " + (data.closed_count || 0) + " conversación(es) cerrada(s).");
+          } catch (e) {
+            setStatus("Error al ejecutar autocierre.", true);
+          }
+        }
+
+        async function refreshSettingsForCompany(companyId) {
+          if (!companyId) return;
+          try {
+            await fetch("/api/configuracion/empresa/seleccionar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ company_id: companyId }),
+            });
+            const genRes = await fetch("/api/configuracion/general");
+            if (!genRes.ok) return;
+            const genData = await genRes.json();
+            if (genData.ok && genData.settings) {
+              setAutoCloseFromSettings(genData.settings);
+              if (permitirHumanoEl) permitirHumanoEl.checked = genData.settings.permitir_hablar_con_humano !== false;
+              if (temasHabilitadosEl) {
+                const th = genData.settings.temas_habilitados;
+                temasHabilitadosEl.value = Array.isArray(th) ? th.join("\n") : "";
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (companySelect) companySelect.addEventListener("change", function() {
+          refreshSettingsForCompany(normalizeCompanyId(this.value));
+        });
+        if (saveBtn) saveBtn.addEventListener("click", saveAutocierre);
+        if (runNowBtn) runNowBtn.addEventListener("click", runAutocloseNow);
+        loadAutocierre();
+      })();
+    </script>
+  </body>
+</html>
