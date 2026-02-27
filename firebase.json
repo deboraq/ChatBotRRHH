@@ -1,0 +1,16 @@
+{
+  "hosting": [
+    {
+      "target": "debo-chat",
+      "public": "hosting",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [{"source": "**", "run": {"serviceId": "chatbot-rrhh", "region": "southamerica-east1"}}]
+    },
+    {
+      "target": "it-analyzer",
+      "public": "hosting",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [{"source": "**", "run": {"serviceId": "chatbot-rrhh", "region": "southamerica-east1"}}]
+    }
+  ]
+}

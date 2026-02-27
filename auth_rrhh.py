@@ -583,7 +583,7 @@ def create_role(name, display_name="", permissions=None, path=None):
     if perms is None:
         perms = []
     if not perms:
-        return False, None, "El rol debe tener al menos un permiso."
+        return False, None, "Seleccioná al menos un permiso."
 
     roles_map = get_roles_map(path)
     if role_name in roles_map:
@@ -645,7 +645,7 @@ def update_role(name, display_name=None, permissions=None, path=None):
     if next_permissions is None:
         next_permissions = list(current.get("permissions") or [])
     if not next_permissions:
-        return False, None, "El rol debe tener al menos un permiso."
+        return False, None, "Seleccioná al menos un permiso."
 
     updated = False
     new_raw_entries = []

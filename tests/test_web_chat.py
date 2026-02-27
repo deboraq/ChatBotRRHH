@@ -134,7 +134,7 @@ class WebChatApiTests(unittest.TestCase):
 
         msg_resp = self.client.post(
             f"/api/rrhh/conversaciones/{conv_id}/mensajes",
-            json={"agente": "Laura", "mensaje": "Hola, te atiende RRHH."},
+            json={"agente": "Laura", "mensaje": "Hola, te atiende el equipo."},
         )
         self.assertEqual(msg_resp.status_code, 200)
         self.assertTrue(msg_resp.get_json()["ok"])
@@ -183,7 +183,7 @@ class WebChatApiTests(unittest.TestCase):
         self.assertEqual(mensajes_resp.status_code, 200)
         mensajes = mensajes_resp.get_json()["mensajes"]
         textos = [item["texto"] for item in mensajes if item.get("remitente") == "sistema"]
-        tomadas = [texto for texto in textos if "fue tomada por RRHH (Laura)" in texto]
+        tomadas = [texto for texto in textos if "fue tomada por un agente (Laura)" in texto]
         self.assertEqual(len(tomadas), 1)
 
     def test_rrhh_reply_deduplicates_fast_double_submit(self):

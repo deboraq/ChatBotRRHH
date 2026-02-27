@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Panel RRHH - Conversaciones</title>
+    <title>Panel de atención - Conversaciones</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
   </head>
   <body>
     <main class="rrhh-wrapper">
       <header class="rrhh-header">
         <div>
-          <h1>Panel RRHH</h1>
+          <h1>Panel de atención</h1>
           <p>Atención humana de conversaciones derivadas desde el chatbot.</p>
           <p class="subtle">Empresa activa: {{ selected_company_name or company_name }}</p>
           {% if auth_enabled and rrhh_user %}
@@ -18,11 +18,6 @@
           {% endif %}
         </div>
         <div class="header-actions">
-          <a class="btn" href="/" target="_blank" rel="noopener">Ir al chat</a>
-          {% if can_manage_config %}
-          <a class="btn ghost" href="/configuracion">Configuración</a>
-          {% endif %}
-          <button id="theme-toggle" class="ghost" type="button">Modo oscuro</button>
           {% if auth_enabled %}
           <form class="logout-form" method="post" action="/logout">
             <button type="submit">Cerrar sesión</button>
@@ -34,11 +29,11 @@
 
       <section class="toolbar">
         <label class="field">
-          Agente RRHH
+          Agente
           <input
             id="agent-name"
             type="text"
-            value="{{ rrhh_user.display_name if rrhh_user else 'RRHH' }}"
+            value="{{ rrhh_user.display_name if rrhh_user else 'Agente' }}"
             {% if auth_enabled %}readonly{% endif %}
           />
         </label>
@@ -101,53 +96,6 @@
         </section>
       </section>
 
-      {% if auth_enabled and can_manage_users %}
-      <section class="panel users-panel">
-        <div class="users-head">
-          <div>
-            <h2>Usuarios RRHH</h2>
-            <p class="subtle">Alta y listado de usuarios para login del panel.</p>
-          </div>
-          <span id="users-file" class="subtle"></span>
-        </div>
-
-        <form id="create-user-form" class="create-user-form">
-          <input id="new-username" type="text" placeholder="Usuario (ej: laura.rrhh)" required />
-          <input id="new-display-name" type="text" placeholder="Nombre visible (ej: Laura)" />
-          <input id="new-password" type="password" placeholder="Contraseña (mínimo 6)" required />
-          <select id="new-role">
-            <option value="rrhh">rrhh</option>
-            <option value="admin">admin</option>
-          </select>
-          <button type="submit">Crear usuario</button>
-        </form>
-
-        <p id="users-status" class="subtle"></p>
-
-        <div class="users-table-wrap">
-          <table class="users-table">
-            <thead>
-              <tr>
-                <th>Usuario</th>
-                <th>Nombre</th>
-                <th>Rol</th>
-                <th>Permisos</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
-            <tbody id="users-body"></tbody>
-          </table>
-        </div>
-      </section>
-      {% elif auth_enabled %}
-      <section class="panel users-panel">
-        <h2>Usuarios RRHH</h2>
-        <p class="subtle">
-          Tu usuario no tiene permisos de administración para crear usuarios.
-        </p>
-      </section>
-      {% endif %}
-
       {% if auth_enabled and can_manage_roles %}
       <section class="panel roles-panel">
         <div class="roles-head">
@@ -207,7 +155,7 @@
       const companySelectorEl = document.getElementById("rrhh-company-selector");
       const companySwitchBtn = document.getElementById("btn-company-switch");
       const authEnabled = {{ auth_enabled|tojson }};
-      const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "RRHH")|tojson }};
+      const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "Agente")|tojson }};
       const rrhhUsername = {{ (rrhh_user.username if rrhh_user else "")|tojson }};
       const selectedCompanyId = {{ (selected_company_id or "")|tojson }};
       let activeCompanyName = {{ (selected_company_name or company_name or "")|tojson }};
@@ -241,7 +189,7 @@
       let permissionsCatalog = [];
       const THEME_STORAGE_KEY = "rrhh_panel_theme";
       const SEEN_MESSAGES_STORAGE_KEY = `rrhh_seen_messages:${selectedCompanyId || "global"}:${rrhhUsername || "anon"}`;
-      const BASE_DOCUMENT_TITLE = document.title || "Panel RRHH";
+      const BASE_DOCUMENT_TITLE = document.title || "Panel de atención";
       let seenConversationMap = {};
       let unreadConversationIds = new Set();
       let notifiedConversationMap = {};
@@ -287,7 +235,7 @@
 
       function senderLabel(remitente, agente) {
         const lower = (remitente || "").toLowerCase();
-        if (lower === "rrhh") return `RRHH${agente ? ` (${agente})` : ""}`;
+        if (lower === "rrhh") return `Agente${agente ? ` (${agente})` : ""}`;
         if (lower === "colaborador") return "Colaborador";
         return "Sistema";
       }
@@ -919,8 +867,8 @@
 
       async function tomarConversacion() {
         if (!currentConversationId) return;
-        const agente = agentNameEl.value.trim() || "RRHH";
-        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/tomar`, {
+const agente = agentNameEl.value.trim() || "Agente";
+    const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/tomar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ agente }),
@@ -948,8 +896,8 @@
 
       async function cerrarConversacion() {
         if (!currentConversationId) return;
-        const agente = agentNameEl.value.trim() || "RRHH";
-        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/cerrar`, {
+const agente = agentNameEl.value.trim() || "Agente";
+    const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/cerrar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ agente }),
@@ -964,7 +912,7 @@
         if (isSendingReply) return;
         isSendingReply = true;
         syncConversationActions();
-        const agente = agentNameEl.value.trim() || "RRHH";
+        const agente = agentNameEl.value.trim() || "Agente";
         try {
           const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/mensajes`, {
             method: "POST",
