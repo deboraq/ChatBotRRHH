@@ -130,7 +130,7 @@ Assert-LastExit "gcloud run services describe"
 Write-Host "Cloud Run desplegado: $url" -ForegroundColor Green
 
 if ($UseHosting) {
-    Write-Host "Configurando Firebase Hosting con rewrite a Cloud Run..." -ForegroundColor Cyan
+    Write-Host "Desplegando Firebase Hosting (siempre en debo-chat.web.app)..." -ForegroundColor Cyan
 
     if (-not (Test-Path "hosting")) {
         New-Item -ItemType Directory -Path "hosting" | Out-Null
@@ -143,44 +143,16 @@ if ($UseHosting) {
         Write-Host "Se eliminó hosting/index.html para aplicar rewrite a Cloud Run en '/'." -ForegroundColor Yellow
     }
 
-    $site = $HostingSite
-    if ([string]::IsNullOrWhiteSpace($site)) {
-        $site = $ProjectId
-    }
-
-    # Mapea target => site (multisite)
+    # Siempre desplegamos solo en debo-chat (no se toca it-analyzer).
+    $site = "debo-chat"
     firebase target:apply hosting $site $site
     Assert-LastExit "firebase target:apply hosting"
-
-    # Escribimos configuración explícita para el sitio objetivo.
-    $firebaseJson = @"
-{
-  "hosting": [
-    {
-      "target": "$site",
-      "public": "hosting",
-      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-      "rewrites": [
-        {
-          "source": "**",
-          "run": {
-            "serviceId": "$ServiceName",
-            "region": "$Region"
-          }
-        }
-      ]
-    }
-  ]
-}
-"@
-    Set-Content -Path "firebase.json" -Value $firebaseJson
 
     firebase use $ProjectId
     Assert-LastExit "firebase use"
     firebase deploy --only "hosting:$site"
-    Assert-LastExit "firebase deploy --only hosting:site"
-    Write-Host "Firebase Hosting desplegado para sitio $site." -ForegroundColor Green
-    Write-Host "URL Hosting: https://$site.web.app" -ForegroundColor Green
+    Assert-LastExit "firebase deploy --only hosting:$site"
+    Write-Host "Firebase Hosting desplegado: https://debo-chat.web.app" -ForegroundColor Green
 }
 
 Write-Host ""
