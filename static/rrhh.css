@@ -174,6 +174,205 @@ textarea:focus {
   min-width: 220px;
 }
 
+/* Mismo tamaño de letra y recuadro: Empresa, Sucursal y Área visible */
+.toolbar .field.compact-field select,
+.toolbar .rrhh-branch-trigger,
+.toolbar .rrhh-area-trigger {
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  min-height: 38px;
+  height: 38px;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  box-sizing: border-box;
+}
+.toolbar .field.compact-field select {
+  padding-left: 10px;
+  padding-right: 28px;
+}
+.toolbar .rrhh-branch-trigger,
+.toolbar .rrhh-area-trigger {
+  padding: 9px 28px 9px 10px;
+}
+
+#rrhh-branch-filter-wrap {
+  position: relative;
+  overflow: visible;
+}
+
+#rrhh-branch-filter-wrap .rrhh-branch-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+}
+
+.rrhh-branch-dropdown-wrap {
+  position: relative;
+  overflow: visible;
+}
+
+.rrhh-branch-trigger {
+  min-width: 220px;
+  padding: 9px 28px 9px 10px;
+  font: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rrhh-branch-trigger::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+  pointer-events: none;
+}
+
+.rrhh-branch-trigger:hover {
+  border-color: var(--primary);
+}
+
+.rrhh-branch-trigger:focus {
+  outline: none;
+  border-color: #8bb6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.rrhh-branch-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 220px;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: visible;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: 1000;
+}
+
+.rrhh-branch-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-radius: 6px;
+}
+
+.rrhh-branch-option:hover {
+  background: var(--surface-soft);
+}
+
+.rrhh-branch-option input {
+  margin: 0;
+}
+
+#rrhh-area-filter-wrap {
+  position: relative;
+  overflow: visible;
+}
+
+#rrhh-area-filter-wrap .rrhh-area-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+}
+
+.rrhh-area-dropdown-wrap {
+  position: relative;
+  overflow: visible;
+}
+
+.rrhh-area-trigger {
+  min-width: 220px;
+  padding: 9px 28px 9px 10px;
+  font: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rrhh-area-trigger::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+  pointer-events: none;
+}
+
+.rrhh-area-trigger:hover {
+  border-color: var(--primary);
+}
+
+.rrhh-area-trigger:focus {
+  outline: none;
+  border-color: #8bb6ff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.rrhh-area-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 220px;
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: visible;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: 1000;
+}
+
+.rrhh-area-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-radius: 6px;
+}
+
+.rrhh-area-option:hover {
+  background: var(--surface-soft);
+}
+
+.rrhh-area-option input {
+  margin: 0;
+}
+
 .checkbox {
   display: inline-flex;
   align-items: center;
@@ -613,6 +812,44 @@ code {
 
 :root[data-theme="dark"] .toolbar {
   background: #121f33;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .toolbar input:not([type="checkbox"]),
+:root[data-theme="dark"] .toolbar select,
+:root[data-theme="dark"] .toolbar .rrhh-branch-trigger,
+:root[data-theme="dark"] .toolbar .rrhh-area-trigger,
+:root[data-theme="dark"] input:not([type="checkbox"]),
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus,
+:root[data-theme="dark"] textarea:focus,
+:root[data-theme="dark"] .rrhh-branch-trigger:focus,
+:root[data-theme="dark"] .rrhh-area-trigger:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+}
+
+:root[data-theme="dark"] .chat-top,
+:root[data-theme="dark"] .chat-top-actions {
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .chat-top-actions select {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+
+:root[data-theme="dark"] #chat-title,
+:root[data-theme="dark"] #chat-meta {
+  color: #e2e8f0;
 }
 
 :root[data-theme="dark"] .conv-card {
@@ -720,6 +957,34 @@ code {
   background: #1b2a44;
   border-color: #334155;
   color: #e2e8f0;
+}
+
+/* Preferencias en modo oscuro */
+:root[data-theme="dark"] .pref-page-title,
+:root[data-theme="dark"] .pref-section h2 {
+  color: #e2e8f0 !important;
+}
+
+:root[data-theme="dark"] .pref-page-desc,
+:root[data-theme="dark"] .pref-section-desc,
+:root[data-theme="dark"] .pref-section label .field-label {
+  color: #94a3b8 !important;
+}
+
+:root[data-theme="dark"] .pref-section {
+  background: #132033 !important;
+  border-color: #334155 !important;
+}
+
+:root[data-theme="dark"] .pref-section .field select {
+  background: #1e293b !important;
+  color: #e2e8f0 !important;
+  border: 1px solid #475569 !important;
+}
+
+:root[data-theme="dark"] .pref-section-num {
+  background: #1e3a5f !important;
+  color: #93c5fd !important;
 }
 
 @media (max-width: 1120px) {

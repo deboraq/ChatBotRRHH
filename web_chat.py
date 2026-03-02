@@ -1,4 +1,12 @@
 import os
+
+# Cargar variables desde .env si existe python-dotenv (opcional)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -54,6 +62,8 @@ GENERAL_SETTINGS_COLLECTION = "chatbot_config"
 GENERAL_SETTINGS_DOC = "general"
 ACTIVE_AGENTS_COLLECTION = "rrhh_agentes"
 COMPANIES_COLLECTION = "chatbot_empresas"
+# Clave Firestore-safe para "Todas (ámbito empresa)" en areas_by_branch (Firestore no permite "" como nombre de campo).
+AREA_BRANCH_KEY_EMPRESA = "__e"
 
 try:
     ACTIVE_AGENT_TTL_SECONDS = max(
@@ -69,6 +79,125 @@ AUTO_CLOSE_DEFAULT_MINUTES = 0
 
 def _accion(label, value, variant="default"):
     return {"label": label, "value": value, "variant": variant}
+
+
+# Contexto de chat: empresa y área elegidas por el colaborador (el asistente pregunta primero).
+CHAT_CONTEXT_STEP_COMPANY = "company"
+CHAT_CONTEXT_STEP_AREA = "area"
+CHAT_CONTEXT_STEP_READY = "ready"
+
+
+def _chat_context_step():
+    return session.get("chat_context_step") or CHAT_CONTEXT_STEP_COMPANY
+
+
+def _set_chat_context_company(company_id):
+    key = _normalize_company_id(company_id)
+    if key:
+        session["chat_context_company_id"] = key
+        session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+        _set_company_session(key)
+
+
+def _set_chat_context_area(area_name):
+    area_clean = str(area_name or "").strip()
+    if area_clean:
+        session["chat_context_area"] = area_clean
+        session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+
+
+def _clear_chat_context():
+    session.pop("chat_context_step", None)
+    session.pop("chat_context_company_id", None)
+    session.pop("chat_context_area", None)
+
+
+def _parse_menu_number(mensaje):
+    """Si el mensaje es un número de menú (ej. '1', '1.', '2)'), devuelve el índice 1-based o None."""
+    s = (mensaje or "").strip()
+    if not s:
+        return None
+    s = s.rstrip(".)")
+    if not s.isdigit():
+        return None
+    n = int(s)
+    return n if n >= 1 else None
+
+
+def _resolve_message_to_company(mensaje):
+    """Devuelve (company_id, company) si el mensaje coincide con una empresa (nombre, id o número de menú)."""
+    mensaje_norm = chatbot.normalizar_texto(mensaje)
+    if not mensaje_norm:
+        return None, None
+    lista = _list_companies(include_inactive=False)
+    num = _parse_menu_number(mensaje)
+    if num is not None and 1 <= num <= len(lista):
+        item = lista[num - 1]
+        cid = _normalize_company_id(item.get("company_id"))
+        return cid, item
+    for item in lista:
+        cid = _normalize_company_id(item.get("company_id"))
+        name = chatbot.normalizar_texto(item.get("company_name") or "")
+        if mensaje_norm == chatbot.normalizar_texto(cid) or (name and mensaje_norm in name):
+            return cid, item
+    return None, None
+
+
+def _resolve_message_to_area(mensaje, company_id):
+    """Devuelve el nombre del área si el mensaje coincide (nombre o número de menú)."""
+    company = _get_company(company_id, include_inactive=False)
+    areas = _get_all_areas_for_company(company)
+    mensaje_norm = chatbot.normalizar_texto(mensaje)
+    if not mensaje_norm or not areas:
+        return None
+    num = _parse_menu_number(mensaje)
+    if num is not None and 1 <= num <= len(areas):
+        return str(areas[num - 1]).strip()
+    for a in areas:
+        an = str(a).strip()
+        if chatbot.normalizar_texto(an) == mensaje_norm or mensaje_norm in chatbot.normalizar_texto(an):
+            return an
+    return None
+
+
+def _construir_acciones_empresas(limite=10):
+    acciones = []
+    for i, item in enumerate(_list_companies(include_inactive=False)[:limite], start=1):
+        cid = item.get("company_id")
+        name = (item.get("company_name") or cid or "").strip()
+        if cid and name:
+            acciones.append(_accion(f"{i}. {name}", cid, "topic"))
+    return acciones
+
+
+def _get_all_areas_for_company(company):
+    """Unión de áreas de todas las sucursales + ámbito empresa (para menú chat)."""
+    if not company:
+        return []
+    areas_by_branch = company.get("areas_by_branch")
+    if isinstance(areas_by_branch, dict) and areas_by_branch:
+        seen = set()
+        out = []
+        for branch in [""] + list(company.get("branches") or []):
+            branch_key = "" if branch == "" else _branch_name(branch)
+            for a in _get_areas_for_branch(company, branch_key):
+                k = str(a).strip().lower()
+                if k and k not in seen:
+                    seen.add(k)
+                    out.append(a)
+        return out
+    return _normalize_areas(company.get("areas"))
+
+
+def _construir_acciones_areas(company_id, limite=12):
+    company = _get_company(company_id, include_inactive=False)
+    areas = _get_all_areas_for_company(company)
+    acciones = []
+    for i, a in enumerate((areas or [])[:limite], start=1):
+        an = str(a).strip()
+        if an:
+            acciones.append(_accion(f"{i}. {an}", an, "topic"))
+    return acciones
 
 
 def _utc_now():
@@ -252,6 +381,74 @@ def _normalize_branches(raw_branches):
     return cleaned
 
 
+def _normalize_areas(raw_areas):
+    """Lista de nombres de área (strings) normalizados y sin duplicados."""
+    if raw_areas is None:
+        return []
+    values = raw_areas if isinstance(raw_areas, list) else [raw_areas]
+    cleaned = []
+    seen = set()
+    for item in values:
+        name = str(item or "").strip()
+        if not name:
+            continue
+        name = name[:120]
+        key = name.lower()
+        if key in seen:
+            continue
+        cleaned.append(name)
+        seen.add(key)
+    return cleaned
+
+
+def _normalize_areas_by_branch(raw):
+    """Dict sucursal -> lista de áreas. Claves normalizadas (string); '' se guarda como AREA_BRANCH_KEY_EMPRESA por Firestore."""
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for branch_key, areas in raw.items():
+        branch = str(branch_key or "").strip()[:120]
+        key = AREA_BRANCH_KEY_EMPRESA if branch == "" else branch
+        out[key] = _normalize_areas(areas)
+    return out
+
+
+def _get_areas_for_branch(company, branch):
+    """Devuelve la lista de áreas para una empresa y sucursal. branch '' = ámbito empresa."""
+    if not company:
+        return []
+    branch_key = _branch_name(branch) if isinstance(branch, dict) else (str(branch).strip() if branch is not None else "")
+    areas_by_branch = company.get("areas_by_branch")
+    if isinstance(areas_by_branch, dict):
+        if branch_key in areas_by_branch:
+            return list(areas_by_branch[branch_key] or [])
+        if "" in areas_by_branch:
+            return list(areas_by_branch[""] or [])
+        if AREA_BRANCH_KEY_EMPRESA in areas_by_branch:
+            return list(areas_by_branch[AREA_BRANCH_KEY_EMPRESA] or [])
+    return _normalize_areas(company.get("areas"))
+
+
+def _areas_by_branch_for_api(areas_by_branch):
+    """Convierte areas_by_branch para la API: __e -> '' para que el frontend reciba siempre '' como 'Todas'."""
+    if not isinstance(areas_by_branch, dict):
+        return areas_by_branch or {}
+    out = {}
+    for k, v in areas_by_branch.items():
+        key = "" if k == AREA_BRANCH_KEY_EMPRESA else k
+        out[key] = list(v) if isinstance(v, list) else []
+    return out
+
+
+def _company_for_api(company):
+    """Copia la empresa con areas_by_branch con claves aptas para el frontend ('' en lugar de __e)."""
+    if not company or not isinstance(company, dict):
+        return company
+    out = dict(company)
+    out["areas_by_branch"] = _areas_by_branch_for_api(company.get("areas_by_branch"))
+    return out
+
+
 def _normalize_optional_company_text(value, max_len=180):
     raw = str(value or "").strip()
     if not raw:
@@ -311,6 +508,10 @@ def _normalize_company_entry(entry):
         temas_habilitados = [str(t).strip().lower() for t in temas_hab_raw if str(t).strip()]
     else:
         temas_habilitados = []
+    areas = _normalize_areas(entry.get("areas"))
+    areas_by_branch = _normalize_areas_by_branch(entry.get("areas_by_branch"))
+    if not areas_by_branch and areas:
+        areas_by_branch = {AREA_BRANCH_KEY_EMPRESA: areas}
     return {
         "company_id": company_id,
         "company_name": company_name,
@@ -323,6 +524,8 @@ def _normalize_company_entry(entry):
         "handoff_auto_close_enabled": auto_close_enabled,
         "handoff_auto_close_minutes": auto_close_minutes,
         "branches": branches,
+        "areas": areas,
+        "areas_by_branch": areas_by_branch,
         "active": bool(entry.get("active", True)),
         "permitir_hablar_con_humano": permitir_humano,
         "temas_habilitados": temas_habilitados,
@@ -343,6 +546,8 @@ def _default_company_entry():
         "handoff_auto_close_enabled": False,
         "handoff_auto_close_minutes": AUTO_CLOSE_DEFAULT_MINUTES,
         "branches": [],
+        "areas": [],
+        "areas_by_branch": {},
         "active": True,
         "permitir_hablar_con_humano": True,
         "temas_habilitados": [],
@@ -374,6 +579,14 @@ def _merge_company_entries(current, candidate):
     base["branches"] = _normalize_branches(
         list(base.get("branches") or []) + list(extra.get("branches") or [])
     )
+    if "areas" in extra and isinstance(extra.get("areas"), list):
+        base["areas"] = _normalize_areas(extra.get("areas"))
+    else:
+        base.setdefault("areas", [])
+    if "areas_by_branch" in extra and isinstance(extra.get("areas_by_branch"), dict):
+        base["areas_by_branch"] = _normalize_areas_by_branch(extra.get("areas_by_branch"))
+    else:
+        base.setdefault("areas_by_branch", base.get("areas_by_branch") or {})
     base["active"] = bool(base.get("active", True) or extra.get("active", True))
     base["company_id"] = str(base.get("company_id") or extra.get("company_id") or "").strip()
     if "permitir_hablar_con_humano" in extra:
@@ -457,7 +670,7 @@ def _upsert_company(payload):
             (
                 chatbot.db.collection(COMPANIES_COLLECTION)
                 .document(normalized["company_id"])
-                .set(normalized, merge=True)
+                .set(normalized, merge=False)
             )
             return True, normalized, ""
         except Exception as exc:
@@ -653,6 +866,7 @@ def _write_general_settings(payload):
             "handoff_auto_close_enabled": auto_close_enabled,
             "handoff_auto_close_minutes": auto_close_minutes,
             "branches": branches,
+            "areas": _normalize_areas(data.get("areas") if "areas" in data else (current.get("areas") or [])),
             "active": True,
             "permitir_hablar_con_humano": permitir_humano,
             "temas_habilitados": temas_habilitados,
@@ -690,15 +904,17 @@ def _manual_agent_id(name):
     return f"manual:{normalized}"
 
 
-def _agent_payload(display_name, agent_id="", role="rrhh", company_id=""):
+def _agent_payload(display_name, agent_id="", role="rrhh", company_id="", area=""):
     shown = str(display_name or "Agente").strip() or "Agente"
     identifier = str(agent_id or "").strip().lower() or _manual_agent_id(shown)
     company_key = _normalize_company_id(company_id)
+    area_str = str(area or "").strip()
     return {
         "agent_id": identifier,
         "display_name": shown,
         "role": str(role or "rrhh").strip().lower() or "rrhh",
         "company_id": company_key,
+        "area": area_str,
     }
 
 
@@ -712,6 +928,7 @@ def _active_agent_from_current_user():
         agent_id=str(current.get("username") or "").strip().lower(),
         role=current.get("role") or "rrhh",
         company_id=company_id,
+        area=current.get("area") or "",
     )
 
 
@@ -744,6 +961,7 @@ def _current_rrhh_user():
         "display_name": str(session.get("rrhh_display_name") or username),
         "role": str(session.get("rrhh_role") or "rrhh"),
         "assignments": session.get("rrhh_assignments") or [],
+        "area": str(session.get("rrhh_area") or "").strip(),
     }
     if _auth_enabled():
         # Si el rol/nombre cambian en archivo, sincroniza sesión en caliente.
@@ -754,6 +972,7 @@ def _current_rrhh_user():
         current["display_name"] = str(entry.get("display_name") or username)
         current["role"] = str(entry.get("role") or "rrhh")
         current["assignments"] = list(entry.get("assignments") or [])
+        current["area"] = str(entry.get("area") or "").strip()
         _set_rrhh_user(current)
     return current
 
@@ -765,6 +984,7 @@ def _set_rrhh_user(user_payload):
     ).strip()
     session["rrhh_role"] = str(user_payload.get("role") or "rrhh").strip()
     session["rrhh_assignments"] = list(user_payload.get("assignments") or [])
+    session["rrhh_area"] = str(user_payload.get("area") or "").strip()
 
 
 def _clear_rrhh_user():
@@ -772,6 +992,7 @@ def _clear_rrhh_user():
     session.pop("rrhh_display_name", None)
     session.pop("rrhh_role", None)
     session.pop("rrhh_assignments", None)
+    session.pop("rrhh_area", None)
 
 
 def _rrhh_agent_name(default="Agente"):
@@ -796,6 +1017,7 @@ def _upsert_active_agent(agent, source="heartbeat"):
         agent_id=agent.get("agent_id") or "",
         role=agent.get("role") or "rrhh",
         company_id=agent.get("company_id") or _selected_company_id_for_rrhh(),
+        area=agent.get("area") or "",
     )
     payload["updated_at"] = _utc_now()
     payload["available"] = True
@@ -847,12 +1069,18 @@ def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS, company_id=None):
         role = str(item.get("role") or "").strip().lower()
         if role and not auth_rrhh.role_has_permission(role, auth_rrhh.PERM_CONVERSATIONS_MANAGE):
             continue
+        agent_id_raw = str(item.get("agent_id") or "").strip().lower()
+        area_stored = str(item.get("area") or "").strip()
+        if not area_stored and _auth_enabled() and agent_id_raw:
+            user_entry = auth_rrhh.get_users().get(agent_id_raw)
+            area_stored = str((user_entry or {}).get("area") or "").strip()
         active.append(
             _agent_payload(
                 item.get("display_name"),
                 item.get("agent_id"),
                 role,
                 company_id=item_company,
+                area=area_stored,
             )
         )
         active[-1]["updated_at"] = item.get("updated_at")
@@ -897,10 +1125,23 @@ def _open_handoff_load_by_agent(company_id=None):
     return counts
 
 
-def _select_auto_agent(company_id=None):
+def _agent_areas_set(agent):
+    """Conjunto de áreas del agente (normalizadas) para matching."""
+    area_str = str(agent.get("area") or "").strip()
+    if not area_str:
+        return set()
+    return {a.strip().lower() for a in area_str.split(",") if a.strip()}
+
+
+def _select_auto_agent(company_id=None, area=None):
     active_agents = _list_active_agents(company_id=company_id)
     if not active_agents:
         return None
+    area_norm = str(area or "").strip().lower() if area else None
+    if area_norm:
+        by_area = [a for a in active_agents if area_norm in _agent_areas_set(a)]
+        if by_area:
+            active_agents = by_area
     load = _open_handoff_load_by_agent(company_id=company_id)
     return sorted(
         active_agents,
@@ -933,11 +1174,21 @@ def _resolve_target_agent_for_reassignment(payload):
 
 
 def _can_manage_configuration():
+    """Acceso a la página Configuración (al menos un módulo)."""
     if not _auth_enabled():
         return True
-    return _has_permission(auth_rrhh.PERM_USERS_MANAGE) or _has_permission(
-        auth_rrhh.PERM_ROLES_MANAGE
+    return (
+        _has_permission(auth_rrhh.PERM_CONFIG_MANAGE)
+        or _has_permission(auth_rrhh.PERM_USERS_MANAGE)
+        or _has_permission(auth_rrhh.PERM_ROLES_MANAGE)
     )
+
+
+def _can_manage_general_config():
+    """Empresas, Sucursales, Áreas."""
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE)
 
 
 def _companies_for_user(user_payload):
@@ -994,7 +1245,12 @@ def _has_permission(permission):
     current = _current_rrhh_user()
     if not current:
         return False
-    return auth_rrhh.role_has_permission(current.get("role"), permission)
+    entry = auth_rrhh.get_users().get((current.get("username") or "").lower()) or current
+    selected_company = _selected_company_id_for_rrhh() or ""
+    effective_role = auth_rrhh.get_role_for_context(entry, selected_company, branch=None)
+    if not effective_role:
+        effective_role = current.get("role") or "rrhh"
+    return auth_rrhh.role_has_permission(effective_role, permission)
 
 
 def _auth_json_error():
@@ -1177,7 +1433,13 @@ def _upsert_handoff(conversation_id, payload, merge=True):
     IN_MEMORY_HANDOFFS[conversation_id].setdefault("mensajes", [])
 
 
-def _list_handoffs(include_closed=False, limit=100, company_id=None):
+def _branch_name(item):
+    if isinstance(item, dict) and item.get("name") is not None:
+        return str(item.get("name") or "").strip()
+    return str(item or "").strip()
+
+
+def _list_handoffs(include_closed=False, limit=100, company_id=None, branches=None, areas=None):
     if chatbot.db:
         docs = [
             _from_firestore_doc(doc)
@@ -1188,6 +1450,12 @@ def _list_handoffs(include_closed=False, limit=100, company_id=None):
 
     filtered = []
     target_company = _normalize_company_id(company_id)
+    branch_set = None
+    if branches is not None and len(branches) > 0:
+        branch_set = {_branch_name(b).lower() for b in branches if _branch_name(b)}
+    area_set = None
+    if areas is not None and len(areas) > 0:
+        area_set = {str(a).strip().lower() for a in areas if str(a).strip()}
     for item in docs:
         estado = str(item.get("estado") or "").strip().lower()
         if not include_closed and estado == HANDOFF_STATUS_CLOSED:
@@ -1195,6 +1463,14 @@ def _list_handoffs(include_closed=False, limit=100, company_id=None):
         if target_company:
             item_company = _normalize_company_id(item.get("company_id"))
             if item_company != target_company:
+                continue
+        if branch_set is not None:
+            conv_branch = str(item.get("branch") or "").strip().lower()
+            if conv_branch and conv_branch not in branch_set:
+                continue
+        if area_set is not None:
+            conv_area = str(item.get("area") or "").strip().lower()
+            if conv_area and conv_area not in area_set:
                 continue
         filtered.append(item)
 
@@ -1342,6 +1618,7 @@ def _take_handoff(conversation_id, agente, auto_taken=False):
             "rrhh_agente": agent["display_name"],
             "rrhh_agente_id": agent["agent_id"],
             "updated_at": _utc_now(),
+            "rrhh_asignacion_automatica": bool(auto_taken),
         },
         merge=True,
     )
@@ -1491,6 +1768,7 @@ def _reassign_handoff(conversation_id, agente_destino, reasignado_por=""):
             "rrhh_agente": target["display_name"],
             "rrhh_agente_id": target["agent_id"],
             "updated_at": _utc_now(),
+            "rrhh_asignacion_automatica": False,
         },
         merge=True,
     )
@@ -1543,8 +1821,13 @@ def construir_temas_map(company_id=None, temas_habilitados=None):
     return {str(i): tema for i, tema in enumerate(temas, start=1)}
 
 
+# Límite de temas mostrados en el menú (formato: 1. Tema, 2. Tema, ... H. Hablar con un agente)
+MENU_TEMAS_LIMITE = 12
+
+
 def construir_menu_texto(temas_map, permitir_hablar_con_humano=True):
-    lineas = ["📚 Menú de temas disponibles:"]
+    """Texto del menú en formato: Menú de temas disponibles: / 1. X / 2. Y / ... / H. Hablar con un agente."""
+    lineas = ["Menú de temas disponibles:"]
     for numero, tema in temas_map.items():
         lineas.append(f"{numero}. {tema.capitalize()}")
     if permitir_hablar_con_humano:
@@ -1552,16 +1835,20 @@ def construir_menu_texto(temas_map, permitir_hablar_con_humano=True):
     return "\n".join(lineas)
 
 
-def construir_acciones_menu(temas_map, limite=8, permitir_hablar_con_humano=True):
+def construir_acciones_menu(temas_map, limite=None, permitir_hablar_con_humano=True):
+    """Botones del menú: numerados (1. Tema, 2. Tema, ...), opcional Ver menú completo, y H. Hablar con un agente."""
+    if limite is None:
+        limite = MENU_TEMAS_LIMITE
     acciones = []
-    for numero, tema in list(temas_map.items())[:limite]:
+    items = list(temas_map.items())
+    for numero, tema in items[:limite]:
         acciones.append(_accion(f"{numero}. {tema.capitalize()}", numero, "topic"))
 
     if len(temas_map) > limite:
         acciones.append(_accion("Ver menú completo", "menu", "secondary"))
 
     if permitir_hablar_con_humano:
-        acciones.append(_accion("Hablar con un agente", "h", "secondary"))
+        acciones.append(_accion("H. Hablar con un agente", "h", "secondary"))
     return acciones
 
 
@@ -1580,7 +1867,7 @@ def construir_acciones_sugerencias(consulta, temas_map, permitir_hablar_con_huma
         acciones.append(_accion(tema.capitalize(), tema, "topic"))
     acciones.append(_accion("Ver menú", "menu", "secondary"))
     if permitir_hablar_con_humano:
-        acciones.append(_accion("Hablar con un agente", "h", "secondary"))
+        acciones.append(_accion("H. Hablar con un agente", "h", "secondary"))
     return acciones
 
 
@@ -1650,7 +1937,8 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
         conversation_id = _new_conversation_id()
 
     if existing is None:
-        assigned_agent = _select_auto_agent(company_id=company_id)
+        collaborator_area = session.get("chat_context_area") or ""
+        assigned_agent = _select_auto_agent(company_id=company_id, area=collaborator_area or None)
         estado_inicial = HANDOFF_STATUS_ACTIVE if assigned_agent else HANDOFF_STATUS_PENDING
         _upsert_handoff(
             conversation_id,
@@ -1658,11 +1946,13 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
                 "conversation_id": conversation_id,
                 "company_id": company_id,
                 "company_name": company.get("company_name"),
+                "area": collaborator_area,
                 "estado": estado_inicial,
                 "created_at": now,
                 "updated_at": now,
                 "rrhh_agente": assigned_agent.get("display_name", "") if assigned_agent else "",
                 "rrhh_agente_id": assigned_agent.get("agent_id", "") if assigned_agent else "",
+                "rrhh_asignacion_automatica": bool(assigned_agent),
                 "ultimo_mensaje": "",
                 "ultima_consulta": mensaje_usuario.strip() or "Solicitud de derivación",
                 "chat_session_id": chat_session_id,
@@ -1908,9 +2198,12 @@ def _serialize_handoff(conv):
         "conversation_id": conv.get("conversation_id") or conv.get("id"),
         "company_id": conv.get("company_id") or "",
         "company_name": conv.get("company_name") or "",
+        "branch": conv.get("branch") or "",
+        "area": conv.get("area") or "",
         "estado": conv.get("estado") or HANDOFF_STATUS_PENDING,
         "rrhh_agente": conv.get("rrhh_agente") or "",
         "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
+        "rrhh_asignacion_automatica": bool(conv.get("rrhh_asignacion_automatica")),
         "ultima_consulta": conv.get("ultima_consulta") or "",
         "ultimo_remitente": str(conv.get("ultimo_remitente") or "").strip().lower(),
         "ultimo_mensaje_iso": _iso_utc(ultimo_mensaje_fecha),
@@ -1952,6 +2245,18 @@ def reset_in_memory_handoffs():
     IN_MEMORY_COMPANIES.clear()
 
 
+def _can_view_stats():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_STATS_VIEW)
+
+
+def _can_manage_preferences():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_PREFERENCES_MANAGE)
+
+
 @flask_app.get("/")
 def home():
     """Vista principal: layout con sidebar de módulos y contenido en iframe (por defecto chat)."""
@@ -1961,36 +2266,78 @@ def home():
     else:
         _set_company_session(session.get("company_id") or _default_company_id())
     settings = _apply_company_branding(_read_general_settings())
+    company_name = settings.get("company_name") or "Empresa"
+    hr_display = (settings.get("hr_team_name") or "Atención").strip()
+    if hr_display.upper() == "RRHH":
+        hr_display = "Atención"
+    # Mostrar siempre todos los módulos en el sidebar; al hacer clic en uno protegido se redirige a login si hace falta.
+    user = _current_rrhh_user()
+    show_all = _auth_enabled() and user is None
     return render_template(
         "index.html",
-        company_name=settings.get("company_name"),
-        hr_team_name=settings.get("hr_team_name"),
+        company_name=company_name,
+        hr_team_name=hr_display,
+        can_view_config=_can_manage_configuration() if not show_all else True,
+        can_view_stats=_can_view_stats() if not show_all else True,
+        can_manage_preferences=_can_manage_preferences() if not show_all else True,
+        can_view_conversations=_has_permission(auth_rrhh.PERM_CONVERSATIONS_VIEW) if not show_all else True,
+        can_view_history=_has_permission(auth_rrhh.PERM_HISTORY_VIEW) if not show_all else True,
     )
 
 
 @flask_app.get("/chat")
 def chat_page():
     """Contenido del chatbot para incrustar en el layout principal (iframe o vista por defecto)."""
-    requested_company = _normalize_company_id(request.args.get("empresa"))
-    if requested_company and _get_company(requested_company, include_inactive=False):
+    _clear_chat_context()
+    step = _chat_context_step()
+    if step == CHAT_CONTEXT_STEP_READY or step == CHAT_CONTEXT_STEP_AREA:
+        requested_company = _normalize_company_id(
+            session.get("chat_context_company_id") or session.get("company_id") or _default_company_id()
+        )
         _set_company_session(requested_company)
     else:
         _set_company_session(session.get("company_id") or _default_company_id())
+
     settings = _apply_company_branding(_read_general_settings())
     company = _current_company()
     company_id = (company or {}).get("company_id")
-    permitir = (company or {}).get("permitir_hablar_con_humano", True)
-    temas_habilitados = (company or {}).get("temas_habilitados") or []
-    temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
     company_name = settings.get("company_name") or "Empresa"
     hr_display = (settings.get("hr_team_name") or "Atención").strip()
     if hr_display.upper() == "RRHH":
         hr_display = "Atención"
-    bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+
+    if step == CHAT_CONTEXT_STEP_COMPANY:
+        quick_actions_iniciales = _construir_acciones_empresas(limite=8)
+        nombres_empresas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
+        if nombres_empresas:
+            bienvenida = f"👋 ¡Hola! ¿De qué empresa me hablás?\nMenú:\n" + "\n".join(nombres_empresas) + "\n\nEscribí el número o el nombre."
+        else:
+            bienvenida = "👋 ¡Hola! ¿De qué empresa me hablás? Elegí una opción o escribí el nombre."
+    elif step == CHAT_CONTEXT_STEP_AREA:
+        ctx_company_id = session.get("chat_context_company_id") or company_id
+        company_for_area = _get_company(ctx_company_id, include_inactive=False)
+        area_name_company = (company_for_area or {}).get("company_name") or ctx_company_id or "Empresa"
+        quick_actions_iniciales = _construir_acciones_areas(ctx_company_id, limite=8)
+        nombres_areas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
+        if nombres_areas:
+            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company})\nMenú:\n" + "\n".join(nombres_areas) + "\n\nEscribí el número o el nombre."
+        else:
+            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company})"
+    else:
+        permitir = (company or {}).get("permitir_hablar_con_humano", True)
+        temas_habilitados = (company or {}).get("temas_habilitados") or []
+        temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
+        area_ctx = session.get("chat_context_area") or ""
+        if area_ctx:
+            bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name} (área: {area_ctx}). ¿En qué puedo ayudarte hoy?"
+        else:
+            bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+        quick_actions_iniciales = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir)
+
     return render_template(
         "chat.html",
         bienvenida=bienvenida,
-        quick_actions_iniciales=construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
+        quick_actions_iniciales=quick_actions_iniciales,
         company_name=company_name,
         hr_team_name=hr_display,
     )
@@ -2040,15 +2387,17 @@ def configuracion_page():
         return ("No tenés permisos para acceder a configuración.", 403)
     company = _set_company_session(session.get("company_id") or _default_company_id())
     settings = _read_general_settings()
+    companies_raw = _list_companies(include_inactive=True)
+    companies = [_company_for_api(c) for c in companies_raw]
     return render_template(
         "configuracion.html",
         auth_enabled=_auth_enabled(),
         rrhh_user=_current_rrhh_user(),
         can_manage_users=_has_permission(auth_rrhh.PERM_USERS_MANAGE),
         can_manage_roles=_has_permission(auth_rrhh.PERM_ROLES_MANAGE),
-        can_manage_general=_can_manage_configuration(),
+        can_manage_general=_can_manage_general_config(),
         general_settings=settings,
-        companies=_list_companies(include_inactive=True),
+        companies=companies,
         selected_company_id=company.get("company_id"),
     )
 
@@ -2067,19 +2416,24 @@ def historial_page():
 
 
 @flask_app.get("/estadisticas")
+@rrhh_auth_required
 def stats_page():
+    if not _can_view_stats():
+        return ("No tenés permisos para ver estadísticas.", 403)
     return render_template("stats.html")
 
 
 @flask_app.get("/preferencias")
+@rrhh_auth_required
 def preferencias_page():
-    """Preferencias de uso: modo oscuro/claro y enlace a autocierre (Configuración > Empresas)."""
+    """Preferencias de uso: modo oscuro/claro, empresa activa, autocierre y reglas del chat."""
+    if not _can_manage_preferences():
+        return ("No tenés permisos para gestionar preferencias.", 403)
     return render_template("preferencias.html")
 
 
 @flask_app.post("/api/chat")
 def chat_api():
-    company = _set_company_session(session.get("company_id") or _default_company_id())
     _apply_company_branding(_read_general_settings())
     data = request.get_json(silent=True) or {}
     mensaje = data.get("message", "")
@@ -2087,6 +2441,93 @@ def chat_api():
     if not isinstance(mensaje, str):
         return jsonify({"ok": False, "error": "Formato de mensaje inválido"}), 400
 
+    mensaje_trim = (mensaje or "").strip()
+    step = _chat_context_step()
+
+    if step == CHAT_CONTEXT_STEP_COMPANY:
+        cid, company = _resolve_message_to_company(mensaje_trim)
+        if cid and company:
+            _set_chat_context_company(cid)
+            company_for_area = _get_company(cid, include_inactive=False)
+            areas = _get_all_areas_for_company(company_for_area)
+            if areas:
+                reply = f"Perfecto, {company.get('company_name') or cid}. ¿De qué área me hablás?"
+                quick_actions = _construir_acciones_areas(cid, limite=8)
+            else:
+                _set_chat_context_area("")
+                session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                reply = f"Listo. ¿En qué puedo ayudarte?"
+                company = _current_company()
+                temas_map = construir_temas_map(
+                    company_id=cid,
+                    temas_habilitados=(company or {}).get("temas_habilitados") or [],
+                )
+                quick_actions = construir_acciones_menu(
+                    temas_map, limite=6,
+                    permitir_hablar_con_humano=(company or {}).get("permitir_hablar_con_humano", True),
+                )
+            return jsonify({
+                "ok": True,
+                "reply": reply,
+                "await_feedback": False,
+                "end_session": False,
+                "quick_actions": quick_actions,
+                "handoff_active": False,
+            })
+        opciones = _construir_acciones_empresas(limite=8)
+        nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
+        if nombres:
+            reply = f"No encontré esa empresa.\nMenú:\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+        else:
+            reply = "No encontré esa empresa. Elegí una de las opciones o escribí el nombre correcto."
+        return jsonify({
+            "ok": True,
+            "reply": reply,
+            "await_feedback": False,
+            "end_session": False,
+            "quick_actions": opciones,
+            "handoff_active": False,
+        })
+
+    if step == CHAT_CONTEXT_STEP_AREA:
+        ctx_cid = session.get("chat_context_company_id") or (_current_company() or {}).get("company_id")
+        area = _resolve_message_to_area(mensaje_trim, ctx_cid)
+        if area:
+            _set_chat_context_area(area)
+            company = _set_company_session(ctx_cid)
+            permitir = (company or {}).get("permitir_hablar_con_humano", True)
+            temas_habilitados = (company or {}).get("temas_habilitados") or []
+            temas_map = construir_temas_map(company_id=ctx_cid, temas_habilitados=temas_habilitados)
+            settings = _apply_company_branding(_read_general_settings())
+            company_name = settings.get("company_name") or "Empresa"
+            hr_display = (settings.get("hr_team_name") or "Atención").strip()
+            if hr_display.upper() == "RRHH":
+                hr_display = "Atención"
+            reply = f"👋 Listo (área: {area}). Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+            return jsonify({
+                "ok": True,
+                "reply": reply,
+                "await_feedback": False,
+                "end_session": False,
+                "quick_actions": construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
+                "handoff_active": False,
+            })
+        opciones_area = _construir_acciones_areas(ctx_cid, limite=8)
+        nombres_area = [a.get("label") or a.get("value") for a in opciones_area if a.get("label") or a.get("value")]
+        if nombres_area:
+            reply = f"No encontré ese área.\nMenú:\n" + "\n".join(nombres_area) + "\n\nEscribí el número o el nombre."
+        else:
+            reply = "No encontré ese área. Elegí una de las opciones."
+        return jsonify({
+            "ok": True,
+            "reply": reply,
+            "await_feedback": False,
+            "end_session": False,
+            "quick_actions": opciones_area,
+            "handoff_active": False,
+        })
+
+    company = _set_company_session(session.get("company_id") or _default_company_id())
     mensaje_norm = chatbot.normalizar_texto(mensaje)
     handoff_before = bool(_get_handoff_session_id())
     log_asistente_input = not (
@@ -2256,6 +2697,7 @@ def password_recovery_page():
         error="",
         success=False,
         message="",
+        reset_link="",
     )
 
 
@@ -2280,6 +2722,7 @@ def password_recovery_submit():
                 error="Ingresá usuario y email.",
                 success=False,
                 message="",
+                reset_link="",
             ),
             400,
         )
@@ -2298,18 +2741,30 @@ def password_recovery_submit():
             error="",
             success=True,
             message=generic_success_message,
+            reset_link="",
         )
 
     reset_url = url_for("password_reset_page", token=payload.get("token"), _external=True)
-    mail_ok, mail_error = _send_password_reset_email(
-        to_email=payload.get("email"),
-        display_name=payload.get("display_name") or payload.get("username"),
-        reset_url=reset_url,
-        expires_at_iso=payload.get("expires_at"),
-    )
+    try:
+        mail_ok, mail_error = _send_password_reset_email(
+            to_email=payload.get("email"),
+            display_name=payload.get("display_name") or payload.get("username"),
+            reset_url=reset_url,
+            expires_at_iso=payload.get("expires_at"),
+        )
+    except Exception as exc:
+        mail_ok, mail_error = False, str(exc)
+    smtp_not_configured = mail_error and "SMTP no configurado" in (mail_error or "")
     if request.is_json:
         if mail_ok:
             return jsonify({"ok": True, "mail_sent": True, "message": generic_success_message})
+        if smtp_not_configured:
+            return jsonify({
+                "ok": True,
+                "mail_sent": False,
+                "message": "El envío por email no está configurado. Usá este enlace para restablecer tu contraseña.",
+                "reset_link": reset_url,
+            })
         return jsonify({"ok": False, "error": mail_error or "No se pudo enviar el email."}), 502
 
     if mail_ok:
@@ -2318,6 +2773,15 @@ def password_recovery_submit():
             error="",
             success=True,
             message=generic_success_message,
+            reset_link="",
+        )
+    if smtp_not_configured:
+        return render_template(
+            "recover_password.html",
+            error="",
+            success=True,
+            message="El envío por email no está configurado. Copiá el enlace de abajo para restablecer tu contraseña (válido por 1 hora).",
+            reset_link=reset_url,
         )
     return (
         render_template(
@@ -2325,6 +2789,7 @@ def password_recovery_submit():
             error=mail_error or "No se pudo enviar el email de restablecimiento.",
             success=False,
             message="",
+            reset_link="",
         ),
         502,
     )
@@ -2461,7 +2926,7 @@ def chat_poll_api():
 @flask_app.get("/api/configuracion/general")
 @rrhh_auth_required
 def configuracion_general_api():
-    if not _can_manage_configuration():
+    if not _can_manage_configuration() and not _can_manage_preferences():
         return _forbidden_json_error("Sin permiso para ver configuración.")
     settings = _read_general_settings()
     return jsonify({"ok": True, "settings": settings, "selected_company_id": _current_company().get("company_id")})
@@ -2470,8 +2935,8 @@ def configuracion_general_api():
 @flask_app.post("/api/configuracion/general")
 @rrhh_auth_required
 def configuracion_general_update_api():
-    if not _can_manage_configuration():
-        return _forbidden_json_error("Sin permiso para editar configuración.")
+    if not _can_manage_preferences() and not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso para editar configuración general.")
     data = request.get_json(silent=True) or {}
     ok, settings, error = _write_general_settings(data)
     if not ok:
@@ -2485,7 +2950,7 @@ def configuracion_general_update_api():
 def configuracion_empresas_api():
     if not _can_manage_configuration():
         return _forbidden_json_error("Sin permiso para ver empresas.")
-    companies = _list_companies(include_inactive=True)
+    companies = [_company_for_api(c) for c in _list_companies(include_inactive=True)]
     return jsonify(
         {
             "ok": True,
@@ -2498,19 +2963,19 @@ def configuracion_empresas_api():
 @flask_app.post("/api/configuracion/empresas")
 @rrhh_auth_required
 def configuracion_crear_empresa_api():
-    if not _can_manage_configuration():
+    if not _can_manage_general_config():
         return _forbidden_json_error("Sin permiso para crear empresas.")
     data = request.get_json(silent=True) or {}
     ok, company, error = _upsert_company(data)
     if not ok:
         return jsonify({"ok": False, "error": error}), 400
-    return jsonify({"ok": True, "company": company})
+    return jsonify({"ok": True, "company": _company_for_api(company)})
 
 
 @flask_app.post("/api/configuracion/empresas/<company_id>")
 @rrhh_auth_required
 def configuracion_editar_empresa_api(company_id):
-    if not _can_manage_configuration():
+    if not _can_manage_general_config():
         return _forbidden_json_error("Sin permiso para editar empresas.")
     current = _get_company(company_id, include_inactive=True)
     if not current:
@@ -2534,6 +2999,10 @@ def configuracion_editar_empresa_api(company_id):
             current.get("handoff_auto_close_minutes", AUTO_CLOSE_DEFAULT_MINUTES),
         ),
         "branches": data.get("branches", current.get("branches") or []),
+        "areas": _normalize_areas(data.get("areas", current.get("areas") or [])),
+        "areas_by_branch": _normalize_areas_by_branch(
+            data.get("areas_by_branch") if "areas_by_branch" in data else (current.get("areas_by_branch") or {})
+        ),
         "active": bool(data.get("active", current.get("active", True))),
         "permitir_hablar_con_humano": _normalize_bool_flag(
             data.get("permitir_hablar_con_humano", current.get("permitir_hablar_con_humano", True)),
@@ -2549,13 +3018,13 @@ def configuracion_editar_empresa_api(company_id):
         return jsonify({"ok": False, "error": error}), 400
     if _normalize_company_id(session.get("company_id")) == company.get("company_id"):
         _set_company_session(company.get("company_id"))
-    return jsonify({"ok": True, "company": company})
+    return jsonify({"ok": True, "company": _company_for_api(company)})
 
 
 @flask_app.delete("/api/configuracion/empresas/<company_id>")
 @rrhh_auth_required
 def configuracion_eliminar_empresa_api(company_id):
-    if not _can_manage_configuration():
+    if not _can_manage_general_config():
         return _forbidden_json_error("Sin permiso para eliminar empresas.")
     ok, error = _delete_company(company_id)
     if not ok:
@@ -2569,7 +3038,7 @@ def configuracion_eliminar_empresa_api(company_id):
 @flask_app.post("/api/configuracion/empresa/seleccionar")
 @rrhh_auth_required
 def configuracion_seleccionar_empresa_api():
-    if not _can_manage_configuration():
+    if not _can_manage_general_config():
         return _forbidden_json_error("Sin permiso para cambiar empresa activa.")
     data = request.get_json(silent=True) or {}
     company_id = _normalize_company_id(data.get("company_id"))
@@ -2588,7 +3057,7 @@ def configuracion_seleccionar_empresa_api():
 @flask_app.post("/api/configuracion/conversaciones/autocierre/ejecutar")
 @rrhh_auth_required
 def configuracion_autocierre_ejecutar_api():
-    if not _can_manage_configuration():
+    if not _can_manage_general_config():
         return _forbidden_json_error("Sin permiso para ejecutar autocierre.")
     company = _current_company()
     result = _auto_close_expired_handoffs(company=company, force=True)
@@ -2603,13 +3072,29 @@ def configuracion_autocierre_ejecutar_api():
 def rrhh_conversaciones_api():
     _heartbeat_current_agent()
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
+    branches_param = request.args.get("branches")
+    branches = None
+    if branches_param is not None and str(branches_param).strip():
+        branches = [b.strip() for b in str(branches_param).split(",") if b.strip()]
+    areas_param = request.args.get("areas")
+    areas = None
+    if areas_param is not None and str(areas_param).strip():
+        areas = [a.strip() for a in str(areas_param).split(",") if a.strip()]
     company = _current_company()
     auto_close_result = _auto_close_expired_handoffs(company=company)
     convs = _list_handoffs(
         include_closed=include_closed,
         limit=150,
         company_id=company.get("company_id"),
+        branches=branches,
+        areas=areas,
     )
+    company_branches = []
+    for b in (company.get("branches") or []):
+        name = _branch_name(b)
+        if name:
+            company_branches.append({"name": name})
+    company_areas = _get_all_areas_for_company(company)
     return jsonify(
         {
             "ok": True,
@@ -2621,6 +3106,8 @@ def rrhh_conversaciones_api():
             ],
             "selected_company_id": company.get("company_id"),
             "selected_company_name": company.get("company_name"),
+            "branches": company_branches,
+            "areas": [str(a).strip() for a in (company_areas or []) if str(a).strip()],
             "autocierre": auto_close_result,
         }
     )
@@ -2665,6 +3152,8 @@ def rrhh_seleccionar_empresa_api():
 )
 def rrhh_usuarios_api():
     users = auth_rrhh.list_file_users()
+    companies_raw = _list_companies(include_inactive=False)
+    companies = [_company_for_api(c) for c in companies_raw]
     return jsonify(
         {
             "ok": True,
@@ -2672,7 +3161,7 @@ def rrhh_usuarios_api():
             "users_file": auth_rrhh.users_file_path(),
             "valid_roles": auth_rrhh.available_roles(),
             "permissions_catalog": auth_rrhh.permissions_catalog(),
-            "companies": _list_companies(include_inactive=False),
+            "companies": companies,
         }
     )
 
@@ -2738,10 +3227,16 @@ def rrhh_crear_rol_api():
     name = str(data.get("name") or "").strip().lower()
     display_name = str(data.get("display_name") or "").strip()
     permissions = data.get("permissions")
+    company_ids = data.get("company_ids")
+    if isinstance(company_ids, list):
+        company_ids = [str(c or "").strip() for c in company_ids if str(c or "").strip()]
+    else:
+        company_ids = None
     ok, role, error = auth_rrhh.create_role(
         name=name,
         display_name=display_name,
         permissions=permissions,
+        company_ids=company_ids,
     )
     if not ok:
         status = 409 if "existe" in error.lower() else 400
@@ -2758,10 +3253,14 @@ def rrhh_editar_rol_api(role_name):
     data = request.get_json(silent=True) or {}
     display_name = data.get("display_name")
     permissions = data.get("permissions")
+    company_ids = data.get("company_ids")
+    if company_ids is not None and isinstance(company_ids, list):
+        company_ids = [str(c or "").strip() for c in company_ids if str(c or "").strip()]
     ok, role, error = auth_rrhh.update_role(
         name=role_name,
         display_name=display_name,
         permissions=permissions,
+        company_ids=company_ids,
     )
     if not ok:
         msg = error.lower()
@@ -2948,6 +3447,7 @@ def rrhh_mensajes_api(conversation_id):
             "estado": conv.get("estado") or HANDOFF_STATUS_PENDING,
             "rrhh_agente": conv.get("rrhh_agente") or "",
             "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
+            "rrhh_asignacion_automatica": bool(conv.get("rrhh_asignacion_automatica")),
             "mensajes": _serialize_messages(mensajes),
         }
     )
@@ -3102,17 +3602,13 @@ def stats_api():
 def reset_api():
     limpiar_estado_conversacion()
     _clear_handoff_session()
+    _clear_chat_context()
     session["chat_session_id"] = _new_conversation_id()
-    company = _current_company()
-    company_id = (company or {}).get("company_id")
-    permitir = (company or {}).get("permitir_hablar_con_humano", True)
-    temas_habilitados = (company or {}).get("temas_habilitados") or []
-    temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
     return jsonify(
         {
             "ok": True,
-            "reply": "Sesión reiniciada. ¿En qué puedo ayudarte?",
-            "quick_actions": construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
+            "reply": "Sesión reiniciada. ¿De qué empresa me hablás? Elegí una opción o escribí el nombre.",
+            "quick_actions": _construir_acciones_empresas(limite=8),
             "handoff_active": False,
         }
     )

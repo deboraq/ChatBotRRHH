@@ -26,7 +26,7 @@
               value="{{ company.company_id }}"
               {% if company.company_id == selected_company %}selected{% endif %}
             >
-              {{ company.company_name }}{% if company.branches %} ({{ company.branches|length }} suc.){% endif %}
+              {{ company.company_name }}
             </option>
             {% endfor %}
           </select>

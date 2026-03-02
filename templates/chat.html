@@ -7,6 +7,18 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='chat.css') }}" />
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem("rrhh_panel_theme");
+          if (stored === "dark" || stored === "light") {
+            document.documentElement.setAttribute("data-theme", stored);
+          } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
     <main class="chat-wrapper">
       <header class="chat-header">
         <h1>Asistente Virtual {{ hr_team_name or "Atención" }}</h1>
@@ -45,6 +57,7 @@
       const btnReset = document.getElementById("btn-reset");
       const dynamicActions = document.getElementById("dynamic-actions");
       const initialQuickActions = {{ quick_actions_iniciales|tojson }};
+      const initialBienvenida = {{ bienvenida|tojson }};
       let handoffActive = false;
       let pollTimer = null;
       const HANDOFF_POLL_MS = 60 * 1000;
@@ -140,9 +153,17 @@
             body: JSON.stringify({ message: trimmed }),
           });
 
+          const contentType = response.headers.get("Content-Type") || "";
+          if (!contentType.includes("application/json")) {
+            addMessage("bot", "El servidor respondió con un error. Revisá que la aplicación esté corriendo y probá de nuevo.");
+            feedbackHint.textContent = "";
+            renderQuickActions([]);
+            return;
+          }
+
           const data = await response.json();
           if (!data.ok) {
-            addMessage("bot", "Hubo un error procesando tu mensaje.");
+            addMessage("bot", data.error || "Hubo un error procesando tu mensaje.");
             feedbackHint.textContent = "";
             renderQuickActions([]);
             return;
@@ -155,7 +176,11 @@
           renderQuickActions(data.quick_actions || []);
           setHandoffPolling(Boolean(data.handoff_active));
         } catch (error) {
-          addMessage("bot", "No pude conectarme con el servidor del chatbot.");
+          const msg = (error && error.message) ? error.message : "";
+          const isNetwork = /failed to fetch|network|load/i.test(msg);
+          addMessage("bot", isNetwork || !msg
+            ? "No pude conectarme con el servidor del chatbot. Revisá que la aplicación esté corriendo (por ejemplo ejecutando 'python web_chat.py') y probá de nuevo."
+            : "Error: " + msg);
           feedbackHint.textContent = "";
           renderQuickActions([]);
         }
@@ -174,8 +199,7 @@
           const response = await fetch("/api/reset", { method: "POST" });
           const data = await response.json();
           chatWindow.innerHTML = "";
-          addMessage("bot", "{{ bienvenida }}");
-          addMessage("bot", data.reply);
+          addMessage("bot", data.reply || initialBienvenida);
           feedbackHint.textContent = "";
           renderQuickActions(data.quick_actions || initialQuickActions);
           setHandoffPolling(Boolean(data.handoff_active));
@@ -184,7 +208,7 @@
         }
       });
 
-      addMessage("bot", "{{ bienvenida }}");
+      addMessage("bot", initialBienvenida);
       addMessage("bot", "Escribí tu consulta o tocá 'Ver menú' para empezar.");
       renderQuickActions(initialQuickActions);
       setHandoffPolling(false);

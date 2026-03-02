@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <title>Configuración - Asistente</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}?v=30" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}?v=32" />
     <style>
       /* Correcciones forzadas: sucursales y columna Emp./Suc. */
       #new-user-branches-label {
@@ -60,6 +60,73 @@
       .branches-panel .branches-table .config-actions-cell {
         gap: 12px !important;
       }
+      /* Sucursales: mismo layout que Áreas para líneas parejas */
+      .branches-panel .branches-table {
+        display: table !important;
+        table-layout: fixed !important;
+        width: 100% !important;
+      }
+      .branches-panel .branches-table tbody { display: table-row-group !important; }
+      .branches-panel .branches-table tr { display: table-row !important; }
+      .branches-panel .branches-table td,
+      .branches-panel .branches-table th { display: table-cell !important; }
+      .branches-panel .branches-table .col-empresa { width: 22% !important; }
+      .branches-panel .branches-table .col-branches { width: 48% !important; }
+      .branches-panel .branches-table .col-accion { width: 30% !important; min-width: 180px !important; }
+      .branches-panel .branches-table td { vertical-align: top !important; }
+      .branches-panel .branches-table td:nth-child(2) {
+        overflow: hidden !important;
+        word-wrap: break-word !important;
+      }
+      .branches-panel .branches-table td:nth-child(3) {
+        vertical-align: top !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+      }
+      .branches-panel .branches-table .config-actions-cell {
+        text-align: left !important;
+      }
+      /* Áreas: tabla con layout fijo para que el botón quede en columna Acción */
+      .areas-panel .areas-table {
+        display: table !important;
+        table-layout: fixed !important;
+        width: 100% !important;
+      }
+      .areas-panel .areas-table tbody { display: table-row-group !important; }
+      .areas-panel .areas-table tr { display: table-row !important; }
+      .areas-panel .areas-table td,
+      .areas-panel .areas-table th {
+        display: table-cell !important;
+      }
+      .areas-panel .areas-table .col-areas   { width: 70% !important; }
+      .areas-panel .areas-table .col-accion { width: 30% !important; min-width: 140px !important; }
+      .areas-company-select-wrap { margin-bottom: 1rem; }
+      .areas-company-select-wrap .areas-company-label { display: inline-block; margin-right: 0.5rem; font-weight: 500; }
+      .areas-company-select { min-width: 220px; padding: 6px 10px; }
+      .roles-toolbar .roles-company-label { margin-right: 0.5rem; font-weight: 500; }
+      .roles-toolbar .roles-company-select { min-width: 200px; padding: 6px 10px; margin-right: 1rem; }
+      .areas-panel .areas-table td { vertical-align: top !important; }
+      .areas-panel .areas-table td:nth-child(1) {
+        overflow: hidden !important;
+        word-wrap: break-word !important;
+      }
+      .areas-panel .areas-table td:nth-child(2) {
+        vertical-align: top !important;
+        text-align: left !important;
+        white-space: nowrap !important;
+      }
+      .areas-panel .areas-table .config-actions-cell {
+        text-align: left !important;
+      }
+      .areas-panel .areas-guardar-btn {
+        background: #2563eb !important;
+        color: #fff !important;
+        border-color: #2563eb !important;
+      }
+      .areas-panel .areas-guardar-btn:hover {
+        background: #1d4ed8 !important;
+        color: #fff !important;
+      }
     </style>
   </head>
   <body>
@@ -90,6 +157,7 @@
             {% if can_manage_general %}
             <button type="button" data-section-target="empresas">Empresas</button>
             <button type="button" data-section-target="sucursales">Sucursales</button>
+            <button type="button" data-section-target="areas">Áreas</button>
             {% endif %}
             {% if can_manage_users %}
             <button type="button" data-section-target="usuarios">Usuarios</button>
@@ -190,6 +258,11 @@
             </p>
             <div class="branches-table-wrap">
               <table class="branches-table config-table">
+                <colgroup>
+                  <col class="col-empresa" />
+                  <col class="col-branches" />
+                  <col class="col-accion" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Empresa</th>
@@ -202,6 +275,66 @@
             </div>
             <p id="branches-status" class="subtle"></p>
           </section>
+
+          <section class="panel areas-panel config-section" data-section-key="areas">
+            <h2>Áreas</h2>
+            <p class="subtle">
+              Elegí una empresa. Por defecto todas las sucursales usan las mismas áreas; podés personalizar una sucursal para que tenga su propia lista (solo usará esa).
+            </p>
+            <div class="areas-company-select-wrap">
+              <label for="areas-company-select" class="areas-company-label">Empresa</label>
+              <select id="areas-company-select" class="areas-company-select" aria-label="Empresa para gestionar áreas">
+                <option value="">Seleccionar empresa</option>
+              </select>
+            </div>
+            <div class="areas-table-wrap">
+              <table class="areas-table config-table">
+                <colgroup>
+                  <col class="col-areas" />
+                  <col class="col-accion" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Áreas</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="areas-body"></tbody>
+              </table>
+            </div>
+            <p id="areas-status" class="subtle"></p>
+          </section>
+
+          <!-- Modal Agregar / Editar área -->
+          <div id="area-form-modal" class="config-modal" role="dialog" aria-labelledby="area-form-modal-title" aria-modal="true" data-area-mode="add" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box">
+              <div class="config-modal-head">
+                <h3 id="area-form-modal-title">Agregar área</h3>
+                <button type="button" class="config-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <form id="area-form-modal-form" class="config-modal-form">
+                <label class="field">
+                  Empresa <span class="required">*</span>
+                  <select id="modal-area-company-select" aria-label="Empresa">
+                    <option value="">Seleccionar empresa</option>
+                  </select>
+                </label>
+                <label class="field">
+                  Sucursales (selección múltiple)
+                  <div id="modal-area-branches-panel" class="branch-checkboxes area-modal-branches" role="group" aria-label="Sucursales"></div>
+                </label>
+                <label class="field">
+                  Nombre del área <span class="required">*</span>
+                  <input id="modal-area-name" type="text" placeholder="ej: Ventas, Soporte, Administración" required />
+                </label>
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
+                  <button type="submit" id="area-form-submit-btn">Agregar</button>
+                </div>
+              </form>
+            </div>
+          </div>
 
           <!-- Modal Agregar / Editar sucursal -->
           <div id="branch-form-modal" class="config-modal" role="dialog" aria-labelledby="branch-form-modal-title" aria-modal="true" data-branch-mode="add" hidden>
@@ -311,8 +444,14 @@
                   <input id="modal-phone" type="text" placeholder="Teléfono (opcional)" />
                 </label>
                 <label class="field">
-                  Área
-                  <input id="modal-area" type="text" placeholder="Área (opcional)" />
+                  Áreas
+                  <span id="modal-areas-wrap" class="branch-dropdown-wrap modal-branches-select-like">
+                    <button type="button" id="modal-areas-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
+                      <span class="branch-dropdown-trigger-text">Seleccionar áreas</span>
+                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
+                    </button>
+                    <div id="modal-areas-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
+                  </span>
                 </label>
                 <label class="field" id="modal-password-wrap">
                   Contraseña inicial
@@ -320,10 +459,13 @@
                 </label>
                 <label class="field">
                   Rol
-                  <select id="modal-role">
-                    <option value="rrhh">agente</option>
-                    <option value="admin">admin</option>
-                  </select>
+                  <span id="modal-roles-wrap" class="branch-dropdown-wrap modal-branches-select-like">
+                    <button type="button" id="modal-roles-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
+                      <span class="branch-dropdown-trigger-text">Seleccionar roles</span>
+                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
+                    </button>
+                    <div id="modal-roles-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
+                  </span>
                 </label>
                 <label class="field">
                   Empresa asignada
@@ -353,11 +495,15 @@
             <div class="roles-head">
               <div>
                 <h2>Roles y permisos</h2>
-                <p class="subtle">Listado de roles. Usá "Agregar" para crear uno nuevo; en cada fila podés editar permisos y guardar.</p>
+                <p class="subtle">Elegí una empresa para ver los roles en ese contexto. Los roles son globales; para asignar un rol a un usuario en todas las sucursales de una empresa, andá a Usuarios y en asignaciones elegí la empresa y «Todas las sucursales» con el rol deseado.</p>
               </div>
               <span id="roles-file" class="subtle"></span>
             </div>
             <div class="roles-toolbar">
+              <label for="roles-company-select" class="roles-company-label">Empresa</label>
+              <select id="roles-company-select" class="roles-company-select" aria-label="Filtrar roles por empresa">
+                <option value="">Todas las empresas</option>
+              </select>
               <button type="button" id="btn-add-role" class="btn btn-primary">Agregar</button>
             </div>
             <p id="roles-status" class="subtle"></p>
@@ -368,6 +514,7 @@
                     <th>Rol</th>
                     <th>Nombre</th>
                     <th>Permisos</th>
+                    <th>Empresas</th>
                     <th>Acción</th>
                   </tr>
                 </thead>
@@ -397,11 +544,33 @@
                   <span class="field-label">Permisos</span>
                   <div id="modal-role-permissions" class="permissions-grid permissions-column" role="group" aria-label="Permisos del rol"></div>
                 </div>
+                <div class="modal-role-companies-wrap">
+                  <span class="field-label">Empresas donde aplica este rol</span>
+                  <p class="subtle" style="margin:0 0 0.5rem 0;">Si no elegís ninguna, aplica a todas. Marcá las empresas en las que querés que esté disponible este rol.</p>
+                  <div id="modal-role-companies-panel" class="branch-checkboxes" role="group" aria-label="Empresas del rol"></div>
+                </div>
                 <div class="config-modal-actions">
                   <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
                   <button type="submit">Crear rol</button>
                 </div>
               </form>
+            </div>
+          </div>
+          <!-- Modal Editar empresas del rol -->
+          <div id="role-companies-modal" class="config-modal" role="dialog" aria-labelledby="role-companies-modal-title" aria-modal="true" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box">
+              <div class="config-modal-head">
+                <h3 id="role-companies-modal-title">Empresas del rol</h3>
+                <button type="button" class="role-companies-modal-close config-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <div class="config-modal-form">
+                <div id="role-companies-panel" class="branch-checkboxes" role="group" aria-label="Empresas"></div>
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost role-companies-modal-cancel">Cancelar</button>
+                  <button type="button" id="role-companies-save-btn" class="btn btn-primary">Guardar</button>
+                </div>
+              </div>
             </div>
           </div>
           {% endif %}
@@ -439,10 +608,14 @@
       const modalDisplayName = document.getElementById("modal-display-name");
       const modalEmail = document.getElementById("modal-email");
       const modalPhone = document.getElementById("modal-phone");
-      const modalArea = document.getElementById("modal-area");
+      const modalAreasWrap = document.getElementById("modal-areas-wrap");
+      const modalAreasTrigger = document.getElementById("modal-areas-trigger");
+      const modalAreasPanel = document.getElementById("modal-areas-panel");
       const modalPasswordWrap = document.getElementById("modal-password-wrap");
       const modalPassword = document.getElementById("modal-password");
-      const modalRole = document.getElementById("modal-role");
+      const modalRolesWrap = document.getElementById("modal-roles-wrap");
+      const modalRolesTrigger = document.getElementById("modal-roles-trigger");
+      const modalRolesPanel = document.getElementById("modal-roles-panel");
       const modalCompany = document.getElementById("modal-company");
       const modalBranchesWrap = document.getElementById("modal-branches-wrap");
       const modalBranchesTrigger = document.getElementById("modal-branches-trigger");
@@ -472,9 +645,21 @@
       const branchEditSelectWrap = document.getElementById("branch-edit-select-wrap");
       const modalBranchEditSelect = document.getElementById("modal-branch-edit-select");
 
+      const areasBodyEl = document.getElementById("areas-body");
+      const areasStatusEl = document.getElementById("areas-status");
+      const areasCompanySelectEl = document.getElementById("areas-company-select");
+      let pendingAreaRemovals = [];
+      const areaFormModal = document.getElementById("area-form-modal");
+      const areaFormModalForm = document.getElementById("area-form-modal-form");
+      const modalAreaCompanySelect = document.getElementById("modal-area-company-select");
+      const modalAreaBranchesPanel = document.getElementById("modal-area-branches-panel");
+      const modalAreaName = document.getElementById("modal-area-name");
+      const areaFormSubmitBtn = document.getElementById("area-form-submit-btn");
+
       const rolesFileEl = document.getElementById("roles-file");
       const rolesStatusEl = document.getElementById("roles-status");
       const rolesBodyEl = document.getElementById("roles-body");
+      const rolesCompanySelectEl = document.getElementById("roles-company-select");
       const btnAddRole = document.getElementById("btn-add-role");
       const roleFormModal = document.getElementById("role-form-modal");
       const roleFormModalForm = document.getElementById("role-form-modal-form");
@@ -518,6 +703,7 @@
       const AUTO_CLOSE_DISABLED = "disabled";
 
       let validRoles = ["admin", "rrhh"];
+      let rolesListWithCompanies = [];
       let permissionsCatalog = [];
       let companies = {{ companies|tojson if companies is defined else [] }};
       let selectedCompanyId = {{ selected_company_id|tojson if selected_company_id is defined else "null" }};
@@ -590,13 +776,17 @@
           }
         }
         if (found && key === "roles") {
+          fillRolesCompanySelect();
           cargarRoles().catch(function() {});
         }
         if (found && key === "empresas") {
-          cargarEmpresas().catch(function() {});
+          renderCompanies(companies);
         }
         if (found && key === "sucursales") {
-          cargarEmpresas().then(function() { renderBranches(); }).catch(function() {});
+          renderBranches();
+        }
+        if (found && key === "areas") {
+          renderAreas();
         }
         if (found && key === "usuarios") {
           cargarUsuarios().catch(function() {});
@@ -641,6 +831,34 @@
         if (!rolesStatusEl) return;
         rolesStatusEl.textContent = text || "";
         rolesStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function fillRolesCompanySelect() {
+        if (!rolesCompanySelectEl) return;
+        const currentValue = (rolesCompanySelectEl.value || "").trim();
+        rolesCompanySelectEl.innerHTML = "";
+        const optAll = document.createElement("option");
+        optAll.value = "";
+        optAll.textContent = "Todas las empresas";
+        rolesCompanySelectEl.appendChild(optAll);
+        (companies || []).forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.company_id || "";
+          opt.textContent = (c.company_name || c.company_id || "").trim() || c.company_id;
+          if (normalizeCompanyId(c.company_id) === normalizeCompanyId(currentValue)) opt.selected = true;
+          rolesCompanySelectEl.appendChild(opt);
+        });
+        if (currentValue) rolesCompanySelectEl.value = currentValue;
+        if (!rolesCompanySelectEl.dataset.listenerAttached) {
+          rolesCompanySelectEl.dataset.listenerAttached = "1";
+          rolesCompanySelectEl.addEventListener("change", () => {
+            const companyId = (rolesCompanySelectEl.value || "").trim();
+            const filtered = companyId ? rolesListWithCompanies.filter((r) => roleAppliesToCompany(r, companyId)) : rolesListWithCompanies;
+            if (typeof renderRoles === "function") renderRoles(filtered);
+            const label = companyId ? (getCompanyById(companyId)?.company_name || companyId) : null;
+            setRolesStatus(label ? `${filtered.length} rol(es) · contexto: ${label}` : `${rolesListWithCompanies.length} rol(es) cargado(s).`);
+          });
+        }
       }
 
       const TOAST_DURATION_MS = 1600;
@@ -753,11 +971,13 @@
           .map((item) => {
             const companyId = normalizeCompanyId(item.company_id || "");
             const branch = String(item.branch || "").trim();
+            const role = String(item.role || "").trim();
             if (!companyId) return "";
             const company = getCompanyById(companyId);
             const name = company?.company_name || companyId;
-            if (!branch) return `${name} (todas)`;
-            return `${name} → ${branch}`;
+            let part = !branch ? `${name} (todas)` : `${name} → ${branch}`;
+            if (role) part += ` · ${role}`;
+            return part;
           })
           .filter(Boolean)
           .join(" · ");
@@ -1142,6 +1362,437 @@
         }
       }
 
+      function setAreasStatus(text, isError = false) {
+        if (!areasStatusEl) return;
+        areasStatusEl.textContent = text || "";
+        areasStatusEl.classList.toggle("error-text", Boolean(isError));
+      }
+
+      function isPendingRemoval(company_id, branch, areaName) {
+        const b = String(branch ?? "").trim();
+        const key = String(areaName ?? "").toLowerCase();
+        return pendingAreaRemovals.some(
+          (p) => normalizeCompanyId(p.company_id) === normalizeCompanyId(company_id) && String(p.branch ?? "").trim() === b && String(p.areaName ?? "").toLowerCase() === key
+        );
+      }
+      function addPendingRemoval(company_id, branch, areaName) {
+        if (isPendingRemoval(company_id, branch, areaName)) return;
+        pendingAreaRemovals.push({ company_id, branch: String(branch ?? "").trim(), areaName: String(areaName ?? "").trim() });
+      }
+      function removePendingRemoval(company_id, branch, areaName) {
+        const b = String(branch ?? "").trim();
+        const key = String(areaName ?? "").toLowerCase();
+        pendingAreaRemovals = pendingAreaRemovals.filter(
+          (p) => !(normalizeCompanyId(p.company_id) === normalizeCompanyId(company_id) && String(p.branch ?? "").trim() === b && String(p.areaName ?? "").toLowerCase() === key)
+        );
+      }
+      function clearPendingRemovalsForCompany(company_id) {
+        pendingAreaRemovals = pendingAreaRemovals.filter((p) => normalizeCompanyId(p.company_id) !== normalizeCompanyId(company_id));
+      }
+
+      /** Devuelve areas_by_branch con clave "" para Todas (unifica __e y ""). Usar al leer/escribir para no perder datos. */
+      function getNormalizedAreasByBranch(raw) {
+        const out = {};
+        if (typeof raw !== "object" || raw === null) return out;
+        for (const [k, v] of Object.entries(raw)) {
+          const key = (k === "__e") ? "" : String(k ?? "").trim();
+          const arr = Array.isArray(v) ? [...v] : [];
+          if (out[key]) out[key] = [...new Set([...out[key], ...arr])];
+          else out[key] = arr;
+        }
+        return out;
+      }
+
+      function getAreasForBranch(company, branch) {
+        const byBranch = company.areas_by_branch;
+        if (byBranch && typeof byBranch === "object") {
+          if (Object.prototype.hasOwnProperty.call(byBranch, branch)) return byBranch[branch] || [];
+          if (Object.prototype.hasOwnProperty.call(byBranch, "")) return byBranch[""] || [];
+          if (Object.prototype.hasOwnProperty.call(byBranch, "__e")) return byBranch["__e"] || [];
+        }
+        return Array.isArray(company.areas) ? company.areas : [];
+      }
+
+      function getAreasForCompanyUnion(company) {
+        if (!company) return [];
+        const byBranch = company.areas_by_branch;
+        if (byBranch && typeof byBranch === "object") {
+          const seen = new Set();
+          const out = [];
+          for (const arr of Object.values(byBranch)) {
+            if (!Array.isArray(arr)) continue;
+            for (const name of arr) {
+              const n = String(name || "").trim();
+              if (n && !seen.has(n.toLowerCase())) {
+                seen.add(n.toLowerCase());
+                out.push(n);
+              }
+            }
+          }
+          if (out.length) return out;
+        }
+        return Array.isArray(company.areas) ? company.areas : [];
+      }
+
+      function hasExplicitBranchConfig(company, branchKey) {
+        const byBranch = company.areas_by_branch;
+        if (!byBranch || typeof byBranch !== "object") return false;
+        if (Object.prototype.hasOwnProperty.call(byBranch, branchKey)) return true;
+        if (branchKey === "" && Object.prototype.hasOwnProperty.call(byBranch, "__e")) return true;
+        return false;
+      }
+
+      function fillAreasCompanySelect(preserveSelectedId) {
+        if (!areasCompanySelectEl) return;
+        const list = Array.isArray(companies) ? companies : [];
+        const currentValue = (preserveSelectedId || (areasCompanySelectEl.value || "")).trim();
+        areasCompanySelectEl.innerHTML = "";
+        const opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = "Seleccionar empresa";
+        areasCompanySelectEl.appendChild(opt0);
+        list.forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.company_id || "";
+          opt.textContent = (c.company_name || c.company_id || "").trim() || c.company_id;
+          if (normalizeCompanyId(c.company_id) === normalizeCompanyId(currentValue)) opt.selected = true;
+          areasCompanySelectEl.appendChild(opt);
+        });
+        if (currentValue) areasCompanySelectEl.value = currentValue;
+        if (!areasCompanySelectEl.dataset.listenerAttached) {
+          areasCompanySelectEl.dataset.listenerAttached = "1";
+          areasCompanySelectEl.addEventListener("change", () => renderAreas());
+        }
+      }
+
+      function renderAreas(preserveSelectedId) {
+        if (!areasBodyEl) return;
+        const list = Array.isArray(companies) ? companies : [];
+        const selectedId = (preserveSelectedId || (areasCompanySelectEl && areasCompanySelectEl.value) || "").trim();
+        fillAreasCompanySelect(selectedId);
+        areasBodyEl.innerHTML = "";
+        if (list.length === 0) {
+          areasBodyEl.innerHTML = "<tr><td colspan='2'>No hay empresas. Creá una en Empresas primero.</td></tr>";
+          setAreasStatus("");
+          return;
+        }
+        if (!selectedId) {
+          areasBodyEl.innerHTML = "<tr><td colspan='2'>Elegí una empresa para ver y gestionar sus áreas.</td></tr>";
+          setAreasStatus("");
+          return;
+        }
+        const company = getCompanyById(selectedId);
+        if (!company) {
+          areasBodyEl.innerHTML = "<tr><td colspan='2'>Empresa no encontrada.</td></tr>";
+          setAreasStatus("");
+          return;
+        }
+        const tr = document.createElement("tr");
+        const tdAreas = document.createElement("td");
+        tdAreas.className = "branches-cell areas-by-branch-cell";
+        const byBranch = typeof company.areas_by_branch === "object" && company.areas_by_branch ? company.areas_by_branch : {};
+        const areaListTodas = getAreasForBranch(company, "");
+        let hasAny = false;
+
+        const groupWrapTodas = document.createElement("div");
+        groupWrapTodas.className = "areas-group-by-branch";
+        const branchLabelTodas = document.createElement("span");
+        branchLabelTodas.className = "areas-branch-label";
+        branchLabelTodas.textContent = "Todas las sucursales (por defecto): ";
+        groupWrapTodas.appendChild(branchLabelTodas);
+        if (areaListTodas.length > 0) {
+          hasAny = true;
+          areaListTodas.forEach((areaName) => {
+            const pending = isPendingRemoval(company.company_id, "", areaName);
+            const span = document.createElement("span");
+            span.className = "branch-tag" + (pending ? " branch-tag-pending-removal" : "");
+            span.appendChild(document.createTextNode(areaName + (pending ? " (se quitará al guardar)" : "")));
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "branch-tag-action branch-tag-remove";
+            if (pending) {
+              btn.setAttribute("aria-label", "Deshacer quitar área");
+              btn.textContent = " Deshacer ";
+              btn.addEventListener("click", (e) => { e.stopPropagation(); removePendingRemoval(company.company_id, "", areaName); renderAreas(company.company_id); });
+            } else {
+              btn.setAttribute("aria-label", "Eliminar área");
+              btn.textContent = " × ";
+              btn.addEventListener("click", (e) => { e.stopPropagation(); removeArea(company.company_id, "", areaName); });
+            }
+            span.appendChild(btn);
+            groupWrapTodas.appendChild(span);
+          });
+        } else {
+          groupWrapTodas.appendChild(document.createTextNode("Sin áreas. Agregá áreas para que todas las sucursales las usen por defecto."));
+        }
+        tdAreas.appendChild(groupWrapTodas);
+
+        (Array.isArray(company.branches) ? company.branches : []).forEach((b) => {
+          const branchKey = branchName(b);
+          hasAny = true;
+          const isExplicit = hasExplicitBranchConfig(company, branchKey);
+          const groupWrap = document.createElement("div");
+          groupWrap.className = "areas-group-by-branch";
+          const branchLabel = document.createElement("span");
+          branchLabel.className = "areas-branch-label";
+          branchLabel.textContent = branchKey + ": ";
+          groupWrap.appendChild(branchLabel);
+          if (isExplicit) {
+            const areaList = (byBranch[branchKey] || []).slice();
+            areaList.forEach((areaName) => {
+              const pending = isPendingRemoval(company.company_id, branchKey, areaName);
+              const span = document.createElement("span");
+              span.className = "branch-tag" + (pending ? " branch-tag-pending-removal" : "");
+              span.appendChild(document.createTextNode(areaName + (pending ? " (se quitará al guardar)" : "")));
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "branch-tag-action branch-tag-remove";
+              if (pending) {
+                btn.setAttribute("aria-label", "Deshacer quitar área");
+                btn.textContent = " Deshacer ";
+                btn.addEventListener("click", (e) => { e.stopPropagation(); removePendingRemoval(company.company_id, branchKey, areaName); renderAreas(company.company_id); });
+              } else {
+                btn.setAttribute("aria-label", "Eliminar área de esta sucursal");
+                btn.textContent = " × ";
+                btn.addEventListener("click", (e) => { e.stopPropagation(); removeArea(company.company_id, branchKey, areaName); });
+              }
+              span.appendChild(btn);
+              groupWrap.appendChild(span);
+            });
+            const btnUseTodas = document.createElement("button");
+            btnUseTodas.type = "button";
+            btnUseTodas.className = "areas-use-todas-btn";
+            btnUseTodas.textContent = "Usar Todas";
+            btnUseTodas.setAttribute("aria-label", "Quitar personalización para que esta sucursal use las áreas por defecto");
+            btnUseTodas.addEventListener("click", (e) => { e.stopPropagation(); clearBranchAreasConfig(company, branchKey); });
+            groupWrap.appendChild(btnUseTodas);
+          } else {
+            groupWrap.appendChild(document.createTextNode("(usa las áreas por defecto) "));
+            const btnPersonalizar = document.createElement("button");
+            btnPersonalizar.type = "button";
+            btnPersonalizar.className = "areas-personalizar-btn";
+            btnPersonalizar.textContent = "Personalizar sucursal";
+            btnPersonalizar.setAttribute("aria-label", "Definir áreas solo para esta sucursal (excepción)");
+            btnPersonalizar.addEventListener("click", (e) => { e.stopPropagation(); openAreaModal(company, branchKey); });
+            groupWrap.appendChild(btnPersonalizar);
+          }
+          tdAreas.appendChild(groupWrap);
+        });
+
+        const tdAction = document.createElement("td");
+        tdAction.className = "config-actions-cell";
+        const btnGuardar = document.createElement("button");
+        btnGuardar.type = "button";
+        btnGuardar.className = "role-update-btn areas-guardar-btn";
+        btnGuardar.textContent = "Guardar";
+        btnGuardar.setAttribute("aria-label", "Guardar cambios de áreas en el servidor");
+        btnGuardar.addEventListener("click", () => guardarAreasEmpresa(company.company_id));
+        tdAction.appendChild(btnGuardar);
+        const btnAdd = document.createElement("button");
+        btnAdd.type = "button";
+        btnAdd.className = "role-update-btn";
+        btnAdd.textContent = "Agregar área";
+        btnAdd.addEventListener("click", () => openAreaModal(company, ""));
+        tdAction.appendChild(btnAdd);
+
+        tr.appendChild(tdAreas);
+        tr.appendChild(tdAction);
+        areasBodyEl.appendChild(tr);
+        setAreasStatus("Por defecto todas las sucursales usan las áreas de arriba. Hacé cambios y clic en Guardar para aplicar.");
+      }
+
+      async function guardarAreasEmpresa(company_id) {
+        if (!canManageGeneral) return;
+        const company = getCompanyById(company_id);
+        if (!company) {
+          setAreasStatus("Seleccioná una empresa.", true);
+          return;
+        }
+        const areas_by_branch = getNormalizedAreasByBranch(company.areas_by_branch);
+        pendingAreaRemovals.filter((p) => normalizeCompanyId(p.company_id) === normalizeCompanyId(company_id)).forEach((p) => {
+          const branch = (String(p.branch ?? "").trim() === "__e") ? "" : String(p.branch ?? "").trim();
+          const key = String(p.areaName ?? "").toLowerCase();
+          if (!Object.prototype.hasOwnProperty.call(areas_by_branch, branch)) return;
+          const arr = areas_by_branch[branch];
+          if (!Array.isArray(arr)) return;
+          const filtered = arr.filter((a) => String(a).toLowerCase() !== key);
+          if (filtered.length === 0) delete areas_by_branch[branch];
+          else areas_by_branch[branch] = filtered;
+        });
+        try {
+          await actualizarAreasEmpresaPorSucursal(company_id, areas_by_branch);
+          clearPendingRemovalsForCompany(company_id);
+          renderAreas(company_id);
+          setAreasStatus("Cambios guardados.");
+          showToast("Guardado");
+        } catch (err) {
+          setAreasStatus(`Error: ${getErrorMessage(err)}`, true);
+          showToast(getErrorMessage(err), true);
+        }
+      }
+
+      function clearBranchAreasConfig(company, branchKey) {
+        if (!canManageGeneral) return;
+        const areasByBranch = getNormalizedAreasByBranch(company.areas_by_branch);
+        if (!Object.prototype.hasOwnProperty.call(areasByBranch, branchKey)) return;
+        delete areasByBranch[branchKey];
+        company.areas_by_branch = areasByBranch;
+        renderAreas(company.company_id);
+        setAreasStatus(`Sucursal "${branchKey}" ahora usa las áreas por defecto. Clic en Guardar para aplicar.`);
+      }
+
+      function fillAreaModalCompanySelect(selectedCompanyId) {
+        if (!modalAreaCompanySelect) return;
+        modalAreaCompanySelect.innerHTML = "";
+        const opt0 = document.createElement("option");
+        opt0.value = "";
+        opt0.textContent = "Seleccionar empresa";
+        modalAreaCompanySelect.appendChild(opt0);
+        (companies || []).forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.company_id || "";
+          opt.textContent = (c.company_name || c.company_id || "").trim() || c.company_id;
+          if (normalizeCompanyId(c.company_id) === normalizeCompanyId(selectedCompanyId || "")) opt.selected = true;
+          modalAreaCompanySelect.appendChild(opt);
+        });
+      }
+
+      function fillAreaModalBranchesPanel(company) {
+        if (!modalAreaBranchesPanel) return;
+        modalAreaBranchesPanel.innerHTML = "";
+        if (!company) {
+          modalAreaBranchesPanel.appendChild(document.createTextNode("Elegí una empresa primero."));
+          return;
+        }
+        const branches = [""].concat(Array.isArray(company.branches) ? company.branches : []);
+        branches.forEach((b) => {
+          const branchKey = b === "" ? "" : branchName(b);
+          const label = document.createElement("label");
+          label.className = "branch-dropdown-option area-branch-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "modal-area-branch-cb";
+          cb.dataset.branch = branchKey;
+          cb.value = branchKey;
+          const text = branchKey === "" ? "Todas (ámbito empresa)" : branchKey;
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(" " + text));
+          modalAreaBranchesPanel.appendChild(label);
+        });
+      }
+
+      function openAreaModal(company, branch) {
+        if (!areaFormModal || !modalAreaCompanySelect || !modalAreaBranchesPanel || !modalAreaName) return;
+        areaFormModal.setAttribute("data-area-mode", "add");
+        fillAreaModalCompanySelect(company ? company.company_id : "");
+        fillAreaModalBranchesPanel(company || null);
+        if (company && typeof branch === "string") {
+          modalAreaBranchesPanel.querySelectorAll(".modal-area-branch-cb").forEach((cb) => {
+            if (String(cb.dataset.branch || "") === String(branch)) cb.checked = true;
+          });
+        }
+        modalAreaCompanySelect.onchange = () => {
+          const cid = (modalAreaCompanySelect.value || "").trim();
+          fillAreaModalBranchesPanel(cid ? getCompanyById(cid) : null);
+        };
+        modalAreaName.value = "";
+        const titleEl = document.getElementById("area-form-modal-title");
+        if (titleEl) titleEl.textContent = "Agregar área";
+        if (areaFormSubmitBtn) areaFormSubmitBtn.textContent = "Agregar";
+        areaFormModal.hidden = false;
+        if (modalAreaName) modalAreaName.focus();
+      }
+
+      function closeAreaModal() {
+        if (areaFormModal) areaFormModal.hidden = true;
+      }
+
+      async function submitAreaModal(e) {
+        e.preventDefault();
+        if (!canManageGeneral) return;
+        const company_id = (modalAreaCompanySelect?.value || "").trim();
+        const company = getCompanyById(company_id);
+        if (!company) {
+          setAreasStatus("Seleccioná una empresa.", true);
+          return;
+        }
+        const selectedBranches = [];
+        modalAreaBranchesPanel?.querySelectorAll(".modal-area-branch-cb:checked").forEach((cb) => {
+          selectedBranches.push(String(cb.dataset.branch ?? cb.value ?? "").trim());
+        });
+        if (selectedBranches.length === 0) {
+          setAreasStatus("Seleccioná al menos una sucursal (o Todas).", true);
+          return;
+        }
+        const name = (modalAreaName?.value || "").trim();
+        if (!name) {
+          setAreasStatus("Escribí el nombre del área.", true);
+          return;
+        }
+        const areasByBranch = getNormalizedAreasByBranch(company.areas_by_branch);
+        for (const branch of selectedBranches) {
+          const currentForBranch = Array.isArray(areasByBranch[branch]) ? areasByBranch[branch] : [];
+          if (currentForBranch.some((a) => String(a).toLowerCase() === name.toLowerCase())) {
+            setAreasStatus(`Ya existe un área con ese nombre en ${branch || "Todas"}.`, true);
+            return;
+          }
+          areasByBranch[branch] = [...currentForBranch, name];
+        }
+        company.areas_by_branch = areasByBranch;
+        closeAreaModal();
+        renderAreas(company_id);
+        const branchLabel = selectedBranches.length === 1
+          ? (selectedBranches[0] ? selectedBranches[0] : "Todas")
+          : selectedBranches.length + " sucursales";
+        setAreasStatus(`Área agregada a ${branchLabel}. Clic en Guardar para aplicar.`);
+      }
+
+      async function actualizarAreasEmpresaPorSucursal(company_id, areas_by_branch) {
+        const company = getCompanyById(company_id);
+        if (!company) throw new Error("Empresa no encontrada.");
+        const response = await fetch(`/api/configuracion/empresas/${encodeURIComponent(company_id)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            company_name: company.company_name,
+            hr_team_name: company.hr_team_name,
+            hr_contact: company.hr_contact,
+            company_email: company.company_email,
+            company_address: company.company_address,
+            company_phone: company.company_phone,
+            company_website: company.company_website,
+            handoff_auto_close_enabled: company.handoff_auto_close_enabled,
+            handoff_auto_close_minutes: company.handoff_auto_close_minutes,
+            branches: company.branches || [],
+            areas: company.areas || [],
+            areas_by_branch: areas_by_branch,
+            active: company.active,
+          }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+          return null;
+        }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo actualizar áreas.");
+        if (data.company) {
+          const idx = companies.findIndex((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(company_id));
+          if (idx !== -1) companies[idx] = data.company;
+          else companies.push(data.company);
+          return data.company;
+        }
+        return null;
+      }
+
+      function removeArea(company_id, branch, areaNameStr) {
+        if (!canManageGeneral) return;
+        const name = String(areaNameStr || "").trim();
+        if (!name) return;
+        addPendingRemoval(company_id, branch, name);
+        renderAreas(company_id);
+        setAreasStatus("Área marcada para quitar. Clic en Guardar para aplicar o en Deshacer en el área.");
+      }
+
       function permisosTexto(perms) {
         const values = Array.isArray(perms) ? perms : [];
         if (values.length === 0) return "Sin permisos";
@@ -1225,7 +1876,8 @@
           tdArea.textContent = user.area || "—";
 
           const tdRole = document.createElement("td");
-          const roleLabel = String(user.role || "rrhh").toLowerCase() === "rrhh" ? "agente" : (user.role || "—");
+          const roleRaw = (user.role || "rrhh").trim();
+          const roleLabel = roleRaw.toLowerCase() === "rrhh" ? "agente" : (roleRaw || "—");
           tdRole.textContent = roleLabel;
 
           const tdAssignments = document.createElement("td");
@@ -1278,7 +1930,6 @@
         const companyId = normalizeCompanyId(modalCompany?.value || "");
         const company = getCompanyById(companyId);
         const branches = Array.isArray(company?.branches) ? company.branches : [];
-
         function addCheckbox(companyIdVal, branchVal, label) {
           const labelEl = document.createElement("label");
           labelEl.className = "branch-dropdown-option";
@@ -1287,8 +1938,8 @@
           cb.className = "modal-branch-cb";
           cb.dataset.companyId = companyIdVal;
           cb.dataset.branch = branchVal || "";
-          labelEl.appendChild(cb);
           labelEl.appendChild(document.createTextNode(label));
+          labelEl.appendChild(cb);
           modalBranchesPanel.appendChild(labelEl);
         }
 
@@ -1300,7 +1951,7 @@
             const cid = c.company_id || "";
             const name = c.company_name || cid;
             const brs = Array.isArray(c.branches) ? c.branches : [];
-            addCheckbox(cid, "", `${name} (todas)`);
+            addCheckbox(cid, "", `${name} (todas las sucursales)`);
             brs.forEach((b) => addCheckbox(cid, branchName(b), `${name} → ${branchName(b)}`));
           });
         }
@@ -1309,12 +1960,13 @@
 
       function getModalAssignmentsFromCheckboxes() {
         if (!modalBranchesPanel) return [];
+        const roleFromForm = (getModalRoles()[0] || "rrhh").trim();
         const cbs = modalBranchesPanel.querySelectorAll(".modal-branch-cb:checked");
         const list = [];
         cbs.forEach((cb) => {
           const companyId = (cb.dataset.companyId || "").trim();
           const branch = (cb.dataset.branch || "").trim();
-          if (companyId) list.push({ company_id: companyId, branch });
+          if (companyId) list.push({ company_id: companyId, branch, role: roleFromForm });
         });
         return list;
       }
@@ -1339,6 +1991,81 @@
         return [{ company_id: companyId, branch: "" }];
       }
 
+      function updateModalAreaDropdown() {
+        if (!modalAreasPanel) return;
+        modalAreasPanel.innerHTML = "";
+        const companyId = normalizeCompanyId(modalCompany?.value || "");
+        const company = getCompanyById(companyId);
+        const areas = getAreasForCompanyUnion(company);
+        const currentSelected = getModalAreas();
+        areas.forEach((areaName) => {
+          const name = String(areaName).trim();
+          if (!name) return;
+          const labelEl = document.createElement("label");
+          labelEl.className = "branch-dropdown-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "modal-area-cb";
+          cb.dataset.area = name;
+          if (currentSelected.includes(name)) cb.checked = true;
+          labelEl.appendChild(document.createTextNode(name));
+          labelEl.appendChild(cb);
+          modalAreasPanel.appendChild(labelEl);
+        });
+        updateModalAreasTriggerLabel();
+      }
+
+      function getModalAreas() {
+        if (!modalAreasPanel) return [];
+        const cbs = modalAreasPanel.querySelectorAll(".modal-area-cb:checked");
+        return Array.from(cbs).map((cb) => String(cb.dataset.area || "").trim()).filter(Boolean);
+      }
+
+      function updateModalAreasTriggerLabel() {
+        const labelEl = modalAreasTrigger?.querySelector(".branch-dropdown-trigger-text");
+        if (!labelEl) return;
+        const list = getModalAreas();
+        if (list.length === 0) labelEl.textContent = "Seleccionar áreas";
+        else if (list.length === 1) labelEl.textContent = list[0];
+        else labelEl.textContent = list.length + " áreas";
+      }
+
+      function updateModalRolesDropdown() {
+        if (!modalRolesPanel) return;
+        modalRolesPanel.innerHTML = "";
+        const currentSelected = getModalRoles();
+        (validRoles || []).forEach((roleName) => {
+          const name = String(roleName).trim().toLowerCase();
+          if (!name) return;
+          const labelEl = document.createElement("label");
+          labelEl.className = "branch-dropdown-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "modal-role-cb";
+          cb.dataset.role = name;
+          if (currentSelected.includes(name)) cb.checked = true;
+          labelEl.appendChild(document.createTextNode(name));
+          labelEl.appendChild(cb);
+          modalRolesPanel.appendChild(labelEl);
+        });
+        updateModalRolesTriggerLabel();
+      }
+
+      function getModalRoles() {
+        if (!modalRolesPanel) return [];
+        const cbs = modalRolesPanel.querySelectorAll(".modal-role-cb:checked");
+        return Array.from(cbs).map((cb) => String(cb.dataset.role || "").trim()).filter(Boolean);
+      }
+
+      function updateModalRolesTriggerLabel() {
+        const labelEl = modalRolesTrigger?.querySelector(".branch-dropdown-trigger-text");
+        if (!labelEl) return;
+        const list = getModalRoles();
+        if (list.length === 0) labelEl.textContent = "Seleccionar roles";
+        else if (list.length === 1) labelEl.textContent = list[0];
+        else labelEl.textContent = list.length + " roles";
+      }
+
       function openUserModal(mode, user) {
         if (!userFormModal || !userFormModalForm) return;
         modalUsernameEdit.value = "";
@@ -1347,12 +2074,15 @@
         modalDisplayName.value = "";
         modalEmail.value = "";
         modalPhone.value = "";
-        modalArea.value = "";
         modalPassword.value = "";
         modalPassword.required = false;
-        modalRole.value = "rrhh";
         if (modalPasswordWrap) modalPasswordWrap.style.display = "";
         fillCompanySelect(modalCompany, "", true);
+        updateModalRolesDropdown();
+        modalRolesPanel?.querySelectorAll(".modal-role-cb").forEach((cb) => { cb.checked = false; });
+        const rrhhCb = modalRolesPanel?.querySelector(".modal-role-cb[data-role='rrhh']");
+        if (rrhhCb) rrhhCb.checked = true;
+        updateModalRolesTriggerLabel();
 
         if (mode === "add") {
           userFormModalTitle.textContent = "Agregar usuario";
@@ -1360,6 +2090,7 @@
           modalPassword.required = true;
           fillCompanySelect(modalCompany, selectedCompanyId || "", true);
           updateModalBranchesDropdown();
+          updateModalAreaDropdown();
           modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => { cb.checked = false; });
           const firstAll = modalBranchesPanel?.querySelector(".modal-branch-cb[data-branch='']");
           if (firstAll) firstAll.checked = true;
@@ -1374,19 +2105,33 @@
           modalDisplayName.value = user.display_name || "";
           modalEmail.value = user.email || "";
           modalPhone.value = user.phone || "";
-          modalArea.value = user.area || "";
-          modalRole.value = (user.role || "rrhh").toLowerCase();
+          updateModalRolesDropdown();
+          const userRoles = (user.role || "rrhh").split(/\s*,\s*/).map((r) => r.trim().toLowerCase()).filter(Boolean);
+          modalRolesPanel?.querySelectorAll(".modal-role-cb").forEach((cb) => {
+            const name = (cb.dataset.role || "").trim();
+            cb.checked = userRoles.includes(name);
+          });
+          updateModalRolesTriggerLabel();
           const assignments = Array.isArray(user.assignments) ? user.assignments : [];
           const companyIds = [...new Set(assignments.map((a) => normalizeCompanyId(a.company_id)).filter(Boolean))];
           const oneCompany = companyIds.length === 1 ? companyIds[0] : "";
           fillCompanySelect(modalCompany, oneCompany || "", true);
           updateModalBranchesDropdown();
+          updateModalAreaDropdown();
+          const userAreas = (user.area || "").split(/\s*,\s*/).map((a) => a.trim()).filter(Boolean);
+          modalAreasPanel?.querySelectorAll(".modal-area-cb").forEach((cb) => {
+            const name = (cb.dataset.area || "").trim();
+            cb.checked = userAreas.some((a) => a.toLowerCase() === name.toLowerCase());
+          });
+          updateModalAreasTriggerLabel();
           modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => { cb.checked = false; });
           assignments.forEach((a) => {
             const cid = normalizeCompanyId(a.company_id);
             const branch = String(a.branch || "").trim();
             modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => {
-              if (normalizeCompanyId(cb.dataset.companyId) === cid && (cb.dataset.branch || "").trim() === branch) cb.checked = true;
+              if (normalizeCompanyId(cb.dataset.companyId) === cid && (cb.dataset.branch || "").trim() === branch) {
+                cb.checked = true;
+              }
             });
           });
           updateModalBranchesTriggerLabel();
@@ -1405,9 +2150,9 @@
         const display_name = (modalDisplayName?.value || "").trim();
         const email = (modalEmail?.value || "").trim();
         const phone = (modalPhone?.value || "").trim();
-        const area = (modalArea?.value || "").trim();
+        const area = getModalAreas().join(", ");
         const password = (modalPassword?.value || "").trim();
-        const role = (modalRole?.value || "rrhh").trim();
+        const role = getModalRoles().join(", ") || "rrhh";
         const assignments = getModalAssignments();
 
         if (mode === "add") {
@@ -1435,11 +2180,17 @@
         await cargarUsuarios();
       }
 
+      function roleCompaniesLabel(role) {
+        const cids = role.company_ids || [];
+        if (cids.length === 0) return "Todas";
+        return cids.map((id) => (getCompanyById(id)?.company_name || id)).filter(Boolean).join(", ") || "—";
+      }
+
       function renderRoles(roles) {
         if (!rolesBodyEl) return;
         rolesBodyEl.innerHTML = "";
         if (!roles || roles.length === 0) {
-          rolesBodyEl.innerHTML = "<tr><td colspan='4'>Sin roles configurados.</td></tr>";
+          rolesBodyEl.innerHTML = "<tr><td colspan='5'>Sin roles configurados.</td></tr>";
           return;
         }
 
@@ -1463,6 +2214,18 @@
           renderPermissionsInputs(permsContainer, role.permissions || []);
           tdPerms.appendChild(permsContainer);
 
+          const tdEmpresas = document.createElement("td");
+          tdEmpresas.className = "config-actions-cell";
+          const empresasText = document.createElement("span");
+          empresasText.textContent = roleCompaniesLabel(role);
+          tdEmpresas.appendChild(empresasText);
+          const btnEmpresas = document.createElement("button");
+          btnEmpresas.type = "button";
+          btnEmpresas.className = "role-update-btn";
+          btnEmpresas.textContent = "Seleccionar empresas";
+          btnEmpresas.addEventListener("click", () => openRoleCompaniesModal(role));
+          tdEmpresas.appendChild(btnEmpresas);
+
           const tdAction = document.createElement("td");
           tdAction.className = "config-actions-cell";
           const btnSave = document.createElement("button");
@@ -1474,7 +2237,8 @@
               await actualizarRolDefinicion(
                 role.name,
                 inputDisplay.value,
-                getSelectedPermissions(permsContainer)
+                getSelectedPermissions(permsContainer),
+                role.company_ids
               );
             } catch (error) {
               setRolesStatus(`Error: ${getErrorMessage(error)}`, true);
@@ -1500,6 +2264,7 @@
           tr.appendChild(tdName);
           tr.appendChild(tdDisplay);
           tr.appendChild(tdPerms);
+          tr.appendChild(tdEmpresas);
           tr.appendChild(tdAction);
           rolesBodyEl.appendChild(tr);
         });
@@ -1544,8 +2309,8 @@
           cbAll.className = "branch-cb branch-cb-all";
           cbAll.dataset.branch = "";
           cbAll.checked = true;
-          labelAll.appendChild(cbAll);
           labelAll.appendChild(document.createTextNode("Todas las sucursales"));
+          labelAll.appendChild(cbAll);
           newUserBranchesCheckboxesEl.appendChild(labelAll);
           branches.forEach((b) => {
             const label = document.createElement("label");
@@ -1557,8 +2322,8 @@
             cb.type = "checkbox";
             cb.className = "branch-cb";
             cb.dataset.branch = b;
-            label.appendChild(cb);
             label.appendChild(document.createTextNode(b));
+            label.appendChild(cb);
             newUserBranchesCheckboxesEl.appendChild(label);
           });
           updateBranchesTriggerLabel();
@@ -1640,6 +2405,22 @@
         renderCompanySummary();
       }
 
+      /** Al cargar usuarios, no sobrescribir areas_by_branch ni branches de empresas que ya tenemos en memoria (evita perder cambios al cambiar de solapa). */
+      function mergeCompaniesPreservingAreasAndBranches(apiCompanies) {
+        const list = Array.isArray(apiCompanies) ? apiCompanies : [];
+        return list.map((apiC) => {
+          const local = (companies || []).find((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(apiC.company_id));
+          if (!local) return apiC;
+          return {
+            ...apiC,
+            areas_by_branch: typeof local.areas_by_branch === "object" && local.areas_by_branch !== null
+              ? getNormalizedAreasByBranch(local.areas_by_branch)
+              : apiC.areas_by_branch,
+            branches: Array.isArray(local.branches) ? local.branches : (apiC.branches || []),
+          };
+        });
+      }
+
       async function cargarEmpresas() {
         if (!canManageGeneral) return;
         const response = await fetch("/api/configuracion/empresas");
@@ -1649,7 +2430,8 @@
         }
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo cargar empresas.");
-        companies = Array.isArray(data.companies) ? data.companies : [];
+        const apiCompanies = Array.isArray(data.companies) ? data.companies : [];
+        companies = mergeCompaniesPreservingAreasAndBranches(apiCompanies);
         selectedCompanyId = normalizeCompanyId(data.selected_company_id || selectedCompanyId);
         if (!getCompanyById(selectedCompanyId)) {
           selectedCompanyId = firstAvailableCompanyId();
@@ -1938,7 +2720,7 @@
           permissionsCatalog = data.permissions_catalog;
         }
         if (Array.isArray(data.companies) && data.companies.length) {
-          companies = data.companies;
+          companies = mergeCompaniesPreservingAreasAndBranches(data.companies);
           refreshCompanySelectors();
         }
         const userCount = (data.users || []).length;
@@ -2032,16 +2814,32 @@
           permissionsCatalog = data.permissions_catalog;
         }
         if (rolesFileEl) rolesFileEl.textContent = data.roles_file ? "Fuente: archivo local" : "";
-        renderRoles(data.roles || []);
-        setRolesStatus(`${(data.roles || []).length} rol(es) cargado(s).`);
+        rolesListWithCompanies = Array.isArray(data.roles) ? data.roles : [];
+        validRoles = rolesListWithCompanies.map((r) => r.name || "").filter(Boolean);
+        fillRolesCompanySelect();
+        const companyId = (rolesCompanySelectEl?.value || "").trim();
+        const filtered = companyId ? rolesListWithCompanies.filter((r) => roleAppliesToCompany(r, companyId)) : rolesListWithCompanies;
+        renderRoles(filtered);
+        const label = companyId ? (getCompanyById(companyId)?.company_name || companyId) : null;
+        setRolesStatus(label ? `${filtered.length} rol(es) · contexto: ${label}` : `${rolesListWithCompanies.length} rol(es) cargado(s).`);
       }
 
-      async function actualizarRolDefinicion(roleName, displayName, permissions) {
+      function roleAppliesToCompany(role, companyId) {
+        if (!role) return false;
+        const cids = role.company_ids || [];
+        if (cids.length === 0) return true;
+        const key = normalizeCompanyId(companyId);
+        return cids.some((c) => normalizeCompanyId(c) === key);
+      }
+
+      async function actualizarRolDefinicion(roleName, displayName, permissions, companyIds) {
         if (!canManageRoles) return;
+        const body = { display_name: displayName, permissions };
+        if (companyIds !== undefined) body.company_ids = Array.isArray(companyIds) ? companyIds : [];
         const response = await fetch(`/api/rrhh/roles/${encodeURIComponent(roleName)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ display_name: displayName, permissions }),
+          body: JSON.stringify(body),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
@@ -2053,6 +2851,63 @@
         showToast("Rol actualizado");
         await cargarRoles();
         await cargarUsuarios();
+      }
+
+      let roleCompaniesEditingRole = null;
+
+      function fillRoleCompaniesPanel(role) {
+        const panel = document.getElementById("role-companies-panel");
+        if (!panel) return;
+        panel.innerHTML = "";
+        const selectedIds = role && Array.isArray(role.company_ids) ? role.company_ids : [];
+        const idsSet = new Set(selectedIds.map((id) => normalizeCompanyId(id)).filter(Boolean));
+        const labelAll = document.createElement("label");
+        labelAll.className = "branch-dropdown-option";
+        const cbAll = document.createElement("input");
+        cbAll.type = "checkbox";
+        cbAll.className = "role-company-cb-all";
+        cbAll.dataset.companyId = "";
+        cbAll.checked = idsSet.size === 0;
+        labelAll.appendChild(cbAll);
+        labelAll.appendChild(document.createTextNode(" Todas las empresas"));
+        panel.appendChild(labelAll);
+        (companies || []).forEach((c) => {
+          const cid = c.company_id || "";
+          const label = document.createElement("label");
+          label.className = "branch-dropdown-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "role-company-cb";
+          cb.dataset.companyId = cid;
+          cb.checked = idsSet.has(normalizeCompanyId(cid));
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(" " + (c.company_name || cid)));
+          panel.appendChild(label);
+        });
+      }
+
+      function getRoleCompaniesPanelSelected() {
+        const panel = document.getElementById("role-companies-panel");
+        if (!panel) return [];
+        const cbAll = panel.querySelector(".role-company-cb-all");
+        if (cbAll && cbAll.checked) return [];
+        const cbs = panel.querySelectorAll(".role-company-cb:checked:not(.role-company-cb-all)");
+        return Array.from(cbs).map((cb) => (cb.dataset.companyId || "").trim()).filter(Boolean);
+      }
+
+      function openRoleCompaniesModal(role) {
+        roleCompaniesEditingRole = role || null;
+        const titleEl = document.getElementById("role-companies-modal-title");
+        if (titleEl) titleEl.textContent = role ? `Empresas del rol: ${role.name}` : "Empresas del rol";
+        fillRoleCompaniesPanel(role);
+        const modal = document.getElementById("role-companies-modal");
+        if (modal) modal.hidden = false;
+      }
+
+      function closeRoleCompaniesModal() {
+        roleCompaniesEditingRole = null;
+        const modal = document.getElementById("role-companies-modal");
+        if (modal) modal.hidden = true;
       }
 
       async function eliminarRol(roleName) {
@@ -2074,10 +2929,50 @@
         await cargarUsuarios();
       }
 
+      function fillModalRoleCompaniesPanel(selectedCompanyIds) {
+        const panel = document.getElementById("modal-role-companies-panel");
+        if (!panel) return;
+        panel.innerHTML = "";
+        const idsSet = new Set((selectedCompanyIds || []).map((id) => normalizeCompanyId(id)).filter(Boolean));
+        const labelAll = document.createElement("label");
+        labelAll.className = "branch-dropdown-option";
+        const cbAll = document.createElement("input");
+        cbAll.type = "checkbox";
+        cbAll.className = "modal-role-company-cb modal-role-company-cb-all";
+        cbAll.dataset.companyId = "";
+        cbAll.checked = idsSet.size === 0;
+        labelAll.appendChild(cbAll);
+        labelAll.appendChild(document.createTextNode(" Todas las empresas"));
+        panel.appendChild(labelAll);
+        (companies || []).forEach((c) => {
+          const cid = c.company_id || "";
+          const label = document.createElement("label");
+          label.className = "branch-dropdown-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "modal-role-company-cb";
+          cb.dataset.companyId = cid;
+          cb.checked = idsSet.has(normalizeCompanyId(cid));
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(" " + (c.company_name || cid)));
+          panel.appendChild(label);
+        });
+      }
+
+      function getModalRoleCompaniesSelected() {
+        const panel = document.getElementById("modal-role-companies-panel");
+        if (!panel) return [];
+        const cbAll = panel.querySelector(".modal-role-company-cb-all");
+        if (cbAll && cbAll.checked) return [];
+        const cbs = panel.querySelectorAll(".modal-role-company-cb:checked:not(.modal-role-company-cb-all)");
+        return Array.from(cbs).map((cb) => (cb.dataset.companyId || "").trim()).filter(Boolean);
+      }
+
       function openRoleModal() {
         if (!roleFormModal || !roleFormModalForm) return;
         if (modalRoleName) modalRoleName.value = "";
         if (modalRoleDisplayName) modalRoleDisplayName.value = "";
+        fillModalRoleCompaniesPanel([]);
         if (permissionsCatalog.length === 0) {
           cargarRoles().then(function() {
             renderPermissionsInputs(modalRolePermissionsEl, []);
@@ -2096,12 +2991,13 @@
         const name = (modalRoleName?.value || "").trim().toLowerCase();
         const display_name = (modalRoleDisplayName?.value || "").trim();
         const permissions = getSelectedPermissions(modalRolePermissionsEl);
+        const company_ids = getModalRoleCompaniesSelected();
         if (!name) throw new Error("Completá nombre de rol.");
         if (permissions.length === 0) throw new Error("Seleccioná al menos un permiso.");
         const response = await fetch("/api/rrhh/roles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, display_name, permissions }),
+          body: JSON.stringify({ name, display_name, permissions, company_ids }),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
@@ -2156,9 +3052,22 @@
         if (cancelBtn) cancelBtn.addEventListener("click", closeBranchModal);
       }
 
+      if (areaFormModalForm) {
+        areaFormModalForm.addEventListener("submit", submitAreaModal);
+      }
+      if (areaFormModal) {
+        const areaBackdrop = areaFormModal.querySelector(".config-modal-backdrop");
+        const areaCloseBtn = areaFormModal.querySelector(".config-modal-close");
+        const areaCancelBtn = areaFormModal.querySelector(".config-modal-cancel");
+        if (areaBackdrop) areaBackdrop.addEventListener("click", closeAreaModal);
+        if (areaCloseBtn) areaCloseBtn.addEventListener("click", closeAreaModal);
+        if (areaCancelBtn) areaCancelBtn.addEventListener("click", closeAreaModal);
+      }
+
       if (modalCompany) {
         modalCompany.addEventListener("change", function() {
           updateModalBranchesDropdown();
+          updateModalAreaDropdown();
         });
       }
       if (modalBranchesTrigger && modalBranchesPanel) {
@@ -2183,6 +3092,42 @@
             else if (allCb && Array.from(others).some((c) => c.checked)) allCb.checked = false;
           }
           updateModalBranchesTriggerLabel();
+        });
+      }
+      if (modalAreasTrigger && modalAreasPanel) {
+        modalAreasTrigger.addEventListener("click", function(e) {
+          e.preventDefault();
+          const isOpen = modalAreasPanel.classList.toggle("branch-dropdown-panel--open");
+          modalAreasTrigger.setAttribute("aria-expanded", String(isOpen));
+          modalAreasPanel.setAttribute("aria-hidden", String(!isOpen));
+        });
+        document.addEventListener("click", function(e) {
+          if (!modalAreasPanel.classList.contains("branch-dropdown-panel--open")) return;
+          if (modalAreasWrap && modalAreasWrap.contains(e.target)) return;
+          modalAreasPanel.classList.remove("branch-dropdown-panel--open");
+          modalAreasTrigger.setAttribute("aria-expanded", "false");
+          modalAreasPanel.setAttribute("aria-hidden", "true");
+        });
+        modalAreasPanel.addEventListener("change", function(e) {
+          if (e.target && e.target.classList.contains("modal-area-cb")) updateModalAreasTriggerLabel();
+        });
+      }
+      if (modalRolesTrigger && modalRolesPanel) {
+        modalRolesTrigger.addEventListener("click", function(e) {
+          e.preventDefault();
+          const isOpen = modalRolesPanel.classList.toggle("branch-dropdown-panel--open");
+          modalRolesTrigger.setAttribute("aria-expanded", String(isOpen));
+          modalRolesPanel.setAttribute("aria-hidden", String(!isOpen));
+        });
+        document.addEventListener("click", function(e) {
+          if (!modalRolesPanel.classList.contains("branch-dropdown-panel--open")) return;
+          if (modalRolesWrap && modalRolesWrap.contains(e.target)) return;
+          modalRolesPanel.classList.remove("branch-dropdown-panel--open");
+          modalRolesTrigger.setAttribute("aria-expanded", "false");
+          modalRolesPanel.setAttribute("aria-hidden", "true");
+        });
+        modalRolesPanel.addEventListener("change", function(e) {
+          if (e.target && e.target.classList.contains("modal-role-cb")) updateModalRolesTriggerLabel();
         });
       }
 
@@ -2304,6 +3249,43 @@
         if (backdrop) backdrop.addEventListener("click", closeRoleModal);
         if (closeBtn) closeBtn.addEventListener("click", closeRoleModal);
         if (cancelBtn) cancelBtn.addEventListener("click", closeRoleModal);
+      }
+      const roleCompaniesModal = document.getElementById("role-companies-modal");
+      if (roleCompaniesModal) {
+        const backdrop = roleCompaniesModal.querySelector(".config-modal-backdrop");
+        const closeBtn = roleCompaniesModal.querySelector(".role-companies-modal-close");
+        const cancelBtn = roleCompaniesModal.querySelector(".role-companies-modal-cancel");
+        if (backdrop) backdrop.addEventListener("click", closeRoleCompaniesModal);
+        if (closeBtn) closeBtn.addEventListener("click", closeRoleCompaniesModal);
+        if (cancelBtn) cancelBtn.addEventListener("click", closeRoleCompaniesModal);
+      }
+      const roleCompaniesSaveBtn = document.getElementById("role-companies-save-btn");
+      if (roleCompaniesSaveBtn) {
+        roleCompaniesSaveBtn.addEventListener("click", async () => {
+          if (!roleCompaniesEditingRole) return;
+          const roleName = roleCompaniesEditingRole.name;
+          const company_ids = getRoleCompaniesPanelSelected();
+          try {
+            const response = await fetch(`/api/rrhh/roles/${encodeURIComponent(roleName)}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ company_ids }),
+            });
+            if (response.status === 401) {
+              window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;
+              return;
+            }
+            const data = await response.json();
+            if (!data.ok) throw new Error(data.error || "No se pudo actualizar.");
+            closeRoleCompaniesModal();
+            setRolesStatus("Empresas del rol actualizadas.");
+            showToast("Guardado");
+            await cargarRoles();
+          } catch (err) {
+            setRolesStatus(`Error: ${getErrorMessage(err)}`, true);
+            showToast(getErrorMessage(err), true);
+          }
+        });
       }
 
       async function init() {
