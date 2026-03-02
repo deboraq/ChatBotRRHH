@@ -192,3 +192,54 @@ th {
   }
 }
 
+/* Modo oscuro */
+:root[data-theme="dark"] body {
+  background: #070d18;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .stats-wrapper {
+  background: #132033;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .stats-header p {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .status {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .kpi-card {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .kpi-card h3 {
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .kpi-card small {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .panel {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .panel h2 {
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] th {
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] td {
+  color: #e2e8f0;
+  border-bottom-color: #334155;
+}
+

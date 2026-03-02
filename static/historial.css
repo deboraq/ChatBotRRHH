@@ -130,3 +130,54 @@ code {
   white-space: pre-wrap;
   min-width: 340px;
 }
+
+/* Modo oscuro */
+:root[data-theme="dark"] body {
+  background: #070d18;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .history-wrapper {
+  background: #132033;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="dark"] .history-header p {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .filters input,
+:root[data-theme="dark"] .filters select {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+}
+
+:root[data-theme="dark"] .filters label {
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .meta {
+  color: #94a3b8;
+}
+
+:root[data-theme="dark"] .table-wrap {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] th {
+  background: #1a273b;
+  color: #cbd5e1;
+  border-bottom-color: #334155;
+}
+
+:root[data-theme="dark"] td {
+  border-bottom-color: #334155;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] code {
+  background: #334155;
+  color: #e2e8f0;
+}

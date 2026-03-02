@@ -403,26 +403,40 @@ Eso guarda automáticamente en `RRHH_USERS_FILE` (por defecto `rrhh_users.json`)
 
 ### Restablecer contraseña por email
 
-Desde `Configuración -> Usuarios`, cada usuario tiene el botón **Enviar reset**:
+Para que **le llegue el correo a la persona** que recupera la contraseña, tenés que configurar SMTP.
 
-- Genera un enlace seguro y temporal
-- Envía el link al email del usuario (si SMTP está configurado)
-- Si SMTP no está configurado, muestra el link manual para copiar/pegar
+**Dos formas de usar el reset:**
 
-Configuración SMTP por variables de entorno:
+1. **Recuperar contraseña (la persona)**  
+   En la pantalla de login, "Restablecela por email" → `/recuperar-clave`. La persona ingresa usuario y email; si coinciden con los datos del usuario, se genera un enlace y **se envía a ese email** (si SMTP está configurado). Si SMTP no está configurado, el enlace se muestra en pantalla para copiarlo.
+
+2. **Enviar reset desde Configuración**  
+   En `Configuración -> Usuarios`, el botón **Enviar reset** genera el enlace y lo envía al email del usuario (si SMTP está configurado).
+
+**Configuración SMTP (obligatoria para que el mail llegue):**
+
+Podés usar variables de entorno o un archivo `.env` (copiá `.env.example` a `.env` y completá los valores):
 
 ```bash
+# Opción 1: variables de entorno
 export SMTP_HOST="smtp.tu-proveedor.com"
 export SMTP_PORT="587"
 export SMTP_USER="no-reply@tu-dominio.com"
 export SMTP_PASSWORD="tu-clave-smtp"
 export SMTP_FROM="no-reply@tu-dominio.com"
 export SMTP_USE_TLS="true"
+
+# Opción 2: archivo .env (instalá python-dotenv: pip install python-dotenv)
+# Copiá .env.example a .env y editá SMTP_HOST, SMTP_USER, SMTP_PASSWORD, etc.
 ```
 
-Ruta de reset de contraseña (link que recibe el usuario):
+Ejemplos por proveedor:
 
-`/restablecer-clave/<token>`
+- **Gmail:** `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`. Usar [Contraseña de aplicación](https://support.google.com/accounts/answer/185833), no la contraseña normal.
+- **Outlook/Office 365:** `SMTP_HOST=smtp.office365.com`, `SMTP_PORT=587`.
+- **SendGrid:** `SMTP_HOST=smtp.sendgrid.net`, `SMTP_USER=apikey`, `SMTP_PASSWORD=<tu API key>`.
+
+Ruta del link que recibe el usuario: `/restablecer-clave/<token>`
 
 ### Roles personalizados y permisos
 

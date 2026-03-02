@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Asistente {{ hr_team_name or "Atención" }} - {{ company_name or "Empresa" }}</title>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem("rrhh_panel_theme");
+          if (stored === "dark" || stored === "light") {
+            document.documentElement.setAttribute("data-theme", stored);
+          } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='chat.css') }}" />
     <style>
       /* Layout principal: sidebar + contenido */
@@ -101,6 +113,36 @@
           border-bottom-color: #2563eb;
         }
       }
+      /* Modo oscuro: sidebar y layout */
+      html[data-theme="dark"] .app-layout {
+        background: #070d18;
+      }
+      html[data-theme="dark"] .app-sidebar {
+        background: #101a2a !important;
+        border-right-color: #334155;
+      }
+      html[data-theme="dark"] .app-sidebar h2 {
+        color: #e2e8f0;
+      }
+      html[data-theme="dark"] .app-sidebar p.subtle {
+        color: #94a3b8;
+      }
+      html[data-theme="dark"] .app-module-btn {
+        color: #cbd5e1;
+      }
+      html[data-theme="dark"] .app-module-btn:hover {
+        background: #1e293b;
+        color: #e2e8f0;
+      }
+      html[data-theme="dark"] .app-module-btn.active {
+        background: #1e3a5f;
+        color: #93c5fd;
+        border-left-color: #3b82f6;
+      }
+      html[data-theme="dark"] .app-main,
+      html[data-theme="dark"] .app-frame {
+        background: #070d18;
+      }
     </style>
   </head>
   <body>
@@ -111,21 +153,31 @@
         <button type="button" class="app-module-btn active" data-module="chat" data-src="/chat">
           Asistente (Chat)
         </button>
+        {% if can_view_conversations|default(true) %}
         <button type="button" class="app-module-btn" data-module="rrhh" data-src="/rrhh">
           Panel de atención
         </button>
+        {% endif %}
+        {% if can_view_config|default(true) %}
         <button type="button" class="app-module-btn" data-module="configuracion" data-src="/configuracion">
           Configuración
         </button>
+        {% endif %}
+        {% if can_view_stats|default(true) %}
         <button type="button" class="app-module-btn" data-module="estadisticas" data-src="/estadisticas">
           Estadísticas
         </button>
+        {% endif %}
+        {% if can_manage_preferences|default(true) %}
         <button type="button" class="app-module-btn" data-module="preferencias" data-src="/preferencias">
           Preferencias
         </button>
+        {% endif %}
+        {% if can_view_history|default(true) %}
         <button type="button" class="app-module-btn" data-module="historial" data-src="/historial">
           Historial
         </button>
+        {% endif %}
       </aside>
       <main class="app-main">
         <iframe
@@ -138,16 +190,32 @@
     </div>
     <script>
       (function() {
-        const frame = document.getElementById("app-frame");
-        const buttons = document.querySelectorAll(".app-module-btn[data-src]");
+        var key = "rrhh_panel_theme";
+        function applyThemeToFrame() {
+          var frame = document.getElementById("app-frame");
+          if (frame && frame.contentWindow && frame.contentDocument) {
+            try {
+              var stored = localStorage.getItem(key);
+              if (stored === "dark" || stored === "light") {
+                frame.contentDocument.documentElement.setAttribute("data-theme", stored);
+              }
+            } catch (e) {}
+          }
+        }
+        var frame = document.getElementById("app-frame");
+        if (frame) {
+          frame.addEventListener("load", applyThemeToFrame);
+        }
+        var buttons = document.querySelectorAll(".app-module-btn[data-src]");
         buttons.forEach(function(btn) {
           btn.addEventListener("click", function() {
-            const src = this.getAttribute("data-src");
-            var framePath = frame.src ? new URL(frame.src).pathname : "";
+            var src = this.getAttribute("data-src");
+            var framePath = frame && frame.src ? new URL(frame.src).pathname : "";
             if (!src || framePath === src) return;
             buttons.forEach(function(b) { b.classList.remove("active"); });
             this.classList.add("active");
             frame.src = src;
+            setTimeout(applyThemeToFrame, 300);
           });
         });
       })();

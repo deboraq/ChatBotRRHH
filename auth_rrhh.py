@@ -25,6 +25,9 @@ PERM_CONVERSATIONS_MANAGE = "conversaciones_gestionar"
 PERM_HISTORY_VIEW = "historial_ver"
 PERM_USERS_MANAGE = "usuarios_gestionar"
 PERM_ROLES_MANAGE = "roles_gestionar"
+PERM_CONFIG_MANAGE = "configuracion_gestionar"
+PERM_STATS_VIEW = "estadisticas_ver"
+PERM_PREFERENCES_MANAGE = "preferencias_gestionar"
 
 PERMISSIONS_CATALOG = {
     PERM_CONVERSATIONS_VIEW: "Ver conversaciones",
@@ -32,6 +35,9 @@ PERMISSIONS_CATALOG = {
     PERM_HISTORY_VIEW: "Ver historial completo",
     PERM_USERS_MANAGE: "Crear y editar usuarios",
     PERM_ROLES_MANAGE: "Crear y editar roles/permisos",
+    PERM_CONFIG_MANAGE: "Gestionar configuración (empresas, sucursales, áreas)",
+    PERM_STATS_VIEW: "Ver estadísticas",
+    PERM_PREFERENCES_MANAGE: "Gestionar preferencias (empresa activa, autocierre, reglas del chat)",
 }
 
 DEFAULT_ROLE_DEFINITIONS = {
@@ -45,6 +51,7 @@ DEFAULT_ROLE_DEFINITIONS = {
             PERM_CONVERSATIONS_VIEW,
             PERM_CONVERSATIONS_MANAGE,
             PERM_HISTORY_VIEW,
+            PERM_STATS_VIEW,
         ],
     },
 }
@@ -119,9 +126,11 @@ def _normalize_assignments(assignments):
     for item in assignments:
         company_id = ""
         branch = ""
+        role = ""
         if isinstance(item, dict):
             company_id = _normalize_company_id(item.get("company_id"))
             branch = str(item.get("branch") or "").strip()
+            role = _normalize_role(item.get("role"), default="")
         elif isinstance(item, str):
             token = str(item or "").strip()
             if ":" in token:
@@ -136,7 +145,7 @@ def _normalize_assignments(assignments):
         key = f"{company_id}|{branch.lower()}"
         if key in seen:
             continue
-        normalized.append({"company_id": company_id, "branch": branch})
+        normalized.append({"company_id": company_id, "branch": branch, "role": role})
         seen.add(key)
     return normalized
 
@@ -149,6 +158,38 @@ def assignment_matches_company(assignments, company_id):
     if not items:
         return True
     return any(item.get("company_id") == company_key for item in items)
+
+
+def get_role_for_context(entry, company_id, branch=None):
+    """Rol efectivo del usuario para empresa/sucursal: el de la asignación o el rol por defecto."""
+    default_role = _normalize_role(entry.get("role"), default="rrhh")
+    company_key = _normalize_company_id(company_id)
+    branch_str = str(branch or "").strip() if branch is not None else None
+    items = _normalize_assignments(entry.get("assignments"))
+    for item in items:
+        if item.get("company_id") != company_key:
+            continue
+        item_branch = str(item.get("branch") or "").strip()
+        if branch_str is not None and item_branch.lower() != branch_str.lower():
+            continue
+        role = _normalize_role(item.get("role"), default="")
+        if role:
+            return role
+        return default_role
+    return default_role
+
+
+def _validate_assignments_roles(assignments, path=None):
+    """Comprueba que cada asignación con rol tenga un rol válido. Devuelve (True, "") o (False, error)."""
+    roles_map = get_roles_map(path)
+    items = _normalize_assignments(assignments)
+    for item in items:
+        role = str(item.get("role") or "").strip().lower()
+        if not role:
+            continue
+        if role not in roles_map:
+            return False, f"Rol '{role}' no existe. Creá el rol en la sección Roles o dejá vacío para usar el rol por defecto."
+    return True, ""
 
 
 def users_file_path():
@@ -219,10 +260,22 @@ def _normalize_role_entry(entry):
     permissions = _normalize_permissions(entry.get("permissions"))
     if permissions is None:
         permissions = []
+    raw_ids = entry.get("company_ids")
+    if raw_ids is None and "companies" in entry:
+        raw_ids = entry.get("companies")
+    if isinstance(raw_ids, list):
+        company_ids = [
+            _normalize_company_id(c) for c in raw_ids
+            if _normalize_company_id(c)
+        ]
+        company_ids = list(dict.fromkeys(company_ids))
+    else:
+        company_ids = []
     return {
         "name": name,
         "display_name": str(entry.get("display_name") or name).strip() or name,
         "permissions": permissions,
+        "company_ids": company_ids,
     }
 
 
@@ -337,6 +390,7 @@ def _build_roles_map(role_entries):
             "name": name,
             "display_name": str(payload.get("display_name") or name),
             "permissions": _normalize_permissions(payload.get("permissions")) or [],
+            "company_ids": [],
         }
     for item in role_entries:
         normalized = _normalize_role_entry(item)
@@ -435,19 +489,48 @@ def list_roles(path=None):
                 "name": role["name"],
                 "display_name": role.get("display_name") or role["name"],
                 "permissions": list(role.get("permissions") or []),
+                "company_ids": list(role.get("company_ids") or []),
             }
         )
     roles.sort(key=lambda item: item["name"])
     return roles
 
 
+def role_applies_to_company(role, company_id, path=None):
+    """True si el rol aplica a la empresa (company_ids vacío = todas, si no debe estar en la lista)."""
+    if not role or not isinstance(role, dict):
+        return False
+    cids = role.get("company_ids") or []
+    if not cids:
+        return True
+    key = _normalize_company_id(company_id)
+    return key in cids
+
+
 def available_roles(path=None):
     return sorted(get_roles_map(path).keys())
 
 
-def role_permissions(role, path=None):
-    role_key = _normalize_role(role, default="")
+def _normalize_role_str(role_str, default="rrhh", path=None):
+    """Acepta roles separados por coma; valida cada uno y devuelve string 'r1,r2' o default."""
     roles = get_roles_map(path)
+    raw = str(role_str or default).strip()
+    parts = [p.strip().lower() for p in raw.split(",") if p.strip()]
+    valid = [p for p in parts if p in roles]
+    return ",".join(valid) if valid else default
+
+
+def role_permissions(role, path=None):
+    roles = get_roles_map(path)
+    raw = str(role or "").strip()
+    if "," in raw:
+        perms = set()
+        for r in raw.split(","):
+            rk = _normalize_role(r, default="")
+            if rk and rk in roles:
+                perms.update(roles.get(rk).get("permissions") or [])
+        return list(perms)
+    role_key = _normalize_role(role, default="")
     payload = roles.get(role_key)
     if payload is None:
         return []
@@ -458,8 +541,16 @@ def role_has_permission(role, permission, path=None, roles_map=None):
     perm = str(permission or "").strip().lower()
     if perm not in PERMISSIONS_CATALOG:
         return False
-    role_key = _normalize_role(role, default="")
     roles = roles_map if roles_map is not None else get_roles_map(path)
+    raw = str(role or "").strip()
+    if "," in raw:
+        for r in raw.split(","):
+            rk = _normalize_role(r, default="")
+            payload = roles.get(rk)
+            if payload and perm in (payload.get("permissions") or []):
+                return True
+        return False
+    role_key = _normalize_role(role, default="")
     payload = roles.get(role_key)
     if payload is None:
         return False
@@ -570,7 +661,15 @@ def list_file_users(path=None):
     return rows
 
 
-def create_role(name, display_name="", permissions=None, path=None):
+def _normalize_role_company_ids(company_ids):
+    if company_ids is None:
+        return []
+    if not isinstance(company_ids, list):
+        return []
+    return list(dict.fromkeys(_normalize_company_id(c) for c in company_ids if _normalize_company_id(c)))
+
+
+def create_role(name, display_name="", permissions=None, company_ids=None, path=None):
     role_name = _normalize_role(name, default="")
     if not role_name or not ROLE_RE.fullmatch(role_name):
         return (
@@ -589,6 +688,7 @@ def create_role(name, display_name="", permissions=None, path=None):
     if role_name in roles_map:
         return False, None, "Ese rol ya existe."
 
+    cids = _normalize_role_company_ids(company_ids)
     target_path = path or roles_file_path()
     raw_entries = _load_roles_raw_entries(target_path)
     raw_entries.append(
@@ -596,6 +696,7 @@ def create_role(name, display_name="", permissions=None, path=None):
             "name": role_name,
             "display_name": str(display_name or role_name).strip() or role_name,
             "permissions": perms,
+            "company_ids": cids,
         }
     )
 
@@ -614,12 +715,13 @@ def create_role(name, display_name="", permissions=None, path=None):
             "name": role_name,
             "display_name": str(display_name or role_name).strip() or role_name,
             "permissions": perms,
+            "company_ids": cids,
         },
         "",
     )
 
 
-def update_role(name, display_name=None, permissions=None, path=None):
+def update_role(name, display_name=None, permissions=None, company_ids=None, path=None):
     role_name = _normalize_role(name, default="")
     if not role_name:
         return False, None, "Nombre de rol requerido."
@@ -647,6 +749,8 @@ def update_role(name, display_name=None, permissions=None, path=None):
     if not next_permissions:
         return False, None, "Seleccioná al menos un permiso."
 
+    next_company_ids = _normalize_role_company_ids(company_ids) if company_ids is not None else list(current.get("company_ids") or [])
+
     updated = False
     new_raw_entries = []
     for item in raw_entries:
@@ -656,18 +760,19 @@ def update_role(name, display_name=None, permissions=None, path=None):
             clone["name"] = role_name
             clone["display_name"] = next_display
             clone["permissions"] = next_permissions
+            clone["company_ids"] = next_company_ids
             new_raw_entries.append(clone)
             updated = True
         else:
             new_raw_entries.append(item)
 
     if not updated:
-        # Si era un rol por defecto sin override, crea el override.
         new_raw_entries.append(
             {
                 "name": role_name,
                 "display_name": next_display,
                 "permissions": next_permissions,
+                "company_ids": next_company_ids,
             }
         )
 
@@ -686,6 +791,7 @@ def update_role(name, display_name=None, permissions=None, path=None):
             "name": role_name,
             "display_name": next_display,
             "permissions": next_permissions,
+            "company_ids": next_company_ids,
         },
         "",
     )
@@ -719,13 +825,16 @@ def create_user(
             f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.",
         )
 
-    role_clean = _normalize_role(role, default="rrhh")
     roles = get_roles_map()
-    if role_clean not in roles:
-        return False, None, "Rol inválido. Crealo primero desde la sección de roles."
+    role_clean = _normalize_role_str(role, default="rrhh", path=path)
+    if not role_clean:
+        return False, None, "Al menos un rol es necesario."
     normalized_assignments = _normalize_assignments(assignments)
     if isinstance(assignments, list) and assignments and not normalized_assignments:
         return False, None, "Asignaciones inválidas. Usá empresa y sucursal válidas."
+    ok_roles, err_roles = _validate_assignments_roles(normalized_assignments, path=path)
+    if not ok_roles:
+        return False, None, err_roles
 
     email_raw = str(email or "").strip()
     email_clean = _normalize_email(email_raw)
@@ -806,15 +915,18 @@ def update_user_profile(
     updated_entry = dict(raw_entries[target_idx])
 
     if role is not None:
-        role_clean = _normalize_role(role, default="")
-        if role_clean not in roles:
-            return False, None, "Rol inválido. Crealo primero desde la sección de roles."
+        role_clean = _normalize_role_str(role, default="rrhh", path=path)
+        if not role_clean:
+            return False, None, "Al menos un rol válido es necesario. Crealo desde la sección de roles."
         updated_entry["role"] = role_clean
 
     if assignments is not None:
         normalized_assignments = _normalize_assignments(assignments)
         if isinstance(assignments, list) and assignments and not normalized_assignments:
             return False, None, "Asignaciones inválidas. Verificá empresa/sucursal."
+        ok_roles, err_roles = _validate_assignments_roles(normalized_assignments, path=path)
+        if not ok_roles:
+            return False, None, err_roles
         updated_entry["assignments"] = normalized_assignments
 
     if display_name is not None:

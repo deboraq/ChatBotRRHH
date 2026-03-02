@@ -7,6 +7,18 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='historial.css') }}" />
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem("rrhh_panel_theme");
+          if (stored === "dark" || stored === "light") {
+            document.documentElement.setAttribute("data-theme", stored);
+          } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
     <main class="history-wrapper">
       <header class="history-header">
         <div>

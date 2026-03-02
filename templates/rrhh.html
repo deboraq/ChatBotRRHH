@@ -55,8 +55,25 @@
             {% endfor %}
           </select>
         </label>
-        <button id="btn-company-switch" type="button" class="ghost">Cambiar empresa</button>
         {% endif %}
+        <div id="rrhh-branch-filter-wrap" class="field compact-field" style="display: none;">
+          <label for="rrhh-branch-trigger" class="rrhh-branch-label">Sucursal visible</label>
+          <div class="rrhh-branch-dropdown-wrap">
+            <button type="button" id="rrhh-branch-trigger" class="rrhh-branch-trigger" aria-expanded="false" aria-haspopup="true">
+              <span class="rrhh-branch-trigger-text">Todas las sucursales</span>
+            </button>
+            <div id="rrhh-branch-panel" class="rrhh-branch-panel" role="group" aria-label="Sucursales" hidden></div>
+          </div>
+        </div>
+        <div id="rrhh-area-filter-wrap" class="field compact-field" style="display: none;">
+          <label for="rrhh-area-trigger" class="rrhh-area-label">Área visible</label>
+          <div class="rrhh-area-dropdown-wrap">
+            <button type="button" id="rrhh-area-trigger" class="rrhh-area-trigger" aria-expanded="false" aria-haspopup="true">
+              <span class="rrhh-area-trigger-text">Todas las áreas</span>
+            </button>
+            <div id="rrhh-area-panel" class="rrhh-area-panel" role="group" aria-label="Áreas" hidden></div>
+          </div>
+        </div>
         <span id="active-agents-status" class="subtle"></span>
       </section>
 
@@ -153,7 +170,16 @@
       const agentNameEl = document.getElementById("agent-name");
       const activeAgentsStatusEl = document.getElementById("active-agents-status");
       const companySelectorEl = document.getElementById("rrhh-company-selector");
-      const companySwitchBtn = document.getElementById("btn-company-switch");
+      const branchFilterWrap = document.getElementById("rrhh-branch-filter-wrap");
+      const branchTrigger = document.getElementById("rrhh-branch-trigger");
+      const branchPanel = document.getElementById("rrhh-branch-panel");
+      const areaFilterWrap = document.getElementById("rrhh-area-filter-wrap");
+      const areaTrigger = document.getElementById("rrhh-area-trigger");
+      const areaPanel = document.getElementById("rrhh-area-panel");
+      let companyBranches = [];
+      let selectedBranchNames = [];
+      let companyAreas = [];
+      let selectedAreaNames = [];
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "Agente")|tojson }};
       const rrhhUsername = {{ (rrhh_user.username if rrhh_user else "")|tojson }};
@@ -349,23 +375,18 @@
       async function seleccionarEmpresaPanel() {
         const company_id = String(companySelectorEl?.value || "").trim();
         if (!company_id) throw new Error("Seleccioná una empresa.");
-        if (companySwitchBtn) companySwitchBtn.disabled = true;
-        try {
-          const response = await fetch("/api/rrhh/empresa/seleccionar", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ company_id }),
-          });
-          if (response.status === 401) {
-            window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
-            return;
-          }
-          const data = await response.json();
-          if (!data.ok) throw new Error(data.error || "No se pudo cambiar la empresa.");
-          window.location.reload();
-        } finally {
-          if (companySwitchBtn) companySwitchBtn.disabled = false;
+        const response = await fetch("/api/rrhh/empresa/seleccionar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_id }),
+        });
+        if (response.status === 401) {
+          window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
+          return;
         }
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo cambiar la empresa.");
+        window.location.reload();
       }
 
       function notifyNewMessages(newConversationsCount) {
@@ -442,7 +463,7 @@
             </div>
             <div class="conv-line">${escapeHtml(conv.ultima_consulta || "Sin consulta")}</div>
             <div class="conv-foot">
-              Agente: ${escapeHtml(conv.rrhh_agente || "sin asignar")} · Actualizado: ${escapeHtml(formatLocalDateTime(conv.updated_at_iso, conv.updated_at || "-"))}
+              ${conv.rrhh_asignacion_automatica && conv.rrhh_agente ? "Asignado automáticamente a: " + escapeHtml(conv.rrhh_agente) : "Agente: " + escapeHtml(conv.rrhh_agente || "sin asignar")} · Actualizado: ${escapeHtml(formatLocalDateTime(conv.updated_at_iso, conv.updated_at || "-"))}
             </div>
           `;
           card.addEventListener("click", () => seleccionarConversacion(conv.conversation_id));
@@ -794,9 +815,115 @@
         await cargarUsuarios();
       }
 
+      function branchName(b) {
+        return (b && (typeof b === "object" ? b.name : b)) ? String(b.name || b).trim() : String(b || "").trim();
+      }
+
+      function fillBranchFilterPanel(branches) {
+        if (!branchPanel) return;
+        companyBranches = Array.isArray(branches) ? branches : [];
+        branchPanel.innerHTML = "";
+        if (branchFilterWrap) branchFilterWrap.style.display = companyBranches.length > 0 ? "" : "none";
+        const allChecked = selectedBranchNames.length === 0;
+        const labelAll = document.createElement("label");
+        labelAll.className = "rrhh-branch-option";
+        const cbAll = document.createElement("input");
+        cbAll.type = "checkbox";
+        cbAll.className = "rrhh-branch-cb rrhh-branch-cb-all";
+        cbAll.checked = allChecked;
+        labelAll.appendChild(cbAll);
+        labelAll.appendChild(document.createTextNode(" Todas las sucursales"));
+        branchPanel.appendChild(labelAll);
+        companyBranches.forEach((b) => {
+          const name = branchName(b);
+          if (!name) return;
+          const label = document.createElement("label");
+          label.className = "rrhh-branch-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "rrhh-branch-cb";
+          cb.dataset.branch = name;
+          cb.checked = allChecked || selectedBranchNames.some((s) => s.toLowerCase() === name.toLowerCase());
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(" " + name));
+          branchPanel.appendChild(label);
+        });
+      }
+
+      function updateBranchTriggerLabel() {
+        const textEl = branchTrigger?.querySelector(".rrhh-branch-trigger-text");
+        if (!textEl) return;
+        if (selectedBranchNames.length === 0) textEl.textContent = "Todas las sucursales";
+        else if (selectedBranchNames.length === 1) textEl.textContent = selectedBranchNames[0];
+        else textEl.textContent = selectedBranchNames.length + " sucursales";
+      }
+
+      function getSelectedBranchNames() {
+        if (!branchPanel) return [];
+        const cbAll = branchPanel.querySelector(".rrhh-branch-cb-all");
+        if (cbAll && cbAll.checked) return [];
+        const cbs = branchPanel.querySelectorAll(".rrhh-branch-cb:checked:not(.rrhh-branch-cb-all)");
+        return Array.from(cbs).map((cb) => (cb.dataset.branch || "").trim()).filter(Boolean);
+      }
+
+      function fillAreaFilterPanel(areas) {
+        if (!areaPanel) return;
+        companyAreas = Array.isArray(areas) ? areas.map((a) => (typeof a === "string" ? a : String(a || "").trim())).filter(Boolean) : [];
+        areaPanel.innerHTML = "";
+        if (areaFilterWrap) areaFilterWrap.style.display = companyAreas.length > 0 ? "" : "none";
+        const allChecked = selectedAreaNames.length === 0;
+        const labelAll = document.createElement("label");
+        labelAll.className = "rrhh-area-option";
+        const cbAll = document.createElement("input");
+        cbAll.type = "checkbox";
+        cbAll.className = "rrhh-area-cb rrhh-area-cb-all";
+        cbAll.checked = allChecked;
+        labelAll.appendChild(cbAll);
+        labelAll.appendChild(document.createTextNode(" Todas las áreas"));
+        areaPanel.appendChild(labelAll);
+        companyAreas.forEach((name) => {
+          if (!name) return;
+          const label = document.createElement("label");
+          label.className = "rrhh-area-option";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.className = "rrhh-area-cb";
+          cb.dataset.area = name;
+          cb.checked = allChecked || selectedAreaNames.some((s) => s.toLowerCase() === name.toLowerCase());
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(" " + name));
+          areaPanel.appendChild(label);
+        });
+      }
+
+      function updateAreaTriggerLabel() {
+        const textEl = areaTrigger?.querySelector(".rrhh-area-trigger-text");
+        if (!textEl) return;
+        if (selectedAreaNames.length === 0) textEl.textContent = "Todas las áreas";
+        else if (selectedAreaNames.length === 1) textEl.textContent = selectedAreaNames[0];
+        else textEl.textContent = selectedAreaNames.length + " áreas";
+      }
+
+      function getSelectedAreaNames() {
+        if (!areaPanel) return [];
+        const cbAll = areaPanel.querySelector(".rrhh-area-cb-all");
+        if (cbAll && cbAll.checked) return [];
+        const cbs = areaPanel.querySelectorAll(".rrhh-area-cb:checked:not(.rrhh-area-cb-all)");
+        return Array.from(cbs).map((cb) => (cb.dataset.area || "").trim()).filter(Boolean);
+      }
+
       async function cargarConversaciones() {
         const includeClosed = includeClosedEl.checked ? "true" : "false";
-        const response = await fetch(`/api/rrhh/conversaciones?include_closed=${includeClosed}`);
+        selectedBranchNames = getSelectedBranchNames();
+        selectedAreaNames = getSelectedAreaNames();
+        let url = `/api/rrhh/conversaciones?include_closed=${includeClosed}`;
+        if (selectedBranchNames.length > 0) {
+          url += "&branches=" + encodeURIComponent(selectedBranchNames.join(","));
+        }
+        if (selectedAreaNames.length > 0) {
+          url += "&areas=" + encodeURIComponent(selectedAreaNames.join(","));
+        }
+        const response = await fetch(url);
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
           return;
@@ -816,6 +943,10 @@
           };
         }
         conversations = data.conversaciones || [];
+        fillBranchFilterPanel(Array.isArray(data.branches) ? data.branches : []);
+        updateBranchTriggerLabel();
+        fillAreaFilterPanel(Array.isArray(data.areas) ? data.areas : []);
+        updateAreaTriggerLabel();
         recalculateUnreadConversations({ notify: hasConversationSnapshot });
         hasConversationSnapshot = true;
         activeAgents = Array.isArray(data.agentes_activos) ? data.agentes_activos : [];
@@ -845,7 +976,9 @@
         renderQueueStatus();
         renderConversations();
         chatTitleEl.textContent = `Conversación ${conversationId}`;
-        chatMetaEl.textContent = `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
+        chatMetaEl.textContent = data.rrhh_asignacion_automatica && data.rrhh_agente
+          ? `Estado: ${data.estado || "-"} | Asignado automáticamente a: ${data.rrhh_agente}`
+          : `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
         if (reassignAgentEl && data.rrhh_agente_id) {
           reassignAgentEl.value = data.rrhh_agente_id;
         }
@@ -957,14 +1090,80 @@ const agente = agentNameEl.value.trim() || "Agente";
 
       refreshBtn.addEventListener("click", () => safeRefresh(true));
       includeClosedEl.addEventListener("change", () => safeRefresh(false));
-      if (companySwitchBtn && companySelectorEl) {
-        companySwitchBtn.addEventListener("click", async () => {
+      if (companySelectorEl) {
+        companySelectorEl.addEventListener("change", async () => {
           try {
             await seleccionarEmpresaPanel();
           } catch (error) {
             queueStatusEl.textContent = `Error de empresa: ${error.message}`;
             queueStatusEl.classList.add("alert-text");
           }
+        });
+      }
+      if (branchTrigger && branchPanel) {
+        branchTrigger.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const willClose = !branchPanel.hidden;
+          branchPanel.hidden = willClose;
+          if (willClose) branchPanel.setAttribute("hidden", "");
+          else branchPanel.removeAttribute("hidden");
+          branchTrigger.setAttribute("aria-expanded", String(!willClose));
+        });
+        document.addEventListener("click", (e) => {
+          if (branchPanel.hidden) return;
+          if (branchTrigger && branchTrigger.contains(e.target)) return;
+          if (branchPanel.contains(e.target)) return;
+          branchPanel.hidden = true;
+          branchTrigger.setAttribute("aria-expanded", "false");
+        });
+        branchPanel.addEventListener("click", (e) => { e.stopPropagation(); });
+        branchPanel.addEventListener("change", (e) => {
+          if (!e.target || !e.target.classList.contains("rrhh-branch-cb")) return;
+          const cbAll = branchPanel.querySelector(".rrhh-branch-cb-all");
+          const others = branchPanel.querySelectorAll(".rrhh-branch-cb:not(.rrhh-branch-cb-all)");
+          if (e.target.classList.contains("rrhh-branch-cb-all")) {
+            if (e.target.checked) others.forEach((c) => { c.checked = false; });
+          } else {
+            if (e.target.checked && cbAll) cbAll.checked = false;
+            else if (cbAll && !Array.from(others).some((c) => c.checked)) cbAll.checked = true;
+          }
+          selectedBranchNames = getSelectedBranchNames();
+          updateBranchTriggerLabel();
+          safeRefresh(false);
+        });
+      }
+      if (areaTrigger && areaPanel) {
+        areaTrigger.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const willClose = !areaPanel.hidden;
+          areaPanel.hidden = willClose;
+          if (willClose) areaPanel.setAttribute("hidden", "");
+          else areaPanel.removeAttribute("hidden");
+          areaTrigger.setAttribute("aria-expanded", String(!willClose));
+        });
+        document.addEventListener("click", (e) => {
+          if (areaPanel.hidden) return;
+          if (areaTrigger && areaTrigger.contains(e.target)) return;
+          if (areaPanel.contains(e.target)) return;
+          areaPanel.hidden = true;
+          areaTrigger.setAttribute("aria-expanded", "false");
+        });
+        areaPanel.addEventListener("click", (e) => { e.stopPropagation(); });
+        areaPanel.addEventListener("change", (e) => {
+          if (!e.target || !e.target.classList.contains("rrhh-area-cb")) return;
+          const cbAll = areaPanel.querySelector(".rrhh-area-cb-all");
+          const others = areaPanel.querySelectorAll(".rrhh-area-cb:not(.rrhh-area-cb-all)");
+          if (e.target.classList.contains("rrhh-area-cb-all")) {
+            if (e.target.checked) others.forEach((c) => { c.checked = false; });
+          } else {
+            if (e.target.checked && cbAll) cbAll.checked = false;
+            else if (cbAll && !Array.from(others).some((c) => c.checked)) cbAll.checked = true;
+          }
+          selectedAreaNames = getSelectedAreaNames();
+          updateAreaTriggerLabel();
+          safeRefresh(false);
         });
       }
       btnTomar.addEventListener("click", async () => {

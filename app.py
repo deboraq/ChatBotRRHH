@@ -169,7 +169,11 @@ SINONIMOS = {
     "ayuda": ["no se que hacer", "help", "necesito ayuda", "ayudame", "que hago"],
 }
 
-INTENCIONES_CONTACTO = {"rrhh", "representante", "persona", "humano", "asesor", "operador"}
+INTENCIONES_CONTACTO = {
+    "rrhh", "representante", "persona", "humano", "asesor", "operador",
+    "asistente", "agente", "hablar con un agente", "hablar con un asistente",
+    "hablar con alguien", "contacto humano", "atencion humana",
+}
 PALABRAS_NEGATIVAS = {
     "mal",
     "pesimo",
