@@ -160,6 +160,24 @@ def assignment_matches_company(assignments, company_id):
     return any(item.get("company_id") == company_key for item in items)
 
 
+def assignment_matches_company_branch(assignments, company_id, branch):
+    """True si el usuario tiene asignación para esa empresa y sucursal (branch '' = todas)."""
+    company_key = _normalize_company_id(company_id)
+    if not company_key:
+        return False
+    items = _normalize_assignments(assignments)
+    if not items:
+        return True
+    branch_str = str(branch or "").strip().lower()
+    for item in items:
+        if item.get("company_id") != company_key:
+            continue
+        item_branch = str(item.get("branch") or "").strip().lower()
+        if not item_branch or item_branch == branch_str:
+            return True
+    return False
+
+
 def get_role_for_context(entry, company_id, branch=None):
     """Rol efectivo del usuario para empresa/sucursal: el de la asignación o el rol por defecto."""
     default_role = _normalize_role(entry.get("role"), default="rrhh")

@@ -6,6 +6,14 @@ def _normalizar_texto(valor):
     return str(valor).strip().lower() if valor is not None else ""
 
 
+def _normalize_company_id(value):
+    """Normaliza company_id para comparación (minúsculas, sin espacios)."""
+    if value is None:
+        return ""
+    s = str(value).strip().lower()
+    return s[:64] if s else ""
+
+
 def _es_voto_si(voto):
     voto_norm = _normalizar_texto(voto)
     return voto_norm in {"si", "sí", "yes", "y", "true"}
@@ -227,8 +235,9 @@ def build_statistics_from_records(
     }
 
 
-def obtener_estadisticas(db, now=None, days=7, rrhh_records=None):
+def obtener_estadisticas(db, now=None, days=7, rrhh_records=None, company_id=None):
     rrhh_records = rrhh_records or []
+    filter_cid = _normalize_company_id(company_id) if company_id else ""
     if db is None:
         rrhh_pendientes = 0
         rrhh_en_atencion = 0
@@ -300,6 +309,9 @@ def obtener_estadisticas(db, now=None, days=7, rrhh_records=None):
 
     feedback_records = [doc.to_dict() for doc in db.collection("feedback_respuestas").stream()]
     pendientes_records = [doc.to_dict() for doc in db.collection("consultas_pendientes").stream()]
+    if filter_cid:
+        feedback_records = [r for r in feedback_records if _normalize_company_id(r.get("company_id")) == filter_cid]
+        pendientes_records = [r for r in pendientes_records if _normalize_company_id(r.get("company_id")) == filter_cid]
     if not rrhh_records:
         rrhh_records = [doc.to_dict() for doc in db.collection("rrhh_handoffs").stream()]
     return build_statistics_from_records(

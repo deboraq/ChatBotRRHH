@@ -81,8 +81,9 @@ def _accion(label, value, variant="default"):
     return {"label": label, "value": value, "variant": variant}
 
 
-# Contexto de chat: empresa y área elegidas por el colaborador (el asistente pregunta primero).
+# Contexto de chat: empresa, sucursal y área elegidas por el colaborador (el asistente pregunta en ese orden).
 CHAT_CONTEXT_STEP_COMPANY = "company"
+CHAT_CONTEXT_STEP_BRANCH = "branch"
 CHAT_CONTEXT_STEP_AREA = "area"
 CHAT_CONTEXT_STEP_READY = "ready"
 
@@ -95,8 +96,21 @@ def _set_chat_context_company(company_id):
     key = _normalize_company_id(company_id)
     if key:
         session["chat_context_company_id"] = key
-        session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
         _set_company_session(key)
+        company = _get_company(key, include_inactive=False)
+        branches = _normalize_branches((company or {}).get("branches"))
+        if branches:
+            session["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
+        else:
+            session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+            session.pop("chat_context_branch", None)
+
+
+def _set_chat_context_branch(branch_name):
+    branch_clean = str(branch_name or "").strip()
+    if branch_clean:
+        session["chat_context_branch"] = branch_clean
+        session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
 
 
 def _set_chat_context_area(area_name):
@@ -109,6 +123,7 @@ def _set_chat_context_area(area_name):
 def _clear_chat_context():
     session.pop("chat_context_step", None)
     session.pop("chat_context_company_id", None)
+    session.pop("chat_context_branch", None)
     session.pop("chat_context_area", None)
 
 
@@ -143,10 +158,13 @@ def _resolve_message_to_company(mensaje):
     return None, None
 
 
-def _resolve_message_to_area(mensaje, company_id):
+def _resolve_message_to_area(mensaje, company_id, branch=None):
     """Devuelve el nombre del área si el mensaje coincide (nombre o número de menú)."""
     company = _get_company(company_id, include_inactive=False)
-    areas = _get_all_areas_for_company(company)
+    if branch is not None and str(branch or "").strip():
+        areas = _get_areas_for_branch(company, str(branch).strip())
+    else:
+        areas = _get_all_areas_for_company(company)
     mensaje_norm = chatbot.normalizar_texto(mensaje)
     if not mensaje_norm or not areas:
         return None
@@ -170,6 +188,40 @@ def _construir_acciones_empresas(limite=10):
     return acciones
 
 
+def _get_branches_for_company(company):
+    """Lista de nombres de sucursal para la empresa (para menú chat)."""
+    if not company:
+        return []
+    return [_branch_name(b) for b in (company.get("branches") or []) if _branch_name(b)]
+
+
+def _resolve_message_to_branch(mensaje, company_id):
+    """Devuelve el nombre de la sucursal si el mensaje coincide (nombre o número de menú)."""
+    company = _get_company(company_id, include_inactive=False)
+    branches = _get_branches_for_company(company)
+    mensaje_norm = chatbot.normalizar_texto(mensaje)
+    if not mensaje_norm or not branches:
+        return None
+    num = _parse_menu_number(mensaje)
+    if num is not None and 1 <= num <= len(branches):
+        return str(branches[num - 1]).strip()
+    for b in branches:
+        bn = str(b).strip()
+        if chatbot.normalizar_texto(bn) == mensaje_norm or mensaje_norm in chatbot.normalizar_texto(bn):
+            return bn
+    return None
+
+
+def _construir_acciones_sucursales(company_id, limite=12):
+    company = _get_company(company_id, include_inactive=False)
+    branches = _get_branches_for_company(company)
+    acciones = []
+    for i, name in enumerate((branches or [])[:limite], start=1):
+        if name:
+            acciones.append(_accion(f"{i}. {name}", name, "topic"))
+    return acciones
+
+
 def _get_all_areas_for_company(company):
     """Unión de áreas de todas las sucursales + ámbito empresa (para menú chat)."""
     if not company:
@@ -189,9 +241,12 @@ def _get_all_areas_for_company(company):
     return _normalize_areas(company.get("areas"))
 
 
-def _construir_acciones_areas(company_id, limite=12):
+def _construir_acciones_areas(company_id, limite=12, branch=None):
     company = _get_company(company_id, include_inactive=False)
-    areas = _get_all_areas_for_company(company)
+    if branch is not None and str(branch or "").strip():
+        areas = _get_areas_for_branch(company, str(branch).strip())
+    else:
+        areas = _get_all_areas_for_company(company)
     acciones = []
     for i, a in enumerate((areas or [])[:limite], start=1):
         an = str(a).strip()
@@ -1038,7 +1093,7 @@ def _upsert_active_agent(agent, source="heartbeat"):
     return payload
 
 
-def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS, company_id=None):
+def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS, company_id=None, branch=None):
     now = _as_utc_naive(_utc_now()) or datetime.utcnow()
     ttl = max(30, int(ttl_seconds or ACTIVE_AGENT_TTL_SECONDS))
     threshold = now - timedelta(seconds=ttl)
@@ -1057,6 +1112,9 @@ def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS, company_id=None):
 
     active = []
     target_company = _normalize_company_id(company_id)
+    branch_str = str(branch or "").strip() if branch is not None else None
+    users_map = auth_rrhh.get_users() if _auth_enabled() else {}
+
     for item in rows:
         updated_at = _as_utc_naive(item.get("updated_at"))
         if updated_at is None or updated_at < threshold:
@@ -1066,13 +1124,20 @@ def _list_active_agents(ttl_seconds=ACTIVE_AGENT_TTL_SECONDS, company_id=None):
         item_company = _normalize_company_id(item.get("company_id"))
         if target_company and item_company != target_company:
             continue
+        if branch_str is not None and users_map:
+            agent_id_raw = str(item.get("agent_id") or "").strip().lower()
+            user_entry = users_map.get(agent_id_raw)
+            if user_entry and not auth_rrhh.assignment_matches_company_branch(
+                user_entry.get("assignments"), target_company, branch_str
+            ):
+                continue
         role = str(item.get("role") or "").strip().lower()
         if role and not auth_rrhh.role_has_permission(role, auth_rrhh.PERM_CONVERSATIONS_MANAGE):
             continue
         agent_id_raw = str(item.get("agent_id") or "").strip().lower()
         area_stored = str(item.get("area") or "").strip()
-        if not area_stored and _auth_enabled() and agent_id_raw:
-            user_entry = auth_rrhh.get_users().get(agent_id_raw)
+        if not area_stored and users_map and agent_id_raw:
+            user_entry = users_map.get(agent_id_raw)
             area_stored = str((user_entry or {}).get("area") or "").strip()
         active.append(
             _agent_payload(
@@ -1133,8 +1198,8 @@ def _agent_areas_set(agent):
     return {a.strip().lower() for a in area_str.split(",") if a.strip()}
 
 
-def _select_auto_agent(company_id=None, area=None):
-    active_agents = _list_active_agents(company_id=company_id)
+def _select_auto_agent(company_id=None, branch=None, area=None):
+    active_agents = _list_active_agents(company_id=company_id, branch=branch or None)
     if not active_agents:
         return None
     area_norm = str(area or "").strip().lower() if area else None
@@ -1487,6 +1552,35 @@ def _all_handoff_records_for_stats():
             rows.append(payload)
         return rows
     return [dict(value) for value in IN_MEMORY_HANDOFFS.values()]
+
+
+def _companies_for_filter_context():
+    """Lista de empresas con branches y areas para filtros (estadísticas, historial)."""
+    current = _current_rrhh_user()
+    companies = (
+        _companies_for_user(current)
+        if current
+        else _list_companies(include_inactive=False)
+    )
+    out = []
+    for c in companies:
+        cid = c.get("company_id")
+        if not cid:
+            continue
+        branches = []
+        for b in (c.get("branches") or []):
+            name = _branch_name(b)
+            if name:
+                branches.append({"name": name})
+        areas = _get_all_areas_for_company(c)
+        areas_list = [str(a).strip() for a in (areas or []) if str(a).strip()]
+        out.append({
+            "company_id": cid,
+            "company_name": (c.get("company_name") or cid).strip(),
+            "branches": branches,
+            "areas": areas_list,
+        })
+    return out
 
 
 def _add_handoff_message(
@@ -1938,7 +2032,12 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
 
     if existing is None:
         collaborator_area = session.get("chat_context_area") or ""
-        assigned_agent = _select_auto_agent(company_id=company_id, area=collaborator_area or None)
+        collaborator_branch = session.get("chat_context_branch") or ""
+        assigned_agent = _select_auto_agent(
+            company_id=company_id,
+            branch=collaborator_branch or None,
+            area=collaborator_area or None,
+        )
         estado_inicial = HANDOFF_STATUS_ACTIVE if assigned_agent else HANDOFF_STATUS_PENDING
         _upsert_handoff(
             conversation_id,
@@ -1946,6 +2045,7 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
                 "conversation_id": conversation_id,
                 "company_id": company_id,
                 "company_name": company.get("company_name"),
+                "branch": collaborator_branch,
                 "area": collaborator_area,
                 "estado": estado_inicial,
                 "created_at": now,
@@ -1988,11 +2088,11 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
     return conversation_id
 
 
-def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=True):
+def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=True, company_id=None):
     tipo, texto_norm = chatbot.clasificar_input_feedback(texto_usuario)
 
     if tipo == "feedback":
-        guardado = chatbot.registrar_feedback(tema_pendiente, texto_norm)
+        guardado = chatbot.registrar_feedback(tema_pendiente, texto_norm, company_id=company_id)
         limpiar_estado_conversacion()
         if guardado:
             texto = (
@@ -2129,7 +2229,7 @@ def responder_chat(mensaje_usuario):
 
     tema_pendiente = session.get("pending_feedback_topic")
     if tema_pendiente:
-        payload = procesar_feedback_pendiente(mensaje_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=permitir)
+        payload = procesar_feedback_pendiente(mensaje_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=permitir, company_id=company_id)
         if payload is not None:
             return payload
         # Si llega una nueva consulta durante feedback, sigue flujo normal.
@@ -2181,7 +2281,7 @@ def responder_chat(mensaje_usuario):
             quick_actions=_acciones_menu(4),
         )
 
-    guardado_pendiente = chatbot.registrar_pendiente(mensaje_usuario)
+    guardado_pendiente = chatbot.registrar_pendiente(mensaje_usuario, company_id=company_id)
     respuesta = armar_respuesta_no_entendida(mensaje_usuario, temas_map)
     if not guardado_pendiente:
         respuesta += "\nℹ️ No pude registrar esta consulta en la base de datos."
@@ -2290,7 +2390,7 @@ def chat_page():
     """Contenido del chatbot para incrustar en el layout principal (iframe o vista por defecto)."""
     _clear_chat_context()
     step = _chat_context_step()
-    if step == CHAT_CONTEXT_STEP_READY or step == CHAT_CONTEXT_STEP_AREA:
+    if step == CHAT_CONTEXT_STEP_READY or step == CHAT_CONTEXT_STEP_AREA or step == CHAT_CONTEXT_STEP_BRANCH:
         requested_company = _normalize_company_id(
             session.get("chat_context_company_id") or session.get("company_id") or _default_company_id()
         )
@@ -2313,23 +2413,41 @@ def chat_page():
             bienvenida = f"👋 ¡Hola! ¿De qué empresa me hablás?\nMenú:\n" + "\n".join(nombres_empresas) + "\n\nEscribí el número o el nombre."
         else:
             bienvenida = "👋 ¡Hola! ¿De qué empresa me hablás? Elegí una opción o escribí el nombre."
+    elif step == CHAT_CONTEXT_STEP_BRANCH:
+        ctx_company_id = session.get("chat_context_company_id") or company_id
+        company_for_branch = _get_company(ctx_company_id, include_inactive=False)
+        area_name_company = (company_for_branch or {}).get("company_name") or ctx_company_id or "Empresa"
+        quick_actions_iniciales = _construir_acciones_sucursales(ctx_company_id, limite=8)
+        nombres_sucursales = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
+        if nombres_sucursales:
+            bienvenida = f"¿De qué sucursal me hablás? (empresa: {area_name_company})\nMenú:\n" + "\n".join(nombres_sucursales) + "\n\nEscribí el número o el nombre."
+        else:
+            bienvenida = f"¿De qué sucursal me hablás? (empresa: {area_name_company})"
     elif step == CHAT_CONTEXT_STEP_AREA:
         ctx_company_id = session.get("chat_context_company_id") or company_id
+        ctx_branch = session.get("chat_context_branch") or ""
         company_for_area = _get_company(ctx_company_id, include_inactive=False)
         area_name_company = (company_for_area or {}).get("company_name") or ctx_company_id or "Empresa"
-        quick_actions_iniciales = _construir_acciones_areas(ctx_company_id, limite=8)
+        quick_actions_iniciales = _construir_acciones_areas(ctx_company_id, limite=8, branch=ctx_branch or None)
         nombres_areas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
+        suf = f" (sucursal: {ctx_branch})" if ctx_branch else ""
         if nombres_areas:
-            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company})\nMenú:\n" + "\n".join(nombres_areas) + "\n\nEscribí el número o el nombre."
+            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company}{suf})\nMenú:\n" + "\n".join(nombres_areas) + "\n\nEscribí el número o el nombre."
         else:
-            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company})"
+            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company}{suf})"
     else:
         permitir = (company or {}).get("permitir_hablar_con_humano", True)
         temas_habilitados = (company or {}).get("temas_habilitados") or []
         temas_map = construir_temas_map(company_id=company_id, temas_habilitados=temas_habilitados)
         area_ctx = session.get("chat_context_area") or ""
+        branch_ctx = session.get("chat_context_branch") or ""
+        partes = []
+        if branch_ctx:
+            partes.append(f"sucursal: {branch_ctx}")
         if area_ctx:
-            bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name} (área: {area_ctx}). ¿En qué puedo ayudarte hoy?"
+            partes.append(f"área: {area_ctx}")
+        if partes:
+            bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name} ({', '.join(partes)}). ¿En qué puedo ayudarte hoy?"
         else:
             bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
         quick_actions_iniciales = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir)
@@ -2448,9 +2566,13 @@ def chat_api():
         cid, company = _resolve_message_to_company(mensaje_trim)
         if cid and company:
             _set_chat_context_company(cid)
-            company_for_area = _get_company(cid, include_inactive=False)
-            areas = _get_all_areas_for_company(company_for_area)
-            if areas:
+            company_for_next = _get_company(cid, include_inactive=False)
+            branches = _get_branches_for_company(company_for_next)
+            areas = _get_all_areas_for_company(company_for_next)
+            if branches:
+                reply = f"Perfecto, {company.get('company_name') or cid}. ¿De qué sucursal me hablás?"
+                quick_actions = _construir_acciones_sucursales(cid, limite=8)
+            elif areas:
                 reply = f"Perfecto, {company.get('company_name') or cid}. ¿De qué área me hablás?"
                 quick_actions = _construir_acciones_areas(cid, limite=8)
             else:
@@ -2489,9 +2611,59 @@ def chat_api():
             "handoff_active": False,
         })
 
+    if step == CHAT_CONTEXT_STEP_BRANCH:
+        ctx_cid = session.get("chat_context_company_id") or (_current_company() or {}).get("company_id")
+        branch = _resolve_message_to_branch(mensaje_trim, ctx_cid)
+        if branch:
+            _set_chat_context_branch(branch)
+            company = _set_company_session(ctx_cid)
+            company_for_area = _get_company(ctx_cid, include_inactive=False)
+            areas = _get_areas_for_branch(company_for_area, branch)
+            if areas:
+                reply = f"Perfecto. ¿De qué área me hablás?"
+                quick_actions = _construir_acciones_areas(ctx_cid, limite=8, branch=branch)
+            else:
+                _set_chat_context_area("")
+                session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                settings = _apply_company_branding(_read_general_settings())
+                company_name = settings.get("company_name") or "Empresa"
+                hr_display = (settings.get("hr_team_name") or "Atención").strip()
+                if hr_display.upper() == "RRHH":
+                    hr_display = "Atención"
+                reply = f"👋 Listo (sucursal: {branch}). Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+                permitir = (company or {}).get("permitir_hablar_con_humano", True)
+                temas_map = construir_temas_map(
+                    company_id=ctx_cid,
+                    temas_habilitados=(company or {}).get("temas_habilitados") or [],
+                )
+                quick_actions = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir)
+            return jsonify({
+                "ok": True,
+                "reply": reply,
+                "await_feedback": False,
+                "end_session": False,
+                "quick_actions": quick_actions,
+                "handoff_active": False,
+            })
+        opciones_branch = _construir_acciones_sucursales(ctx_cid, limite=8)
+        nombres_branch = [a.get("label") or a.get("value") for a in opciones_branch if a.get("label") or a.get("value")]
+        if nombres_branch:
+            reply = f"No encontré esa sucursal.\nMenú:\n" + "\n".join(nombres_branch) + "\n\nEscribí el número o el nombre."
+        else:
+            reply = "No encontré esa sucursal. Elegí una de las opciones."
+        return jsonify({
+            "ok": True,
+            "reply": reply,
+            "await_feedback": False,
+            "end_session": False,
+            "quick_actions": opciones_branch,
+            "handoff_active": False,
+        })
+
     if step == CHAT_CONTEXT_STEP_AREA:
         ctx_cid = session.get("chat_context_company_id") or (_current_company() or {}).get("company_id")
-        area = _resolve_message_to_area(mensaje_trim, ctx_cid)
+        ctx_branch = session.get("chat_context_branch") or None
+        area = _resolve_message_to_area(mensaje_trim, ctx_cid, branch=ctx_branch)
         if area:
             _set_chat_context_area(area)
             company = _set_company_session(ctx_cid)
@@ -2512,7 +2684,7 @@ def chat_api():
                 "quick_actions": construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
                 "handoff_active": False,
             })
-        opciones_area = _construir_acciones_areas(ctx_cid, limite=8)
+        opciones_area = _construir_acciones_areas(ctx_cid, limite=8, branch=ctx_branch)
         nombres_area = [a.get("label") or a.get("value") for a in opciones_area if a.get("label") or a.get("value")]
         if nombres_area:
             reply = f"No encontré ese área.\nMenú:\n" + "\n".join(nombres_area) + "\n\nEscribí el número o el nombre."
@@ -2869,10 +3041,36 @@ def historial_api():
     canal = str(request.args.get("canal", "")).strip().lower()
     conversation_id = str(request.args.get("conversation_id", "")).strip()
     q = str(request.args.get("q", "")).strip().lower()
+    company_id_raw = request.args.get("company_id", "").strip() or None
+    company_id = _normalize_company_id(company_id_raw) if company_id_raw else None
+    branches_param = request.args.get("branches")
+    branches = [b.strip() for b in (branches_param or "").split(",") if b.strip()] if branches_param else None
+    areas_param = request.args.get("areas")
+    areas = [a.strip() for a in (areas_param or "").split(",") if a.strip()] if areas_param else None
 
     raw_items = _list_chat_history(limit=1500)
+    handoff_ids = set()
+    if company_id:
+        handoffs = _list_handoffs(
+            include_closed=True,
+            limit=10000,
+            company_id=company_id,
+            branches=branches if branches else None,
+            areas=areas if areas else None,
+        )
+        for h in handoffs or []:
+            hid = str(h.get("id") or h.get("conversation_id") or "").strip()
+            if hid:
+                handoff_ids.add(hid)
+
     items = []
     for item in raw_items:
+        if company_id:
+            meta = item.get("metadata") or {}
+            item_company = _normalize_company_id(meta.get("company_id"))
+            conv_id = str(item.get("conversation_id") or "").strip()
+            if item_company != company_id and conv_id not in handoff_ids:
+                continue
         serialized = _serialize_history_item(item)
         if remitente and serialized["remitente"].lower() != remitente:
             continue
@@ -2884,12 +3082,18 @@ def historial_api():
             continue
         items.append(serialized)
 
+    filter_applied = {
+        "company_id": company_id,
+        "branches": branches or [],
+        "areas": areas or [],
+    }
     return jsonify(
         {
             "ok": True,
             "total": len(items),
             "limit": limit,
             "items": items[:limit],
+            "filter_applied": filter_applied,
         }
     )
 
@@ -3580,15 +3784,56 @@ def rrhh_responder_api(conversation_id):
     return jsonify({"ok": True, "conversation_id": conversation_id})
 
 
+@flask_app.get("/api/filtros/contexto")
+@rrhh_auth_required
+def filtros_contexto_api():
+    """Empresas con branches y areas para filtros en estadísticas e historial."""
+    company = _current_company()
+    ctx = _companies_for_filter_context()
+    return jsonify({
+        "ok": True,
+        "companies": ctx,
+        "selected_company_id": company.get("company_id") if company else None,
+    })
+
+
 @flask_app.get("/api/stats")
+@rrhh_auth_required
 def stats_api():
-    handoff_records = _all_handoff_records_for_stats()
-    stats = stats_service.obtener_estadisticas(chatbot.db, rrhh_records=handoff_records)
+    if not _can_view_stats():
+        return jsonify({"ok": False, "error": "Sin permiso para ver estadísticas."}), 403
+    company_id_raw = request.args.get("company_id", "").strip() or None
+    company_id = _normalize_company_id(company_id_raw) if company_id_raw else None
+    branches_param = request.args.get("branches")
+    branches = [b.strip() for b in (branches_param or "").split(",") if b.strip()] if branches_param else None
+    areas_param = request.args.get("areas")
+    areas = [a.strip() for a in (areas_param or "").split(",") if a.strip()] if areas_param else None
+    if company_id:
+        handoff_records = _list_handoffs(
+            include_closed=True,
+            limit=10000,
+            company_id=company_id,
+            branches=branches if branches else None,
+            areas=areas if areas else None,
+        )
+    else:
+        handoff_records = _all_handoff_records_for_stats()
+    stats = stats_service.obtener_estadisticas(
+        chatbot.db,
+        rrhh_records=handoff_records,
+        company_id=company_id,
+    )
+    filter_applied = {
+        "company_id": company_id,
+        "branches": branches or [],
+        "areas": areas or [],
+    }
     response = jsonify(
         {
             "ok": True,
             "source_project": _firebase_project_id(),
             "server_boot_at": SERVER_BOOT_AT,
+            "filter_applied": filter_applied,
             **stats,
         }
     )

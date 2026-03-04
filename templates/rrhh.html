@@ -827,25 +827,31 @@
         const allChecked = selectedBranchNames.length === 0;
         const labelAll = document.createElement("label");
         labelAll.className = "rrhh-branch-option";
+        const spanAll = document.createElement("span");
+        spanAll.className = "rrhh-option-label";
+        spanAll.textContent = "Todas las sucursales";
         const cbAll = document.createElement("input");
         cbAll.type = "checkbox";
         cbAll.className = "rrhh-branch-cb rrhh-branch-cb-all";
         cbAll.checked = allChecked;
+        labelAll.appendChild(spanAll);
         labelAll.appendChild(cbAll);
-        labelAll.appendChild(document.createTextNode(" Todas las sucursales"));
         branchPanel.appendChild(labelAll);
         companyBranches.forEach((b) => {
           const name = branchName(b);
           if (!name) return;
           const label = document.createElement("label");
           label.className = "rrhh-branch-option";
+          const span = document.createElement("span");
+          span.className = "rrhh-option-label";
+          span.textContent = name;
           const cb = document.createElement("input");
           cb.type = "checkbox";
           cb.className = "rrhh-branch-cb";
           cb.dataset.branch = name;
           cb.checked = allChecked || selectedBranchNames.some((s) => s.toLowerCase() === name.toLowerCase());
+          label.appendChild(span);
           label.appendChild(cb);
-          label.appendChild(document.createTextNode(" " + name));
           branchPanel.appendChild(label);
         });
       }
@@ -874,24 +880,30 @@
         const allChecked = selectedAreaNames.length === 0;
         const labelAll = document.createElement("label");
         labelAll.className = "rrhh-area-option";
+        const spanAll = document.createElement("span");
+        spanAll.className = "rrhh-option-label";
+        spanAll.textContent = "Todas las áreas";
         const cbAll = document.createElement("input");
         cbAll.type = "checkbox";
         cbAll.className = "rrhh-area-cb rrhh-area-cb-all";
         cbAll.checked = allChecked;
+        labelAll.appendChild(spanAll);
         labelAll.appendChild(cbAll);
-        labelAll.appendChild(document.createTextNode(" Todas las áreas"));
         areaPanel.appendChild(labelAll);
         companyAreas.forEach((name) => {
           if (!name) return;
           const label = document.createElement("label");
           label.className = "rrhh-area-option";
+          const span = document.createElement("span");
+          span.className = "rrhh-option-label";
+          span.textContent = name;
           const cb = document.createElement("input");
           cb.type = "checkbox";
           cb.className = "rrhh-area-cb";
           cb.dataset.area = name;
           cb.checked = allChecked || selectedAreaNames.some((s) => s.toLowerCase() === name.toLowerCase());
+          label.appendChild(span);
           label.appendChild(cb);
-          label.appendChild(document.createTextNode(" " + name));
           areaPanel.appendChild(label);
         });
       }
@@ -1105,6 +1117,11 @@ const agente = agentNameEl.value.trim() || "Agente";
           e.preventDefault();
           e.stopPropagation();
           const willClose = !branchPanel.hidden;
+          if (areaPanel && !areaPanel.hidden) {
+            areaPanel.hidden = true;
+            areaPanel.setAttribute("hidden", "");
+            areaTrigger?.setAttribute("aria-expanded", "false");
+          }
           branchPanel.hidden = willClose;
           if (willClose) branchPanel.setAttribute("hidden", "");
           else branchPanel.removeAttribute("hidden");
@@ -1138,6 +1155,11 @@ const agente = agentNameEl.value.trim() || "Agente";
           e.preventDefault();
           e.stopPropagation();
           const willClose = !areaPanel.hidden;
+          if (branchPanel && !branchPanel.hidden) {
+            branchPanel.hidden = true;
+            branchPanel.setAttribute("hidden", "");
+            branchTrigger?.setAttribute("aria-expanded", "false");
+          }
           areaPanel.hidden = willClose;
           if (willClose) areaPanel.setAttribute("hidden", "");
           else areaPanel.removeAttribute("hidden");

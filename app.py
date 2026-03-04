@@ -361,8 +361,10 @@ def guardar_en_firestore(coleccion, payload):
         return False
 
 
-def registrar_feedback(tema, utilidad):
+def registrar_feedback(tema, utilidad, company_id=None):
     payload = {"tema": tema, "fue_util": utilidad, "fecha": datetime.now()}
+    if company_id is not None and str(company_id).strip():
+        payload["company_id"] = str(company_id).strip()
     if not guardar_en_firestore("feedback_respuestas", payload):
         print("ℹ️ Feedback no persistido por falta de conexión.")
         return False
@@ -390,13 +392,15 @@ def analizar_sentimiento(consulta):
     return "neutral"
 
 
-def registrar_pendiente(consulta):
+def registrar_pendiente(consulta, company_id=None):
     payload = {
         "pregunta": consulta,
         "fecha": datetime.now(),
         "estado": "pendiente",
         "sentimiento": analizar_sentimiento(consulta),
     }
+    if company_id is not None and str(company_id).strip():
+        payload["company_id"] = str(company_id).strip()
     if not guardar_en_firestore("consultas_pendientes", payload):
         print("ℹ️ Consulta pendiente no persistida por falta de conexión.")
         return False
