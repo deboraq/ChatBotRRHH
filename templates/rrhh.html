@@ -106,8 +106,24 @@
               type="text"
               placeholder="Escribí la respuesta para el colaborador..."
               autocomplete="off"
-              required
             />
+            <input
+              id="reply-media-url"
+              type="url"
+              placeholder="URL de imagen o archivo (opcional)"
+              autocomplete="off"
+              class="reply-media-url"
+            />
+            <div class="reply-file-wrap">
+              <label for="reply-file" class="reply-file-label">📎 Subir foto o archivo</label>
+              <input
+                id="reply-file"
+                type="file"
+                accept="image/*,.pdf,application/pdf"
+                class="reply-file-input"
+              />
+              <span id="reply-file-name" class="reply-file-name"></span>
+            </div>
             <button type="submit">Enviar</button>
           </form>
         </section>
@@ -161,6 +177,9 @@
       const messagesEl = document.getElementById("messages");
       const replyForm = document.getElementById("reply-form");
       const replyInput = document.getElementById("reply-input");
+      const replyMediaUrlEl = document.getElementById("reply-media-url");
+      const replyFileEl = document.getElementById("reply-file");
+      const replyFileNameEl = document.getElementById("reply-file-name");
       const replySubmitBtn = replyForm ? replyForm.querySelector("button[type='submit']") : null;
       const btnTomar = document.getElementById("btn-tomar");
       const btnReasignar = document.getElementById("btn-reasignar");
@@ -478,15 +497,34 @@
           return;
         }
 
+        function mediaUrlForDisplay(url) {
+          if (!url || typeof url !== "string") return url;
+          if (url.indexOf("api.twilio.com") !== -1) return "/api/rrhh/media?u=" + encodeURIComponent(url);
+          return url;
+        }
         mensajes.forEach((msg) => {
           const bubble = document.createElement("article");
           bubble.className = `msg ${(msg.remitente || "").toLowerCase()}`;
+          let mediaHtml = "";
+          const urls = Array.isArray(msg.media_url) ? msg.media_url : (msg.media_url ? [msg.media_url] : []);
+          urls.forEach((url) => {
+            const displayUrl = mediaUrlForDisplay(url);
+            const u = escapeHtml(displayUrl);
+            const uOrig = escapeHtml(url);
+            const isImageExt = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+            if (isImageExt) {
+              mediaHtml += `<p><a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Adjunto" class="msg-attachment-img" loading="lazy" /></a></p>`;
+            } else {
+              mediaHtml += `<p class="msg-media-wrap"><a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Adjunto" class="msg-attachment-img" loading="lazy" onerror="this.onerror=null;this.style.display=\'none\';var n=this.nextElementSibling;if(n)n.style.display=\'inline\'" /></a><a href="${u}" target="_blank" rel="noopener" class="msg-media-fallback" style="display:none">📎 Ver archivo</a></p>`;
+            }
+          });
           bubble.innerHTML = `
             <div class="msg-head">
               <strong>${escapeHtml(senderLabel(msg.remitente, msg.agente))}</strong>
               <span>${escapeHtml(formatLocalDateTime(msg.fecha_iso, msg.fecha || "-"))}</span>
             </div>
-            <p>${escapeHtml(msg.texto || "")}</p>
+            ${msg.texto ? `<p>${escapeHtml(msg.texto)}</p>` : ""}
+            ${mediaHtml}
           `;
           messagesEl.appendChild(bubble);
         });
@@ -515,6 +553,8 @@
 
         const canReply = hasConversation && !isClosed && !isSendingReply;
         if (replyInput) replyInput.disabled = !canReply;
+        if (replyMediaUrlEl) replyMediaUrlEl.disabled = !canReply;
+        if (replyFileEl) replyFileEl.disabled = !canReply;
         if (replySubmitBtn) replySubmitBtn.disabled = !canReply;
       }
 
@@ -1052,17 +1092,40 @@ const agente = agentNameEl.value.trim() || "Agente";
         await refrescarTodo(true);
       }
 
-      async function enviarRespuesta(mensaje) {
+      async function subirArchivo(file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        const response = await fetch("/api/rrhh/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (!data.ok) {
+          const err = data.error || "No se pudo subir el archivo";
+          if (err.indexOf("Storage no configurado") !== -1) throw new Error(err + " Agregá la variable FIREBASE_STORAGE_BUCKET en Cloud Run (ej: it-analyzer.firebasestorage.app).");
+          throw new Error(err);
+        }
+        return data.url;
+      }
+
+      async function enviarRespuesta(mensaje, mediaUrl, file) {
         if (!currentConversationId) throw new Error("Seleccioná una conversación.");
         if (isSendingReply) return;
+        let urlToSend = mediaUrl || "";
+        if (file) {
+          urlToSend = await subirArchivo(file);
+        }
+        if (!mensaje && !urlToSend) throw new Error("Escribí un mensaje o subí/pegá un archivo.");
         isSendingReply = true;
         syncConversationActions();
         const agente = agentNameEl.value.trim() || "Agente";
+        const body = { agente, mensaje: mensaje || "" };
+        if (urlToSend) body.media_url = urlToSend;
         try {
           const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/mensajes`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agente, mensaje }),
+            body: JSON.stringify(body),
           });
           const data = await response.json();
           if (!data.ok) throw new Error(data.error || "No se pudo enviar la respuesta");
@@ -1215,13 +1278,28 @@ const agente = agentNameEl.value.trim() || "Agente";
         }
       });
 
+      if (replyFileEl) {
+        replyFileEl.addEventListener("change", () => {
+          if (replyFileNameEl) {
+            replyFileNameEl.textContent = replyFileEl.files.length ? replyFileEl.files[0].name : "";
+          }
+        });
+      }
+
       replyForm.addEventListener("submit", async (event) => {
         event.preventDefault();
         const mensaje = replyInput.value.trim();
-        if (!mensaje) return;
+        const mediaUrl = replyMediaUrlEl ? replyMediaUrlEl.value.trim() : "";
+        const file = replyFileEl && replyFileEl.files && replyFileEl.files[0] ? replyFileEl.files[0] : null;
+        if (!mensaje && !mediaUrl && !file) return;
         try {
-          await enviarRespuesta(mensaje);
+          await enviarRespuesta(mensaje, mediaUrl || undefined, file || undefined);
           replyInput.value = "";
+          if (replyMediaUrlEl) replyMediaUrlEl.value = "";
+          if (replyFileEl) {
+            replyFileEl.value = "";
+            if (replyFileNameEl) replyFileNameEl.textContent = "";
+          }
           await safeRefresh(true);
         } catch (error) {
           queueStatusEl.textContent = `Error al responder: ${error.message}`;

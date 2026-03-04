@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Comunicados por WhatsApp</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
+    <style>
+      .comunicados-wrapper { max-width: 780px; margin: 0 auto; padding: 1rem; }
+      .comunicados-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+      .comunicados-header h1 { margin: 0 0 0.25rem 0; }
+      .comunicados-header .subtle { font-size: 0.9rem; color: var(--text-muted, #666); margin: 0; }
+      .comunicados-step { margin-bottom: 1.75rem; padding: 1rem; border: 1px solid var(--border-color, #ddd); border-radius: 8px; background: var(--panel-bg, #fafafa); }
+      .comunicados-step h2 { margin: 0 0 0.75rem 0; font-size: 1.1rem; color: var(--text, #333); }
+      .comunicados-step .step-desc { font-size: 0.9rem; color: var(--text-muted, #666); margin-bottom: 0.75rem; }
+      .comunicados-form label { display: flex; flex-direction: column; gap: 0.35rem; font-weight: 500; margin-bottom: 0.75rem; }
+      .comunicados-form textarea { min-height: 80px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; font-family: inherit; }
+      .comunicados-form select { padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; max-width: 320px; }
+      .comunicados-form .hint { font-size: 0.85rem; color: var(--text-muted, #666); font-weight: normal; }
+      .comunicados-dest-options { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+      .comunicados-dest-options a, .comunicados-dest-options button { padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.9rem; text-decoration: none; border: 1px solid var(--border-color, #ccc); background: #fff; cursor: pointer; color: var(--text, #333); }
+      .comunicados-dest-options a:hover, .comunicados-dest-options button:hover { background: #f0f0f0; }
+      .comunicados-dest-options a.plantilla { background: #e3f2fd; border-color: #2196f3; color: #1565c0; }
+      .contactos-list { max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color, #ddd); border-radius: 6px; padding: 0.5rem; background: var(--panel-bg, #fff); margin-bottom: 0.5rem; }
+      .contactos-list label { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; font-weight: normal; color: #1a1a1a; }
+      .contactos-list .contacto-nombre { font-weight: 600; color: #111; }
+      .contactos-list .contacto-telefono { color: #333; }
+      .contactos-list .contacto-eliminar { margin-left: auto; font-size: 0.85rem; color: var(--text-muted, #666); cursor: pointer; padding: 0.2rem 0.4rem; border: none; background: none; text-decoration: underline; }
+      .contactos-list .contacto-eliminar:hover { color: #c62828; }
+      html[data-theme="dark"] .contactos-list label { color: #e0e0e0; }
+      html[data-theme="dark"] .contactos-list .contacto-nombre { color: #fff; }
+      html[data-theme="dark"] .contactos-list .contacto-telefono { color: #b0b0b0; }
+      .contactos-list input[type="checkbox"] { margin: 0; }
+      .contactos-select-all { padding: 0.4rem 0; margin-bottom: 0.25rem; border-bottom: 1px solid var(--border-color, #eee); }
+      .contactos-select-all label { font-size: 0.9rem; }
+      .btn-seleccionar-contactos { padding: 0.5rem 1rem; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.95rem; }
+      .btn-seleccionar-contactos:hover { background: #1d4ed8; }
+      .comunicados-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+      .comunicados-modal-backdrop[hidden] { display: none !important; }
+      .comunicados-modal-box { background: var(--panel-bg, #fff); border-radius: 10px; max-width: 480px; width: 100%; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.2); font-size: 0.875rem; }
+      .comunicados-modal-head { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color, #ddd); display: flex; justify-content: space-between; align-items: center; }
+      .comunicados-modal-head h3 { margin: 0; font-size: 1rem; font-weight: 700; color: #1a1a1a; }
+      .comunicados-modal-close { background: none; border: none; font-size: 1.25rem; cursor: pointer; color: #444; padding: 0 0.25rem; line-height: 1; }
+      .comunicados-modal-close:hover { color: #000; }
+      .comunicados-modal-body { padding: 0.75rem 1rem; overflow-y: auto; flex: 1; color: #1a1a1a; font-size: 0.875rem; }
+      .comunicados-modal-body .hint { color: #444; font-weight: 500; font-size: 0.8125rem; }
+      .comunicados-modal-actions { padding: 0.75rem 1rem; border-top: 1px solid var(--border-color, #ddd); display: flex; gap: 0.5rem; justify-content: flex-end; flex-wrap: wrap; font-size: 0.875rem; }
+      .comunicados-modal-body .contacto-nombre { font-weight: 700; min-width: 5em; color: #111; font-size: 0.875rem; }
+      .comunicados-modal-body .contacto-telefono { color: #333; font-size: 0.875rem; }
+      .comunicados-modal-body .contacto-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--border-color, #eee); }
+      .comunicados-modal-body .contacto-row:last-child { border-bottom: none; }
+      .modal-select-all-wrap { margin: 0; padding: 0.35rem 0; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--border-color, #eee); cursor: pointer; }
+      .modal-select-all-wrap .modal-select-all-label { font-weight: 600; color: #1a1a1a; font-size: 0.875rem; cursor: pointer; margin: 0; }
+      .modal-select-all-wrap input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: #2563eb; cursor: pointer; margin: 0; flex-shrink: 0; }
+      .modal-contacto-cb { width: 1.1rem; height: 1.1rem; accent-color: #2563eb; cursor: pointer; margin: 0; flex-shrink: 0; }
+      .comunicados-modal-body .contacto-eliminar { color: #1565c0; font-size: 0.8125rem; }
+      .comunicados-modal-body .contactos-list { background: transparent; border: none; padding: 0; margin: 0; max-height: 180px; }
+      /* Modo oscuro: todo el recuadro en negro, sin cajas blancas */
+      html[data-theme="dark"] .comunicados-modal-box { background: #1a1a1a; border: 1px solid #333; }
+      html[data-theme="dark"] .comunicados-modal-head { background: #1a1a1a; border-bottom-color: #333; }
+      html[data-theme="dark"] .comunicados-modal-head h3 { color: #fff; }
+      html[data-theme="dark"] .comunicados-modal-close { color: #b0b0b0; }
+      html[data-theme="dark"] .comunicados-modal-close:hover { color: #fff; }
+      html[data-theme="dark"] .comunicados-modal-body { background: #1a1a1a; color: #eee; }
+      html[data-theme="dark"] .comunicados-modal-body .hint { color: #b0b0b0; }
+      html[data-theme="dark"] .comunicados-modal-body .contacto-nombre { color: #fff; }
+      html[data-theme="dark"] .comunicados-modal-body .contacto-telefono { color: #d0d0d0; }
+      html[data-theme="dark"] .comunicados-modal-body .contacto-row { border-bottom-color: #333; background: transparent; }
+      html[data-theme="dark"] .comunicados-modal-body .contacto-eliminar { color: #64b5f6; }
+      html[data-theme="dark"] .comunicados-modal-body .contactos-list { background: #1a1a1a; border-color: #333; }
+      html[data-theme="dark"] .modal-select-all-wrap { border-bottom-color: #333; }
+      html[data-theme="dark"] .modal-select-all-wrap .modal-select-all-label { color: #eee; }
+      .btn-modal-cerrar { padding: 0.3rem 0.6rem; font-size: 0.8125rem; background: transparent; border: 1px solid var(--border-color, #ccc); border-radius: 4px; cursor: pointer; color: inherit; font-weight: 500; }
+      .btn-modal-cerrar:hover { background: rgba(0,0,0,0.05); }
+      html[data-theme="dark"] .btn-modal-cerrar { border-color: #555; color: #ccc; }
+      html[data-theme="dark"] .btn-modal-cerrar:hover { background: rgba(255,255,255,0.08); color: #fff; }
+      html[data-theme="dark"] .comunicados-modal-actions { background: #1a1a1a; border-top-color: #333; }
+      html[data-theme="dark"] .comunicados-modal-actions .btn-primary-small { color: #fff; }
+      html[data-theme="dark"] .comunicados-modal-actions .comunicados-modal-close { color: #ccc; }
+      .contactos-add { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.75rem; }
+      .contactos-add input { padding: 0.4rem; border: 1px solid var(--border-color, #ccc); border-radius: 4px; }
+      .contactos-add .nombre { min-width: 140px; }
+      .contactos-add .telefono { min-width: 140px; }
+      .contactos-add .legajo { min-width: 100px; }
+      .comunicados-result { margin-top: 1.5rem; padding: 1rem; border-radius: 8px; background: var(--panel-bg, #f5f5f5); border: 1px solid var(--border-color, #ddd); }
+      .comunicados-result.success { background: #e8f5e9; border-color: #81c784; }
+      .comunicados-result.error { background: #ffebee; border-color: #e57373; }
+      .comunicados-result h3 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+      .comunicados-result p { margin: 0.25rem 0; }
+      .btn-send { padding: 0.6rem 1.5rem; background: var(--primary, #1976d2); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+      .btn-send:hover { opacity: 0.9; }
+      .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
+      .btn-primary-small { padding: 0.35rem 0.7rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+      html[data-theme="dark"] .comunicados-step { background: var(--panel-bg); }
+      html[data-theme="dark"] .comunicados-result { background: var(--panel-bg); }
+      html[data-theme="dark"] .comunicados-result.success { background: rgba(76, 175, 80, 0.15); }
+      html[data-theme="dark"] .comunicados-result.error { background: rgba(244, 67, 54, 0.15); }
+    </style>
+  </head>
+  <body>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem("rrhh_panel_theme");
+          if (stored === "dark" || stored === "light") document.documentElement.setAttribute("data-theme", stored);
+          else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.setAttribute("data-theme", "dark");
+        } catch (e) {}
+      })();
+    </script>
+    <main class="comunicados-wrapper">
+      <header class="comunicados-header">
+        <div>
+          <h1>Comunicados por WhatsApp</h1>
+          <p class="subtle">Enviá un mismo mensaje a varios contactos. Elegí destinatarios, escribí el texto y enviá.</p>
+          {% if auth_enabled and rrhh_user %}
+          <p class="subtle">Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
+          {% endif %}
+        </div>
+        {% if auth_enabled %}
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit">Cerrar sesión</button>
+        </form>
+        {% endif %}
+      </header>
+
+      <form id="form-comunicados" class="comunicados-form">
+        <label>
+          Empresa
+          <select id="company-id" name="company_id">
+            {% for company in available_companies %}
+            <option value="{{ company.company_id }}" {% if company.company_id == selected_company_id %}selected{% endif %}>
+              {{ company.company_name }} ({{ company.company_id }})
+            </option>
+            {% endfor %}
+          </select>
+          <span class="hint">Se usa el número de WhatsApp del proyecto (Twilio).</span>
+        </label>
+
+        <div class="comunicados-step">
+          <h2>Paso 1 – Quién recibe el mensaje (destinatarios)</h2>
+          <p class="step-desc">Elegí una o más opciones: seleccionar de tus contactos guardados, descargar plantilla para completar en Excel, o pegar/importar números.</p>
+
+          <p style="margin-bottom: 0.5rem; font-weight: 500;">Mis contactos guardados</p>
+          <div class="contactos-add">
+            <input type="text" id="contacto-nombre" class="nombre" placeholder="Nombre" />
+            <input type="text" id="contacto-telefono" class="telefono" placeholder="Teléfono ej. +54911..." />
+            <input type="text" id="contacto-legajo" class="legajo" placeholder="Legajo (opcional)" />
+            <button type="button" id="btn-agregar-contacto" class="btn-primary-small">Agregar contacto</button>
+          </div>
+          <div id="contactos-list-wrap">
+            <p class="hint" id="contactos-summary" style="margin-bottom: 0.5rem;">Cargando contactos…</p>
+            <button type="button" id="btn-seleccionar-contactos" class="btn-seleccionar-contactos">Seleccionar contactos</button>
+          </div>
+
+          <!-- Modal Seleccionar contactos -->
+          <div id="modal-seleccionar-contactos" class="comunicados-modal-backdrop" hidden aria-modal="true" role="dialog" aria-labelledby="modal-seleccionar-contactos-title">
+            <div class="comunicados-modal-box">
+              <div class="comunicados-modal-head">
+                <h3 id="modal-seleccionar-contactos-title">Seleccionar contactos</h3>
+                <button type="button" class="comunicados-modal-close" aria-label="Cerrar" id="modal-seleccionar-cerrar">&times;</button>
+              </div>
+              <div class="comunicados-modal-body" id="modal-seleccionar-body">
+                <p class="hint">Elegí todos o varios contactos y luego «Agregar seleccionados a la lista».</p>
+                <div class="modal-select-all-wrap contacto-row">
+                  <input type="checkbox" id="modal-contactos-select-all" class="modal-contacto-cb" aria-label="Seleccionar todos" />
+                  <label for="modal-contactos-select-all" class="modal-select-all-label">Seleccionar todos</label>
+                </div>
+                <div class="contactos-list" id="modal-contactos-list"></div>
+              </div>
+              <div class="comunicados-modal-actions">
+                <button type="button" class="btn-primary-small" id="modal-seleccionar-agregar">Agregar seleccionados a la lista</button>
+                <button type="button" class="btn-modal-cerrar comunicados-modal-close" id="modal-seleccionar-cerrar2">Cerrar</button>
+              </div>
+            </div>
+          </div>
+
+          <p style="margin: 1rem 0 0.5rem 0; font-weight: 500;">Plantilla e importar</p>
+          <div class="comunicados-dest-options">
+            <a href="/api/comunicados/plantilla" class="plantilla" download>Descargar plantilla (CSV para Excel)</a>
+            <input type="file" id="file-import" accept=".csv,.txt" style="max-width: 220px;" />
+          </div>
+          <span class="hint">Abrí la plantilla en Excel, completá teléfono, nombre y legajo, guardala como CSV y subila acá. También podés pegar números en el cuadro de abajo (uno por línea o separados por coma).</span>
+
+          <label style="margin-top: 1rem;">
+            Lista de teléfonos que recibirán el comunicado
+            <textarea id="destinatarios" name="destinatarios" placeholder="Acá se arma la lista: pegá números (uno por línea o separados por coma), o usá «Agregar seleccionados» desde tus contactos, o importá un archivo."></textarea>
+            <span class="hint" id="destinatarios-count">0 destinatario(s).</span>
+          </label>
+        </div>
+
+        <div class="comunicados-step">
+          <h2>Paso 2 – Mensaje</h2>
+          <p class="step-desc">El texto que recibirán todos por WhatsApp.</p>
+          <label>
+            <textarea id="mensaje" name="mensaje" placeholder="Escribí el mensaje del comunicado..." required minlength="1"></textarea>
+          </label>
+        </div>
+
+        <div class="comunicados-step">
+          <h2>Paso 3 – Enviar</h2>
+          <button type="submit" id="btn-enviar" class="btn-send">Enviar comunicado</button>
+        </div>
+      </form>
+
+      <div id="resultado" class="comunicados-result" style="display: none;" role="status"></div>
+    </main>
+
+    <script>
+      (function() {
+        var form = document.getElementById("form-comunicados");
+        var companyEl = document.getElementById("company-id");
+        var destinatariosEl = document.getElementById("destinatarios");
+        var fileImport = document.getElementById("file-import");
+        var btnEnviar = document.getElementById("btn-enviar");
+        var resultadoEl = document.getElementById("resultado");
+        var btnAgregarContacto = document.getElementById("btn-agregar-contacto");
+        var contactoNombre = document.getElementById("contacto-nombre");
+        var contactoTelefono = document.getElementById("contacto-telefono");
+        var contactoLegajo = document.getElementById("contacto-legajo");
+        var destinatariosCountEl = document.getElementById("destinatarios-count");
+
+        function updateDestinatariosCount() {
+          var raw = destinatariosEl.value.trim();
+          var arr = raw ? raw.split(/\r?\n|[,;]/).map(function(s) { return s.trim(); }).filter(Boolean) : [];
+          destinatariosCountEl.textContent = arr.length + " destinatario(s).";
+        }
+        destinatariosEl.addEventListener("input", updateDestinatariosCount);
+
+        function getCompanyId() { return (companyEl && companyEl.value) ? companyEl.value.trim() : ""; }
+
+        var contactosSummaryEl = document.getElementById("contactos-summary");
+        var btnSeleccionarContactos = document.getElementById("btn-seleccionar-contactos");
+        var modalSeleccionar = document.getElementById("modal-seleccionar-contactos");
+        var modalSeleccionarBody = document.getElementById("modal-seleccionar-body");
+        var modalContactosList = document.getElementById("modal-contactos-list");
+        var modalSelectAllCb = document.getElementById("modal-contactos-select-all");
+        var modalAgregarBtn = document.getElementById("modal-seleccionar-agregar");
+
+        function renderModalContactos(list) {
+          if (!modalContactosList) return;
+          modalContactosList.innerHTML = "";
+          if (!list || list.length === 0) { modalContactosList.innerHTML = "<p class=\"hint\">No hay contactos.</p>"; return; }
+          list.forEach(function(c) {
+            var row = document.createElement("div");
+            row.className = "contacto-row";
+            var cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.className = "contacto-cb modal-contacto-cb";
+            cb.dataset.telefono = (c.telefono || "").trim();
+            var nombreSpan = document.createElement("span");
+            nombreSpan.className = "contacto-nombre";
+            nombreSpan.textContent = (c.nombre || "Sin nombre").trim();
+            var telefonoSpan = document.createElement("span");
+            telefonoSpan.className = "contacto-telefono";
+            var legajoPart = (c.legajo || "").trim() ? " (Legajo: " + (c.legajo || "").trim() + ")" : "";
+            telefonoSpan.textContent = " · Tel: " + (c.telefono || "") + legajoPart;
+            row.appendChild(cb);
+            row.appendChild(nombreSpan);
+            row.appendChild(telefonoSpan);
+            var btnEliminar = document.createElement("button");
+            btnEliminar.type = "button";
+            btnEliminar.className = "contacto-eliminar";
+            btnEliminar.textContent = "Eliminar";
+            btnEliminar.setAttribute("aria-label", "Eliminar este contacto");
+            btnEliminar.dataset.telefono = (c.telefono || "").trim();
+            btnEliminar.addEventListener("click", function() {
+              var t = (this.dataset.telefono || "").trim();
+              if (!t || !confirm("¿Eliminar este contacto de la lista?")) return;
+              fetch("/api/comunicados/contactos", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: getCompanyId(), telefono: t })
+              })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.ok) { loadContactos(); renderModalContactos(data.contactos || []); }
+                  else { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>" + (data.error || "No se pudo eliminar.") + "</p>"; }
+                })
+                .catch(function() { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>No se pudo eliminar.</p>"; });
+            });
+            row.appendChild(btnEliminar);
+            modalContactosList.appendChild(row);
+          });
+          if (modalSelectAllCb) modalSelectAllCb.checked = false;
+        }
+
+        function openModalSeleccionarContactos() {
+          var cid = getCompanyId();
+          if (!cid) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>Elegí una empresa.</p>"; return; }
+          modalContactosList.innerHTML = "<p class=\"hint\">Cargando…</p>";
+          modalSeleccionar.hidden = false;
+          fetch("/api/comunicados/contactos?company_id=" + encodeURIComponent(cid))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (!data.ok || !Array.isArray(data.contactos) || data.contactos.length === 0) {
+                modalContactosList.innerHTML = "<p class=\"hint\">Sin contactos. Agregá uno arriba con nombre y teléfono.</p>";
+                return;
+              }
+              renderModalContactos(data.contactos);
+            })
+            .catch(function() { modalContactosList.innerHTML = "<p class=\"hint\">Error al cargar contactos.</p>"; });
+        }
+
+        function closeModalSeleccionar() { if (modalSeleccionar) modalSeleccionar.hidden = true; }
+
+        if (modalSeleccionar) modalSeleccionar.hidden = true;
+        btnSeleccionarContactos.addEventListener("click", openModalSeleccionarContactos);
+        var btnCerrar1 = document.getElementById("modal-seleccionar-cerrar");
+        var btnCerrar2 = document.getElementById("modal-seleccionar-cerrar2");
+        if (btnCerrar1) btnCerrar1.addEventListener("click", function(e) { e.preventDefault(); closeModalSeleccionar(); });
+        if (btnCerrar2) btnCerrar2.addEventListener("click", function(e) { e.preventDefault(); closeModalSeleccionar(); });
+        modalSeleccionar.addEventListener("click", function(e) { if (e.target === modalSeleccionar) closeModalSeleccionar(); });
+        var modalBox = modalSeleccionar.querySelector(".comunicados-modal-box");
+        if (modalBox) modalBox.addEventListener("click", function(e) { e.stopPropagation(); });
+        document.addEventListener("keydown", function(e) { if (e.key === "Escape" && modalSeleccionar && !modalSeleccionar.hidden) closeModalSeleccionar(); });
+
+        if (modalSelectAllCb) {
+          modalSelectAllCb.addEventListener("change", function() {
+            var check = modalSelectAllCb.checked;
+            modalContactosList.querySelectorAll("input.contacto-cb").forEach(function(cb) { cb.checked = check; });
+          });
+        }
+
+        modalAgregarBtn.addEventListener("click", function() {
+          var selected = [];
+          modalContactosList.querySelectorAll("input.contacto-cb:checked").forEach(function(cb) {
+            var t = (cb.dataset.telefono || "").trim();
+            if (t) selected.push(t);
+          });
+          if (selected.length === 0) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>Marcá al menos un contacto.</p>"; return; }
+          var current = destinatariosEl.value.trim();
+          var existing = current ? current.split(/\r?\n|[,;]/).map(function(s) { return s.trim(); }).filter(Boolean) : [];
+          var combined = existing.concat(selected);
+          destinatariosEl.value = combined.join("\n");
+          updateDestinatariosCount();
+          closeModalSeleccionar();
+          resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result success"; resultadoEl.innerHTML = "<h3>Listo</h3><p>Se agregaron " + selected.length + " número(s). Total: " + combined.length + " destinatarios.</p>";
+        });
+
+        function loadContactos() {
+          var cid = getCompanyId();
+          if (!cid) { contactosSummaryEl.textContent = "Elegí una empresa."; return; }
+          contactosSummaryEl.textContent = "Cargando…";
+          fetch("/api/comunicados/contactos?company_id=" + encodeURIComponent(cid))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (!data.ok || !Array.isArray(data.contactos)) { contactosSummaryEl.textContent = "Sin contactos guardados. Agregá uno arriba."; return; }
+              var n = data.contactos.length;
+              contactosSummaryEl.textContent = n + " contacto(s) guardados. Abrí «Seleccionar contactos» para elegir destinatarios.";
+            })
+            .catch(function() { contactosSummaryEl.textContent = "Error al cargar contactos."; });
+        }
+        companyEl.addEventListener("change", loadContactos);
+        loadContactos();
+
+        btnAgregarContacto.addEventListener("click", function() {
+          var nombre = (contactoNombre && contactoNombre.value) ? contactoNombre.value.trim() : "";
+          var telefono = (contactoTelefono && contactoTelefono.value) ? contactoTelefono.value.trim() : "";
+          var legajo = (contactoLegajo && contactoLegajo.value) ? contactoLegajo.value.trim() : "";
+          if (!telefono) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>Escribí el teléfono.</p>"; return; }
+          var payload = { company_id: getCompanyId(), nombre: nombre || "Sin nombre", telefono: telefono };
+          if (legajo) payload.legajo = legajo;
+          fetch("/api/comunicados/contactos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.ok) { contactoNombre.value = ""; contactoTelefono.value = ""; if (contactoLegajo) contactoLegajo.value = ""; loadContactos(); resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result success"; resultadoEl.innerHTML = "<h3>Contacto agregado</h3><p>Ya está guardado. Usá «Seleccionar contactos» para sumarlo a destinatarios.</p>"; }
+              else { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>" + (data.error || "No se pudo guardar.") + "</p>"; }
+            })
+            .catch(function() { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>No se pudo agregar.</p>"; });
+        });
+
+        function parseCSV(text) {
+          var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+          if (lines.length === 0) return [];
+          var header = lines[0].split(/[,;\t]/).map(function(h) { return h.trim().toLowerCase().replace(/^["']|["']$/g, ""); });
+          var colNames = ["telefono", "teléfono", "numero", "número", "phone", "celular", "whatsapp", "contacto"];
+          // La plantilla tiene columnas: teléfono, nombre, legajo (solo se usa la columna de teléfono para destinatarios)
+          var colIndex = -1;
+          for (var i = 0; i < header.length; i++) {
+            var h = header[i].replace(/\s/g, "");
+            if (colNames.indexOf(h) !== -1 || colNames.some(function(c) { return h.indexOf(c) !== -1; })) { colIndex = i; break; }
+          }
+          if (colIndex === -1) colIndex = 0;
+          var nums = [];
+          for (var j = 1; j < lines.length; j++) {
+            var parts = lines[j].split(/[,;\t]/);
+            if (parts[colIndex] !== undefined) {
+              var val = parts[colIndex].trim().replace(/^["']|["']$/g, "");
+              if (val) nums.push(val);
+            }
+          }
+          return nums;
+        }
+
+        fileImport.addEventListener("change", function() {
+          var file = this.files && this.files[0];
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function() {
+            var text = reader.result || "";
+            var nums = parseCSV(text);
+            var current = destinatariosEl.value.trim();
+            var existing = current ? current.split(/\r?\n|[,;]/).map(function(s) { return s.trim(); }).filter(Boolean) : [];
+            var combined = existing.concat(nums);
+            destinatariosEl.value = combined.join("\n");
+            updateDestinatariosCount();
+            resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result success"; resultadoEl.innerHTML = "<h3>Importación</h3><p>Se agregaron " + nums.length + " número(s). Total: " + combined.length + " destinatarios.</p>";
+          };
+          reader.readAsText(file, "UTF-8");
+          this.value = "";
+        });
+
+        form.addEventListener("submit", function(e) {
+          e.preventDefault();
+          var companyId = getCompanyId();
+          var raw = destinatariosEl.value.trim();
+          var destinatarios = raw ? raw.split(/\r?\n|[,;]/).map(function(s) { return s.trim(); }).filter(Boolean) : [];
+          var mensaje = document.getElementById("mensaje").value.trim();
+          if (!destinatarios.length) {
+            resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
+            resultadoEl.innerHTML = "<h3>Error</h3><p>No hay destinatarios. Agregá contactos, pegá números o importá la plantilla.</p>";
+            return;
+          }
+          if (!mensaje) {
+            resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
+            resultadoEl.innerHTML = "<h3>Error</h3><p>Escribí el mensaje del comunicado.</p>";
+            return;
+          }
+          btnEnviar.disabled = true;
+          resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result";
+          resultadoEl.innerHTML = "<h3>Enviando...</h3><p>Se enviará a " + destinatarios.length + " contacto(s). No cierres esta página.</p>";
+
+          fetch("/api/comunicados/enviar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ company_id: companyId, destinatarios: destinatarios, mensaje: mensaje })
+          })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (data.ok) {
+                var failed = data.failed || 0;
+                if (failed > 0) resultadoEl.className = "comunicados-result error";
+                else resultadoEl.className = "comunicados-result success";
+                var msg = "<h3>Comunicado</h3><p>Enviados: " + (data.sent || 0) + ". Fallidos: " + failed + ". Total: " + (data.total || 0) + ".</p>";
+                if (failed > 0 && data.error_detail) msg += "<p class=\"hint\">" + data.error_detail + "</p>";
+                resultadoEl.innerHTML = msg;
+              } else {
+                resultadoEl.className = "comunicados-result error";
+                resultadoEl.innerHTML = "<h3>Error</h3><p>" + (data.error || "No se pudo enviar.") + "</p>";
+              }
+            })
+            .catch(function(err) {
+              resultadoEl.className = "comunicados-result error";
+              resultadoEl.innerHTML = "<h3>Error</h3><p>" + (err.message || "Error de conexión.") + "</p>";
+            })
+            .finally(function() { btnEnviar.disabled = false; });
+        });
+        updateDestinatariosCount();
+      })();
+    </script>
+  </body>
+</html>

@@ -28,6 +28,7 @@ PERM_ROLES_MANAGE = "roles_gestionar"
 PERM_CONFIG_MANAGE = "configuracion_gestionar"
 PERM_STATS_VIEW = "estadisticas_ver"
 PERM_PREFERENCES_MANAGE = "preferencias_gestionar"
+PERM_COMUNICADOS_SEND = "comunicados_enviar"
 
 PERMISSIONS_CATALOG = {
     PERM_CONVERSATIONS_VIEW: "Ver conversaciones",
@@ -38,12 +39,13 @@ PERMISSIONS_CATALOG = {
     PERM_CONFIG_MANAGE: "Gestionar configuración (empresas, sucursales, áreas)",
     PERM_STATS_VIEW: "Ver estadísticas",
     PERM_PREFERENCES_MANAGE: "Gestionar preferencias (empresa activa, autocierre, reglas del chat)",
+    PERM_COMUNICADOS_SEND: "Enviar comunicados por WhatsApp",
 }
 
 DEFAULT_ROLE_DEFINITIONS = {
     "admin": {
         "display_name": "Administrador",
-        "permissions": list(PERMISSIONS_CATALOG.keys()),
+        "permissions": list(PERMISSIONS_CATALOG.keys()),  # incluye PERM_COMUNICADOS_SEND
     },
     "rrhh": {
         "display_name": "Agente de atención",
@@ -564,11 +566,15 @@ def role_has_permission(role, permission, path=None, roles_map=None):
     if "," in raw:
         for r in raw.split(","):
             rk = _normalize_role(r, default="")
+            if rk == "admin":
+                return True
             payload = roles.get(rk)
             if payload and perm in (payload.get("permissions") or []):
                 return True
         return False
     role_key = _normalize_role(role, default="")
+    if role_key == "admin":
+        return True
     payload = roles.get(role_key)
     if payload is None:
         return False
