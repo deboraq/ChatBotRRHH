@@ -269,11 +269,17 @@ textarea:focus {
 .rrhh-branch-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   padding: 6px 8px;
   cursor: pointer;
   font-size: 0.9rem;
   border-radius: 6px;
+}
+
+.rrhh-branch-option .rrhh-option-label {
+  flex: 1;
+  min-width: 0;
 }
 
 .rrhh-branch-option:hover {
@@ -282,6 +288,7 @@ textarea:focus {
 
 .rrhh-branch-option input {
   margin: 0;
+  flex-shrink: 0;
 }
 
 #rrhh-area-filter-wrap {
@@ -358,11 +365,17 @@ textarea:focus {
 .rrhh-area-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   padding: 6px 8px;
   cursor: pointer;
   font-size: 0.9rem;
   border-radius: 6px;
+}
+
+.rrhh-area-option .rrhh-option-label {
+  flex: 1;
+  min-width: 0;
 }
 
 .rrhh-area-option:hover {
@@ -371,6 +384,7 @@ textarea:focus {
 
 .rrhh-area-option input {
   margin: 0;
+  flex-shrink: 0;
 }
 
 .checkbox {

@@ -82,6 +82,87 @@ button {
   margin-top: 19px;
 }
 
+.filter-dropdown-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.84rem;
+}
+
+.filter-dropdown-wrap .filter-label {
+  display: block;
+}
+
+.filter-dropdown-inner {
+  position: relative;
+  display: inline-block;
+}
+
+.filter-dropdown-trigger {
+  min-width: 140px;
+  padding: 8px 26px 8px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.filter-dropdown-trigger::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid currentColor;
+  pointer-events: none;
+}
+
+.filter-dropdown-trigger:hover {
+  border-color: #2563eb;
+}
+
+.filter-dropdown-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  z-index: 1000;
+}
+
+.filter-dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-radius: 6px;
+}
+
+.filter-dropdown-option:hover {
+  background: #f1f5f9;
+}
+
+.filter-dropdown-option input {
+  margin: 0;
+}
+
 .meta {
   margin-top: 10px;
   display: flex;
@@ -180,4 +261,44 @@ code {
 :root[data-theme="dark"] code {
   background: #334155;
   color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .filter-dropdown-trigger {
+  background: #1e293b;
+  color: #ffffff;
+  border-color: #475569;
+}
+
+:root[data-theme="dark"] .filter-dropdown-trigger:hover {
+  border-color: #2563eb;
+}
+
+:root[data-theme="dark"] .filter-dropdown-panel {
+  background: #1e293b;
+  border-color: #475569;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .filter-dropdown-option {
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .filter-dropdown-option:hover {
+  background: #334155;
+}
+
+:root[data-theme="dark"] .filter-dropdown-wrap .filter-label {
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .filters #f-company {
+  background: #1e293b;
+  color: #ffffff;
+  border-color: #475569;
+}
+
+:root[data-theme="dark"] .filters #f-company option {
+  background: #1e293b;
+  color: #ffffff;
 }
