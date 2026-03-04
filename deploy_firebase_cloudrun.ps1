@@ -78,13 +78,46 @@ if (-not $UseDefaultServiceAccount) {
         --role="roles/datastore.user" `
         --quiet | Out-Null
     Assert-LastExit "gcloud projects add-iam-policy-binding"
+
+    # Permiso para subir archivos al bucket de Firebase Storage (adjuntos del panel RRHH)
+    $storageBucket = "$ProjectId.firebasestorage.app"
+    Write-Host "Dando permiso de Storage (subir adjuntos) en gs://$storageBucket ..." -ForegroundColor Cyan
+    gcloud storage buckets add-iam-policy-binding "gs://$storageBucket" `
+        --member="serviceAccount:$serviceAccountEmail" `
+        --role="roles/storage.objectAdmin" `
+        --quiet 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "No se pudo asignar permiso de Storage. Si al subir archivos ves 403, segui docs/STORAGE_PERMISOS_CLOUD_RUN.md"
+    }
+    else {
+        Write-Host "Permiso de Storage asignado correctamente." -ForegroundColor Green
+    }
 }
 else {
     Write-Host "Modo UseDefaultServiceAccount activo: se omite creacion/configuracion de service account." -ForegroundColor Yellow
 }
 
 Write-Host "Desplegando servicio en Cloud Run..." -ForegroundColor Cyan
+# Variables base (--set-env-vars REEMPLAZA todas; si solo pasamos estas, se pierden Twilio, FIREBASE_STORAGE_BUCKET, etc.)
 $envVars = "CHATBOT_WEB_SECRET=$WebSecret,RRHH_AUTH_ENABLED=true,RRHH_ADMIN_USER=$AdminUser,RRHH_ADMIN_PASSWORD=$AdminPassword"
+# Opcional: leer del .env las variables que no deben perderse (Twilio, Firebase Storage)
+$envFile = Join-Path $PSScriptRoot ".env"
+if (Test-Path $envFile) {
+    $extra = @()
+    Get-Content $envFile -Encoding UTF8 | ForEach-Object {
+        if ($_ -match '^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$') {
+            $name = $Matches[1]
+            $val = $Matches[2].Trim().Trim('"').Trim("'")
+            if ($name -match '^(TWILIO_ACCOUNT_SID|TWILIO_AUTH_TOKEN|TWILIO_WHATSAPP_FROM|FIREBASE_STORAGE_BUCKET)$' -and $val) {
+                $extra += "${name}=$val"
+            }
+        }
+    }
+    if ($extra.Count -gt 0) {
+        $envVars = $envVars + "," + ($extra -join ",")
+        Write-Host "Incluyendo variables adicionales desde .env (Twilio/Storage) para no pisar lo que tenes en Cloud Run." -ForegroundColor Cyan
+    }
+}
 if ($UseDefaultServiceAccount) {
     gcloud run deploy $ServiceName `
         --source . `

@@ -105,6 +105,17 @@
       .areas-company-select { min-width: 220px; padding: 6px 10px; }
       .roles-toolbar .roles-company-label { margin-right: 0.5rem; font-weight: 500; }
       .roles-toolbar .roles-company-select { min-width: 200px; padding: 6px 10px; margin-right: 1rem; }
+      .roles-guardar-hint { margin: 0.5rem 0 1rem 0; padding: 0.5rem 0; }
+      .roles-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .roles-panel .roles-table { min-width: 720px; }
+      .roles-panel .role-save-wrap { margin-bottom: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+      .roles-panel .role-save-label { font-weight: 700; font-size: 0.95rem; margin-right: 0.25rem; }
+      .roles-panel .role-save-btn { display: inline-block; margin-right: 0.5rem; background: #2563eb; color: #fff; border: 2px solid #2563eb; padding: 0.5rem 1.2rem; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 1rem; white-space: nowrap; }
+      .roles-panel .role-save-btn:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+      .roles-panel .config-actions-cell--roles { min-width: 220px; vertical-align: top; white-space: nowrap; background: var(--panel-bg, #fafafa); }
+      html[data-theme="dark"] .roles-panel .config-actions-cell--roles { background: var(--panel-bg); }
+      .roles-panel .role-save-inline { margin-top: 0.6rem; }
+      .roles-panel .role-save-inline .role-save-btn { margin-right: 0; }
       .areas-panel .areas-table td { vertical-align: top !important; }
       .areas-panel .areas-table td:nth-child(1) {
         overflow: hidden !important;
@@ -507,6 +518,7 @@
               <button type="button" id="btn-add-role" class="btn btn-primary">Agregar</button>
             </div>
             <p id="roles-status" class="subtle"></p>
+            <p class="subtle roles-guardar-hint">Marcá o desmarcá los permisos que quieras y hacé clic en <strong>Guardar</strong> en esa fila para aplicar los cambios.</p>
             <div class="roles-table-wrap">
               <table class="roles-table config-table">
                 <thead>
@@ -515,7 +527,7 @@
                     <th>Nombre</th>
                     <th>Permisos</th>
                     <th>Empresas</th>
-                    <th>Acción</th>
+                    <th>Guardar / Acción</th>
                   </tr>
                 </thead>
                 <tbody id="roles-body"></tbody>
@@ -2213,6 +2225,31 @@
           permsContainer.className = "permissions-grid compact";
           renderPermissionsInputs(permsContainer, role.permissions || []);
           tdPerms.appendChild(permsContainer);
+          const permsSaveWrap = document.createElement("div");
+          permsSaveWrap.className = "role-save-inline";
+          const btnSavePerms = document.createElement("button");
+          btnSavePerms.type = "button";
+          btnSavePerms.className = "btn btn-primary role-save-btn";
+          btnSavePerms.textContent = "Guardar permisos y nombre";
+          btnSavePerms.title = "Aplicar los cambios de esta fila (nombre y checks de permisos)";
+          permsSaveWrap.appendChild(btnSavePerms);
+          tdPerms.appendChild(permsSaveWrap);
+          const doSaveRole = async () => {
+            try {
+              setRolesStatus("Guardando…");
+              await actualizarRolDefinicion(
+                role.name,
+                inputDisplay.value,
+                getSelectedPermissions(permsContainer),
+                role.company_ids
+              );
+              setRolesStatus("Cambios guardados.");
+            } catch (error) {
+              setRolesStatus(`Error: ${getErrorMessage(error)}`, true);
+              showToast(getErrorMessage(error), true);
+            }
+          };
+          btnSavePerms.addEventListener("click", doSaveRole);
 
           const tdEmpresas = document.createElement("td");
           tdEmpresas.className = "config-actions-cell";
@@ -2227,26 +2264,21 @@
           tdEmpresas.appendChild(btnEmpresas);
 
           const tdAction = document.createElement("td");
-          tdAction.className = "config-actions-cell";
+          tdAction.className = "config-actions-cell config-actions-cell--roles";
+          const saveWrap = document.createElement("div");
+          saveWrap.className = "role-save-wrap";
+          const saveLabel = document.createElement("span");
+          saveLabel.className = "role-save-label";
+          saveLabel.textContent = "Guardar cambios:";
+          saveWrap.appendChild(saveLabel);
           const btnSave = document.createElement("button");
           btnSave.type = "button";
-          btnSave.className = "role-update-btn";
-          btnSave.textContent = "Guardar rol";
-          btnSave.addEventListener("click", async () => {
-            try {
-              await actualizarRolDefinicion(
-                role.name,
-                inputDisplay.value,
-                getSelectedPermissions(permsContainer),
-                role.company_ids
-              );
-            } catch (error) {
-              setRolesStatus(`Error: ${getErrorMessage(error)}`, true);
-            showToast(getErrorMessage(error), true);
-            }
-          });
-          tdAction.appendChild(btnSave);
-
+          btnSave.className = "btn btn-primary role-save-btn";
+          btnSave.textContent = "Guardar";
+          btnSave.title = "Guardar cambios de nombre y permisos de este rol";
+          saveWrap.appendChild(btnSave);
+          tdAction.appendChild(saveWrap);
+          btnSave.addEventListener("click", doSaveRole);
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
           btnDelete.className = "role-update-btn danger";

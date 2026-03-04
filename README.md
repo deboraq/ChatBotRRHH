@@ -158,11 +158,13 @@ Opcional (si además querés Firebase Hosting con rewrite a Cloud Run):
 .\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseHosting
 ```
 
-Si querés publicar en un sitio Hosting específico (multisite), por ejemplo `debo-chat`:
+Si querés publicar **solo en debo-chat** (sitio que se usa siempre):
 
 ```powershell
 .\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseHosting -HostingSite "debo-chat"
 ```
+
+O con Firebase CLI directo: `firebase deploy --only hosting:debo-chat`
 
 > Requisitos: `gcloud` y (si usás hosting) `firebase` instalados y autenticados en tu sesión.
 
@@ -298,11 +300,13 @@ firebase init hosting
 }
 ```
 
-3. Deploy:
+3. Deploy (siempre solo al sitio **debo-chat**):
 
 ```bash
-firebase deploy --only hosting
+firebase deploy --only hosting:debo-chat
 ```
+
+> No usar `firebase deploy --only hosting` (despliega todos los sitios). El sitio que se usa es **debo-chat.web.app**.
 
 ### 5) Nota importante sobre usuarios/roles en Cloud Run
 

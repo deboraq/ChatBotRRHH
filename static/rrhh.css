@@ -254,7 +254,7 @@ textarea:focus {
   top: 100%;
   left: 0;
   margin-top: 4px;
-  min-width: 220px;
+  min-width: 260px;
   max-height: 240px;
   overflow-y: auto;
   overflow-x: visible;
@@ -280,6 +280,7 @@ textarea:focus {
 .rrhh-branch-option .rrhh-option-label {
   flex: 1;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .rrhh-branch-option:hover {
@@ -350,7 +351,7 @@ textarea:focus {
   top: 100%;
   left: 0;
   margin-top: 4px;
-  min-width: 220px;
+  min-width: 260px;
   max-height: 240px;
   overflow-y: auto;
   overflow-x: visible;
@@ -376,6 +377,7 @@ textarea:focus {
 .rrhh-area-option .rrhh-option-label {
   flex: 1;
   min-width: 0;
+  white-space: nowrap;
 }
 
 .rrhh-area-option:hover {
@@ -634,6 +636,49 @@ textarea:focus {
 
 .reply-form input {
   min-height: 40px;
+}
+
+.reply-form input.reply-media-url {
+  grid-column: 1 / -1;
+}
+
+.reply-file-wrap {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reply-file-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.reply-file-label:hover {
+  color: var(--text);
+}
+
+.reply-file-input {
+  min-height: auto;
+  font-size: 0.85rem;
+}
+
+.reply-file-name {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-attachment-img {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 8px;
+  display: block;
 }
 
 .subtle {

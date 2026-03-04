@@ -168,6 +168,11 @@
           Estadísticas
         </button>
         {% endif %}
+        {% if can_view_comunicados|default(false) %}
+        <button type="button" class="app-module-btn" data-module="comunicados" data-src="/comunicados">
+          Comunicados
+        </button>
+        {% endif %}
         {% if can_manage_preferences|default(true) %}
         <button type="button" class="app-module-btn" data-module="preferencias" data-src="/preferencias">
           Preferencias

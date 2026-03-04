@@ -1,6 +1,9 @@
 # Dependencias opcionales para funcionalidades avanzadas.
 # Si solo querés probar la interfaz web local, alcanza con requirements.txt.
 
+# WhatsApp vía Twilio (comunicados, etc.)
+twilio>=9.0,<10
+
 firebase_admin>=7.0,<8
 textblob>=0.19,<1
 thefuzz>=0.22,<1

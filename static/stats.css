@@ -71,6 +71,12 @@ button:hover {
   gap: 4px;
   font-size: 0.85rem;
   color: #374151;
+  flex: 0 0 auto;
+}
+
+.stats-filters .filter-field .filter-field-label {
+  display: block;
+  margin-bottom: 4px;
 }
 
 .stats-filters .filter-field select {
@@ -78,6 +84,16 @@ button:hover {
   border-radius: 8px;
   padding: 6px 10px;
   min-width: 140px;
+}
+
+/* Mismo tamaño que los dropdowns Sucursal/Área para alinear en la misma línea */
+.stats-filters .filter-field:first-child select,
+#filter-company {
+  min-width: 160px;
+  padding: 8px 28px 8px 10px;
+  font-size: 0.9rem;
+  height: 40px;
+  box-sizing: border-box;
 }
 
 .stats-filters .filter-field select[multiple] {
@@ -107,6 +123,9 @@ button:hover {
   text-align: left;
   position: relative;
   box-sizing: border-box;
+  height: 40px;
+  display: flex;
+  align-items: center;
 }
 
 .stats-dropdown-trigger::after {
@@ -370,18 +389,35 @@ th {
   background: #334155;
 }
 
-:root[data-theme="dark"] .stats-filters .filter-field-label {
+:root[data-theme="dark"] .stats-filters .filter-field-label,
+:root[data-theme="dark"] .stats-filters .filter-field {
   color: #ffffff;
 }
 
-:root[data-theme="dark"] .stats-filters .filter-field select {
-  background: #1e293b;
+html[data-theme="dark"] .stats-filters .filter-field-label,
+html[data-theme="dark"] .stats-filters .filter-field {
   color: #ffffff;
+}
+
+:root[data-theme="dark"] .stats-filters .filter-field select,
+html[data-theme="dark"] .stats-filters .filter-field select {
+  background: #1e293b;
+  color: #fff !important;
   border-color: #475569;
 }
 
-:root[data-theme="dark"] .stats-filters .filter-field select option {
+:root[data-theme="dark"] .stats-filters .filter-field select option,
+html[data-theme="dark"] .stats-filters .filter-field select option {
   background: #1e293b;
-  color: #ffffff;
+  color: #fff !important;
+}
+
+/* Select Empresa: texto siempre visible en modo oscuro */
+#filter-company {
+  color: inherit;
+}
+:root[data-theme="dark"] #filter-company,
+html[data-theme="dark"] #filter-company {
+  color: #fff !important;
 }
 

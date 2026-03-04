@@ -7,19 +7,27 @@ try:
 except ImportError:
     pass
 
+import logging
 import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
 
 import app as chatbot
 import auth_rrhh
 import stats_service
 
+# Activar envío por WhatsApp vía Twilio si hay credenciales
+try:
+    from twilio_whatsapp import register_twilio_sender
+    register_twilio_sender()
+except ImportError:
+    pass
 
+logger = logging.getLogger(__name__)
 flask_app = Flask(__name__)
 flask_app.config["SECRET_KEY"] = os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-secret")
 # Firebase Hosting preserves the "__session" cookie across rewrites to Cloud Run.
@@ -76,6 +84,16 @@ AUTO_CLOSE_MIN_MINUTES = 5
 AUTO_CLOSE_MAX_MINUTES = 7 * 24 * 60
 AUTO_CLOSE_DEFAULT_MINUTES = 0
 
+# Sesión por número de WhatsApp cuando el mensaje llega por webhook (colaborador escribe por WA).
+WHATSAPP_SESSIONS = {}
+
+
+def _sess():
+    """Sesión efectiva: por WhatsApp (g.whatsapp_session) o sesión web (session)."""
+    if getattr(g, "whatsapp_session", None) is not None:
+        return g.whatsapp_session
+    return session
+
 
 def _accion(label, value, variant="default"):
     return {"label": label, "value": value, "variant": variant}
@@ -89,42 +107,42 @@ CHAT_CONTEXT_STEP_READY = "ready"
 
 
 def _chat_context_step():
-    return session.get("chat_context_step") or CHAT_CONTEXT_STEP_COMPANY
+    return _sess().get("chat_context_step") or CHAT_CONTEXT_STEP_COMPANY
 
 
 def _set_chat_context_company(company_id):
     key = _normalize_company_id(company_id)
     if key:
-        session["chat_context_company_id"] = key
+        _sess()["chat_context_company_id"] = key
         _set_company_session(key)
         company = _get_company(key, include_inactive=False)
         branches = _normalize_branches((company or {}).get("branches"))
         if branches:
-            session["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
+            _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
         else:
-            session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
-            session.pop("chat_context_branch", None)
+            _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+            _sess().pop("chat_context_branch", None)
 
 
 def _set_chat_context_branch(branch_name):
     branch_clean = str(branch_name or "").strip()
     if branch_clean:
-        session["chat_context_branch"] = branch_clean
-        session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+        _sess()["chat_context_branch"] = branch_clean
+        _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
 
 
 def _set_chat_context_area(area_name):
     area_clean = str(area_name or "").strip()
     if area_clean:
-        session["chat_context_area"] = area_clean
-        session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+        _sess()["chat_context_area"] = area_clean
+        _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
 
 
 def _clear_chat_context():
-    session.pop("chat_context_step", None)
-    session.pop("chat_context_company_id", None)
-    session.pop("chat_context_branch", None)
-    session.pop("chat_context_area", None)
+    _sess().pop("chat_context_step", None)
+    _sess().pop("chat_context_company_id", None)
+    _sess().pop("chat_context_branch", None)
+    _sess().pop("chat_context_area", None)
 
 
 def _parse_menu_number(mensaje):
@@ -773,25 +791,25 @@ def _set_company_session(company_id):
         allowed = _companies_for_user(current_user)
         if allowed:
             company = allowed[0]
-    session["company_id"] = company["company_id"]
-    session["company_name"] = company["company_name"]
-    session["company_hr_team_name"] = company.get("hr_team_name") or "Atención"
+    _sess()["company_id"] = company["company_id"]
+    _sess()["company_name"] = company["company_name"]
+    _sess()["company_hr_team_name"] = company.get("hr_team_name") or "Atención"
     return company
 
 
 def _current_company():
-    selected = _normalize_company_id(session.get("company_id"))
+    selected = _normalize_company_id(_sess().get("company_id"))
     company = _get_company(selected, include_inactive=False) if selected else None
     if company is None:
         if _list_companies(include_inactive=False):
             company = _list_companies(include_inactive=False)[0]
-            session["company_id"] = company["company_id"]
+            _sess()["company_id"] = company["company_id"]
     current_user = _current_rrhh_user()
     if current_user and not _user_can_access_company(current_user, company.get("company_id")):
         allowed = _companies_for_user(current_user)
         if allowed:
             company = allowed[0]
-            session["company_id"] = company["company_id"]
+            _sess()["company_id"] = company["company_id"]
     return company or _default_company_entry()
 
 
@@ -1362,11 +1380,11 @@ def rrhh_permission_required(permission, message="No tenés permisos para esta a
 
 
 def _session_chat_id():
-    chat_id = session.get("chat_session_id")
+    chat_id = _sess().get("chat_session_id")
     if chat_id:
         return chat_id
     chat_id = _new_conversation_id()
-    session["chat_session_id"] = chat_id
+    _sess()["chat_session_id"] = chat_id
     return chat_id
 
 
@@ -1435,21 +1453,21 @@ def _serialize_history_item(item):
 
 
 def _set_handoff_session(conversation_id):
-    session["handoff_conversation_id"] = conversation_id
-    session["last_rrhh_seen_iso"] = ""
+    _sess()["handoff_conversation_id"] = conversation_id
+    _sess()["last_rrhh_seen_iso"] = ""
 
 
 def _clear_handoff_session():
-    session.pop("handoff_conversation_id", None)
-    session.pop("last_rrhh_seen_iso", None)
+    _sess().pop("handoff_conversation_id", None)
+    _sess().pop("last_rrhh_seen_iso", None)
 
 
 def _get_handoff_session_id():
-    return session.get("handoff_conversation_id")
+    return _sess().get("handoff_conversation_id")
 
 
 def _get_last_seen_rrhh():
-    raw = session.get("last_rrhh_seen_iso", "")
+    raw = _sess().get("last_rrhh_seen_iso", "")
     if not raw:
         return None
     try:
@@ -1468,6 +1486,32 @@ def _from_firestore_doc(snapshot):
     data = snapshot.to_dict() or {}
     data["id"] = snapshot.id
     return data
+
+
+def _normalize_phone_for_match(phone):
+    """Normaliza número para comparar (whatsapp:+549... o +549... -> dígitos)."""
+    p = (phone or "").strip().lower()
+    if not p:
+        return ""
+    if p.startswith("whatsapp:"):
+        p = p[9:].strip()
+    return "".join(c for c in p if c.isdigit())
+
+
+def _find_open_handoff_by_whatsapp_phone(phone):
+    """Devuelve el conversation_id de un handoff abierto para este número de WhatsApp, o None."""
+    if not phone:
+        return None
+    norm = _normalize_phone_for_match(phone)
+    if not norm:
+        return None
+    for conv in _list_handoffs(include_closed=False, limit=50):
+        to_phone = (conv.get("whatsapp_to_phone") or "").strip()
+        if not to_phone:
+            continue
+        if _normalize_phone_for_match(to_phone) == norm:
+            return conv.get("id")
+    return None
 
 
 def _fetch_handoff(conversation_id):
@@ -1589,15 +1633,25 @@ def _add_handoff_message(
     texto,
     agente="",
     visible_to_colaborador=True,
+    media_url=None,
 ):
     now = _utc_now()
+    texto_str = str(texto).strip()
+    media_list = []
+    if media_url is not None:
+        if isinstance(media_url, (list, tuple)):
+            media_list = [str(u).strip() for u in media_url if u and str(u).strip().startswith("http")]
+        elif isinstance(media_url, str) and media_url.strip().startswith("http"):
+            media_list = [media_url.strip()]
     payload = {
         "remitente": remitente,
-        "texto": str(texto).strip(),
+        "texto": texto_str,
         "agente": str(agente or "").strip(),
         "fecha": now,
         "visible_to_colaborador": bool(visible_to_colaborador),
     }
+    if media_list:
+        payload["media_url"] = media_list
 
     if chatbot.db:
         (
@@ -1628,6 +1682,25 @@ def _add_handoff_message(
         agente=payload["agente"],
         metadata={"visible_to_colaborador": payload["visible_to_colaborador"]},
     )
+    # Enviar por WhatsApp al colaborador si la conversación es por WA: mensajes del agente y cierre de conversación
+    if payload["visible_to_colaborador"] and remitente in ("rrhh", "sistema"):
+        has_text = bool(payload.get("texto"))
+        has_media = bool(payload.get("media_url"))
+        if has_text or has_media:
+            conv = _fetch_handoff(conversation_id)
+            to_phone = (conv or {}).get("whatsapp_to_phone", "").strip()
+            from_number = (conv or {}).get("whatsapp_from_number", "").strip()
+            if to_phone and from_number:
+                try:
+                    from twilio_whatsapp import send_one
+                    send_one(
+                        to_phone,
+                        body=payload.get("texto") or None,
+                        phone_number_id=from_number,
+                        media_url=payload.get("media_url") or None,
+                    )
+                except Exception:
+                    pass
 
 
 def _list_handoff_messages(conversation_id, limit=300):
@@ -1985,7 +2058,7 @@ def armar_respuesta_no_entendida(consulta, temas_map):
 
 
 def limpiar_estado_conversacion():
-    session.pop("pending_feedback_topic", None)
+    _sess().pop("pending_feedback_topic", None)
 
 
 def _payload(
@@ -2031,34 +2104,35 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
         conversation_id = _new_conversation_id()
 
     if existing is None:
-        collaborator_area = session.get("chat_context_area") or ""
-        collaborator_branch = session.get("chat_context_branch") or ""
+        collaborator_area = _sess().get("chat_context_area") or ""
+        collaborator_branch = _sess().get("chat_context_branch") or ""
         assigned_agent = _select_auto_agent(
             company_id=company_id,
             branch=collaborator_branch or None,
             area=collaborator_area or None,
         )
         estado_inicial = HANDOFF_STATUS_ACTIVE if assigned_agent else HANDOFF_STATUS_PENDING
-        _upsert_handoff(
-            conversation_id,
-            {
-                "conversation_id": conversation_id,
-                "company_id": company_id,
-                "company_name": company.get("company_name"),
-                "branch": collaborator_branch,
-                "area": collaborator_area,
-                "estado": estado_inicial,
-                "created_at": now,
-                "updated_at": now,
-                "rrhh_agente": assigned_agent.get("display_name", "") if assigned_agent else "",
-                "rrhh_agente_id": assigned_agent.get("agent_id", "") if assigned_agent else "",
-                "rrhh_asignacion_automatica": bool(assigned_agent),
-                "ultimo_mensaje": "",
-                "ultima_consulta": mensaje_usuario.strip() or "Solicitud de derivación",
-                "chat_session_id": chat_session_id,
-            },
-            merge=False,
-        )
+        handoff_payload = {
+            "conversation_id": conversation_id,
+            "company_id": company_id,
+            "company_name": company.get("company_name"),
+            "branch": collaborator_branch,
+            "area": collaborator_area,
+            "estado": estado_inicial,
+            "created_at": now,
+            "updated_at": now,
+            "rrhh_agente": assigned_agent.get("display_name", "") if assigned_agent else "",
+            "rrhh_agente_id": assigned_agent.get("agent_id", "") if assigned_agent else "",
+            "rrhh_asignacion_automatica": bool(assigned_agent),
+            "ultimo_mensaje": "",
+            "ultima_consulta": mensaje_usuario.strip() or "Solicitud de derivación",
+            "chat_session_id": chat_session_id,
+        }
+        if getattr(g, "whatsapp_from", None) and getattr(g, "whatsapp_to", None):
+            handoff_payload["channel"] = "whatsapp"
+            handoff_payload["whatsapp_to_phone"] = g.whatsapp_from
+            handoff_payload["whatsapp_from_number"] = g.whatsapp_to
+        _upsert_handoff(conversation_id, handoff_payload, merge=False)
         _add_handoff_message(
             conversation_id,
             remitente="sistema",
@@ -2208,7 +2282,13 @@ def responder_chat(mensaje_usuario):
             )
 
         # Mientras está activo el handoff, los mensajes van al canal humano.
-        _add_handoff_message(handoff_id, remitente="colaborador", texto=mensaje_usuario)
+        media_urls_colab = getattr(g, "whatsapp_media_urls", None) or []
+        _add_handoff_message(
+            handoff_id,
+            remitente="colaborador",
+            texto=mensaje_usuario,
+            media_url=media_urls_colab if media_urls_colab else None,
+        )
         _upsert_handoff(
             handoff_id,
             {"ultima_consulta": mensaje_usuario.strip(), "updated_at": _utc_now()},
@@ -2227,7 +2307,7 @@ def responder_chat(mensaje_usuario):
             quick_actions=construir_acciones_handoff(),
         )
 
-    tema_pendiente = session.get("pending_feedback_topic")
+    tema_pendiente = _sess().get("pending_feedback_topic")
     if tema_pendiente:
         payload = procesar_feedback_pendiente(mensaje_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=permitir, company_id=company_id)
         if payload is not None:
@@ -2269,7 +2349,7 @@ def responder_chat(mensaje_usuario):
     if respuesta:
         requiere_feedback = tema_id not in chatbot.TEMAS_SIN_FEEDBACK
         if requiere_feedback:
-            session["pending_feedback_topic"] = tema_id
+            _sess()["pending_feedback_topic"] = tema_id
             respuesta = f"{respuesta}\n\n¿Esta información te fue de utilidad? (si/no)"
             return _payload(
                 respuesta,
@@ -2316,15 +2396,16 @@ def _serialize_messages(messages):
     payload = []
     for msg in messages:
         fecha = _as_utc_aware(msg.get("fecha"))
-        payload.append(
-            {
-                "remitente": str(msg.get("remitente") or ""),
-                "texto": str(msg.get("texto") or ""),
-                "agente": str(msg.get("agente") or ""),
-                "fecha": _fmt_fecha(fecha),
-                "fecha_iso": _iso_utc(fecha),
-            }
-        )
+        item = {
+            "remitente": str(msg.get("remitente") or ""),
+            "texto": str(msg.get("texto") or ""),
+            "agente": str(msg.get("agente") or ""),
+            "fecha": _fmt_fecha(fecha),
+            "fecha_iso": _iso_utc(fecha),
+        }
+        if msg.get("media_url"):
+            item["media_url"] = msg["media_url"] if isinstance(msg["media_url"], list) else [msg["media_url"]]
+        payload.append(item)
     return payload
 
 
@@ -2382,6 +2463,7 @@ def home():
         can_manage_preferences=_can_manage_preferences() if not show_all else True,
         can_view_conversations=_has_permission(auth_rrhh.PERM_CONVERSATIONS_VIEW) if not show_all else True,
         can_view_history=_has_permission(auth_rrhh.PERM_HISTORY_VIEW) if not show_all else True,
+        can_view_comunicados=_has_permission(auth_rrhh.PERM_COMUNICADOS_SEND) if not show_all else False,
     )
 
 
@@ -2533,6 +2615,261 @@ def historial_page():
     )
 
 
+def _normalize_phones_for_comunicado(raw_list):
+    """Convierte una lista de entradas (números, con espacios/comas) en una lista de números E.164.
+    Números argentinos de 10 dígitos (ej. 3515416836) se convierten a +5493515416836."""
+    out = []
+    seen = set()
+    for item in raw_list:
+        s = str(item or "").strip()
+        if not s:
+            continue
+        for part in s.replace(",", " ").replace(";", " ").split():
+            num = "".join(c for c in part if c.isdigit() or c == "+").strip()
+            if not num:
+                continue
+            if num.startswith("+"):
+                num = num.lstrip("+")
+            digits = "".join(c for c in num if c.isdigit())
+            # Argentina: 10 dígitos sin código país -> agregar 54 y 9 (móvil)
+            if len(digits) == 10 and not digits.startswith("54"):
+                digits = "54" + "9" + digits
+            if not digits:
+                continue
+            normalized = "+" + digits
+            if normalized != "+" and normalized not in seen:
+                seen.add(normalized)
+                out.append(normalized)
+    return out
+
+
+@flask_app.get("/comunicados")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos para enviar comunicados.",
+)
+def comunicados_page():
+    """Pantalla para enviar comunicados por WhatsApp: elegir empresa, cargar contactos, escribir mensaje."""
+    company = _set_company_session(session.get("company_id") or _default_company_id())
+    current_user = _current_rrhh_user()
+    available_companies = (
+        _companies_for_user(current_user) if current_user else _list_companies(include_inactive=False)
+    )
+    return render_template(
+        "comunicados.html",
+        auth_enabled=_auth_enabled(),
+        rrhh_user=current_user,
+        available_companies=available_companies,
+        selected_company_id=company.get("company_id"),
+        selected_company_name=company.get("company_name"),
+    )
+
+
+COMUNICADOS_CONTACTOS_COLLECTION = "comunicados_contactos"
+
+
+def _get_comunicados_contactos(company_id):
+    """Lista de contactos guardados para comunicados (por empresa)."""
+    cid = _normalize_company_id(company_id)
+    if not cid:
+        return []
+    if chatbot.db:
+        doc = chatbot.db.collection(COMUNICADOS_CONTACTOS_COLLECTION).document(cid).get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            return list(data.get("contactos") or [])
+    return []
+
+
+def _add_comunicado_contacto(company_id, nombre, telefono, legajo=None):
+    """Agrega un contacto a la lista de la empresa (nombre, teléfono, legajo opcional)."""
+    cid = _normalize_company_id(company_id)
+    if not cid:
+        return False
+    nombre = str(nombre or "").strip() or "Sin nombre"
+    telefono = str(telefono or "").strip()
+    if not telefono:
+        return False
+    legajo = str(legajo or "").strip() if legajo is not None else ""
+    if chatbot.db:
+        doc_ref = chatbot.db.collection(COMUNICADOS_CONTACTOS_COLLECTION).document(cid)
+        doc = doc_ref.get()
+        contactos = list((doc.to_dict() or {}).get("contactos") or []) if doc.exists else []
+        contactos.append({"nombre": nombre, "telefono": telefono, "legajo": legajo})
+        doc_ref.set({"contactos": contactos}, merge=True)
+        return True
+    return False
+
+
+@flask_app.get("/api/comunicados/plantilla")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="Sin permiso.",
+)
+def api_comunicados_plantilla():
+    """Descarga plantilla CSV (para abrir en Excel: guardar como CSV y subir). Columnas: teléfono, nombre, legajo."""
+    from flask import Response
+    csv_content = "\ufeffteléfono,nombre,legajo\n+5491112345678,Ejemplo,12345\n"
+    return Response(csv_content, mimetype="text/csv", headers={
+        "Content-Disposition": "attachment; filename=plantilla_contactos_comunicados.csv",
+    })
+
+
+@flask_app.get("/api/comunicados/contactos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="Sin permiso.",
+)
+def api_comunicados_contactos_list():
+    """Lista contactos guardados para la empresa (para seleccionar destinatarios)."""
+    company_id = _normalize_company_id(request.args.get("company_id") or "")
+    contactos = _get_comunicados_contactos(company_id)
+    return jsonify({"ok": True, "contactos": contactos})
+
+
+@flask_app.post("/api/comunicados/contactos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="Sin permiso.",
+)
+def api_comunicados_contactos_add():
+    """Agrega un contacto a la lista de la empresa (nombre, teléfono, legajo opcional)."""
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    nombre = str(data.get("nombre") or "").strip()
+    telefono = str(data.get("telefono") or "").strip()
+    legajo = data.get("legajo")
+    if not telefono:
+        return jsonify({"ok": False, "error": "El teléfono es obligatorio."}), 400
+    if _add_comunicado_contacto(company_id, nombre or "Sin nombre", telefono, legajo=legajo):
+        return jsonify({"ok": True, "contactos": _get_comunicados_contactos(company_id)})
+    return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
+
+
+def _remove_comunicado_contacto(company_id, telefono):
+    """Elimina un contacto de la lista de la empresa por teléfono (misma normalización que envío)."""
+    cid = _normalize_company_id(company_id)
+    if not cid:
+        return False
+    telefono = str(telefono or "").strip()
+    if not telefono:
+        return False
+    normalized_input_list = _normalize_phones_for_comunicado([telefono])
+    if not normalized_input_list:
+        return False
+    normalized_input = normalized_input_list[0]
+    if chatbot.db:
+        doc_ref = chatbot.db.collection(COMUNICADOS_CONTACTOS_COLLECTION).document(cid)
+        doc = doc_ref.get()
+        contactos = list((doc.to_dict() or {}).get("contactos") or []) if doc.exists else []
+        contactos_new = []
+        removed = False
+        for c in contactos:
+            tel_stored = (c.get("telefono") or "").strip()
+            norm_stored = _normalize_phones_for_comunicado([tel_stored])
+            if norm_stored and norm_stored[0] == normalized_input and not removed:
+                removed = True
+                continue
+            contactos_new.append(c)
+        if not removed:
+            return False
+        doc_ref.set({"contactos": contactos_new}, merge=True)
+        return True
+    return False
+
+
+@flask_app.delete("/api/comunicados/contactos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="Sin permiso.",
+)
+def api_comunicados_contactos_remove():
+    """Elimina un contacto de la lista de la empresa (por company_id y telefono)."""
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    telefono = str(data.get("telefono") or "").strip()
+    if not company_id or not telefono:
+        return jsonify({"ok": False, "error": "Faltan company_id o teléfono."}), 400
+    if _remove_comunicado_contacto(company_id, telefono):
+        return jsonify({"ok": True, "contactos": _get_comunicados_contactos(company_id)})
+    return jsonify({"ok": False, "error": "No se encontró el contacto o no se pudo eliminar."}), 404
+
+
+@flask_app.post("/api/comunicados/enviar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos para enviar comunicados.",
+)
+def api_comunicados_enviar():
+    """Envía un comunicado por WhatsApp a la lista de destinatarios (Twilio, en lotes)."""
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    destinatarios_raw = data.get("destinatarios")
+    if isinstance(destinatarios_raw, list):
+        phones = _normalize_phones_for_comunicado(destinatarios_raw)
+    elif isinstance(destinatarios_raw, str):
+        phones = _normalize_phones_for_comunicado([destinatarios_raw])
+    else:
+        phones = []
+    mensaje = str(data.get("mensaje") or "").strip()
+
+    if not phones:
+        return jsonify({"ok": False, "error": "No hay destinatarios. Pegá números o importá un archivo."}), 400
+    if not mensaje:
+        return jsonify({"ok": False, "error": "Escribí el texto del comunicado."}), 400
+
+    phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    if not phone_number_id:
+        return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM)."}), 503
+    if not phone_number_id.startswith("whatsapp:"):
+        try:
+            from twilio_whatsapp import _format_to_whatsapp
+            phone_number_id = _format_to_whatsapp(phone_number_id) or phone_number_id
+        except Exception:
+            pass
+
+    try:
+        from whatsapp_broadcast import broadcast_messages
+    except ImportError:
+        return jsonify({"ok": False, "error": "Módulo de envío no disponible."}), 503
+
+    result = broadcast_messages(
+        phone_list=phones,
+        body_text=mensaje,
+        phone_number_id=phone_number_id,
+    )
+    sent = result.get("sent", 0)
+    failed = result.get("failed", 0)
+    total = result.get("total", 0)
+    resp = {
+        "ok": True,
+        "sent": sent,
+        "failed": failed,
+        "total": total,
+        "batches_used": result.get("batches_used", 0),
+    }
+    if failed > 0:
+        try:
+            from twilio_whatsapp import last_twilio_error as twilio_err
+            err_text = (twilio_err or "").lower()
+            if "50 daily" in err_text or ("exceeded" in err_text and "limit" in err_text) or "63038" in err_text:
+                resp["error_detail"] = (
+                    "Tu cuenta Twilio alcanzó el límite de 50 mensajes por día (cuenta trial). "
+                    "Mañana se reinicia el límite, o pasate a una cuenta de pago en twilio.com para enviar más."
+                )
+            else:
+                resp["error_detail"] = (
+                    "Algunos o todos los envíos fallaron. Revisá TWILIO_WHATSAPP_FROM, "
+                    "que los números tengan WhatsApp y la consola del servidor para el error de Twilio."
+                )
+        except Exception:
+            resp["error_detail"] = (
+                "Algunos o todos los envíos fallaron. Revisá en el servidor TWILIO_WHATSAPP_FROM, "
+                "TWILIO_ACCOUNT_SID y TWILIO_AUTH_TOKEN. Ver consola del servidor para el error."
+            )
+    return jsonify(resp)
+
+
 @flask_app.get("/estadisticas")
 @rrhh_auth_required
 def stats_page():
@@ -2550,16 +2887,10 @@ def preferencias_page():
     return render_template("preferencias.html")
 
 
-@flask_app.post("/api/chat")
-def chat_api():
+def _process_chat_turn(mensaje_trim):
+    """Procesa un mensaje del chat y devuelve el dict de respuesta (reply, quick_actions, etc.). Usado por /api/chat y por el webhook de WhatsApp."""
     _apply_company_branding(_read_general_settings())
-    data = request.get_json(silent=True) or {}
-    mensaje = data.get("message", "")
-
-    if not isinstance(mensaje, str):
-        return jsonify({"ok": False, "error": "Formato de mensaje inválido"}), 400
-
-    mensaje_trim = (mensaje or "").strip()
+    mensaje = mensaje_trim
     step = _chat_context_step()
 
     if step == CHAT_CONTEXT_STEP_COMPANY:
@@ -2577,7 +2908,7 @@ def chat_api():
                 quick_actions = _construir_acciones_areas(cid, limite=8)
             else:
                 _set_chat_context_area("")
-                session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
                 reply = f"Listo. ¿En qué puedo ayudarte?"
                 company = _current_company()
                 temas_map = construir_temas_map(
@@ -2588,31 +2919,31 @@ def chat_api():
                     temas_map, limite=6,
                     permitir_hablar_con_humano=(company or {}).get("permitir_hablar_con_humano", True),
                 )
-            return jsonify({
+            return {
                 "ok": True,
                 "reply": reply,
                 "await_feedback": False,
                 "end_session": False,
                 "quick_actions": quick_actions,
                 "handoff_active": False,
-            })
+            }
         opciones = _construir_acciones_empresas(limite=8)
         nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
         if nombres:
             reply = f"No encontré esa empresa.\nMenú:\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
         else:
             reply = "No encontré esa empresa. Elegí una de las opciones o escribí el nombre correcto."
-        return jsonify({
+        return {
             "ok": True,
             "reply": reply,
             "await_feedback": False,
             "end_session": False,
             "quick_actions": opciones,
             "handoff_active": False,
-        })
+        }
 
     if step == CHAT_CONTEXT_STEP_BRANCH:
-        ctx_cid = session.get("chat_context_company_id") or (_current_company() or {}).get("company_id")
+        ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         branch = _resolve_message_to_branch(mensaje_trim, ctx_cid)
         if branch:
             _set_chat_context_branch(branch)
@@ -2624,7 +2955,7 @@ def chat_api():
                 quick_actions = _construir_acciones_areas(ctx_cid, limite=8, branch=branch)
             else:
                 _set_chat_context_area("")
-                session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
                 settings = _apply_company_branding(_read_general_settings())
                 company_name = settings.get("company_name") or "Empresa"
                 hr_display = (settings.get("hr_team_name") or "Atención").strip()
@@ -2637,32 +2968,32 @@ def chat_api():
                     temas_habilitados=(company or {}).get("temas_habilitados") or [],
                 )
                 quick_actions = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir)
-            return jsonify({
+            return {
                 "ok": True,
                 "reply": reply,
                 "await_feedback": False,
                 "end_session": False,
                 "quick_actions": quick_actions,
                 "handoff_active": False,
-            })
+            }
         opciones_branch = _construir_acciones_sucursales(ctx_cid, limite=8)
         nombres_branch = [a.get("label") or a.get("value") for a in opciones_branch if a.get("label") or a.get("value")]
         if nombres_branch:
             reply = f"No encontré esa sucursal.\nMenú:\n" + "\n".join(nombres_branch) + "\n\nEscribí el número o el nombre."
         else:
             reply = "No encontré esa sucursal. Elegí una de las opciones."
-        return jsonify({
+        return {
             "ok": True,
             "reply": reply,
             "await_feedback": False,
             "end_session": False,
             "quick_actions": opciones_branch,
             "handoff_active": False,
-        })
+        }
 
     if step == CHAT_CONTEXT_STEP_AREA:
-        ctx_cid = session.get("chat_context_company_id") or (_current_company() or {}).get("company_id")
-        ctx_branch = session.get("chat_context_branch") or None
+        ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
+        ctx_branch = _sess().get("chat_context_branch") or None
         area = _resolve_message_to_area(mensaje_trim, ctx_cid, branch=ctx_branch)
         if area:
             _set_chat_context_area(area)
@@ -2676,30 +3007,30 @@ def chat_api():
             if hr_display.upper() == "RRHH":
                 hr_display = "Atención"
             reply = f"👋 Listo (área: {area}). Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
-            return jsonify({
+            return {
                 "ok": True,
                 "reply": reply,
                 "await_feedback": False,
                 "end_session": False,
                 "quick_actions": construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
                 "handoff_active": False,
-            })
+            }
         opciones_area = _construir_acciones_areas(ctx_cid, limite=8, branch=ctx_branch)
         nombres_area = [a.get("label") or a.get("value") for a in opciones_area if a.get("label") or a.get("value")]
         if nombres_area:
             reply = f"No encontré ese área.\nMenú:\n" + "\n".join(nombres_area) + "\n\nEscribí el número o el nombre."
         else:
             reply = "No encontré ese área. Elegí una de las opciones."
-        return jsonify({
+        return {
             "ok": True,
             "reply": reply,
             "await_feedback": False,
             "end_session": False,
             "quick_actions": opciones_area,
             "handoff_active": False,
-        })
+        }
 
-    company = _set_company_session(session.get("company_id") or _default_company_id())
+    company = _set_company_session(_sess().get("company_id") or _default_company_id())
     mensaje_norm = chatbot.normalizar_texto(mensaje)
     handoff_before = bool(_get_handoff_session_id())
     log_asistente_input = not (
@@ -2731,7 +3062,86 @@ def chat_api():
             "company_id": company.get("company_id"),
         },
     )
-    return jsonify({"ok": True, **payload})
+    return {"ok": True, **payload}
+
+
+@flask_app.post("/api/chat")
+def chat_api():
+    data = request.get_json(silent=True) or {}
+    mensaje = data.get("message", "")
+    if not isinstance(mensaje, str):
+        return jsonify({"ok": False, "error": "Formato de mensaje inválido"}), 400
+    mensaje_trim = (mensaje or "").strip()
+    result = _process_chat_turn(mensaje_trim)
+    return jsonify(result)
+
+
+@flask_app.get("/webhook/twilio/whatsapp")
+def webhook_twilio_whatsapp_get():
+    """Twilio a veces valida la URL con GET. Respondemos TwiML vacío."""
+    from twilio.twiml.messaging_response import MessagingResponse
+    resp = MessagingResponse()
+    return str(resp), 200, {"Content-Type": "text/xml"}
+
+
+@flask_app.post("/webhook/twilio/whatsapp")
+def webhook_twilio_whatsapp():
+    """Recibe mensajes entrantes de Twilio (colaborador escribe por WhatsApp al número de Bacar)."""
+    from_phone = (request.form.get("From") or "").strip()
+    to_phone = (request.form.get("To") or "").strip()
+    body = (request.form.get("Body") or "").strip()
+    # Twilio envía fotos/audios con NumMedia y MediaUrl0, MediaUrl1, ...
+    media_urls = []
+    try:
+        num_media = int(request.form.get("NumMedia") or 0)
+        for i in range(num_media):
+            url = (request.form.get(f"MediaUrl{i}") or "").strip()
+            if url:
+                media_urls.append(url)
+    except (ValueError, TypeError):
+        pass
+    logger.info(
+        "Webhook Twilio WhatsApp: From=%r To=%r Body_len=%s NumMedia=%s",
+        from_phone, to_phone, len(body), len(media_urls)
+    )
+    if not from_phone:
+        logger.warning("Webhook Twilio: sin From, devolviendo 400")
+        return ("", 400)
+    if not body and not media_urls:
+        logger.info("Webhook Twilio: sin Body ni medios, ignorando (200)")
+        return ("", 200)
+    if media_urls:
+        if body:
+            body = body + "\n📎 Archivos: " + " ".join(media_urls)
+        else:
+            body = "📎 Envió " + str(len(media_urls)) + " archivo(s)"
+    g.whatsapp_from = from_phone
+    g.whatsapp_to = to_phone
+    g.whatsapp_session = WHATSAPP_SESSIONS.setdefault(from_phone, {})
+    # Recuperar handoff abierto si la sesión se perdió (p. ej. otra instancia de Cloud Run)
+    if not g.whatsapp_session.get("handoff_conversation_id"):
+        open_handoff_id = _find_open_handoff_by_whatsapp_phone(from_phone)
+        if open_handoff_id:
+            g.whatsapp_session["handoff_conversation_id"] = open_handoff_id
+            logger.info("Webhook Twilio: sesión recuperada, handoff=%s", open_handoff_id)
+    g.whatsapp_media_urls = media_urls
+    try:
+        result = _process_chat_turn(body)
+    except Exception as e:
+        logger.exception("Webhook Twilio: error en _process_chat_turn: %s", e)
+        from twilio.twiml.messaging_response import MessagingResponse
+        resp = MessagingResponse()
+        return str(resp), 200, {"Content-Type": "text/xml"}
+    reply = (result.get("reply") or "").strip()
+    if reply:
+        try:
+            from twilio_whatsapp import send_one
+            send_one(from_phone, body=reply, phone_number_id=to_phone)
+        except Exception as e:
+            logger.warning("Webhook Twilio: no se pudo enviar respuesta por WhatsApp: %s", e)
+    from twilio.twiml.messaging_response import MessagingResponse
+    resp = MessagingResponse()
+    return str(resp), 200, {"Content-Type": "text/xml"}
 
 
 @flask_app.get("/login")
@@ -3727,6 +4137,107 @@ def rrhh_cerrar_api(conversation_id):
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_CLOSED})
 
 
+# Límite de subida para adjuntos (10 MB)
+UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+UPLOAD_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "pdf"}
+
+
+def _get_storage_bucket():
+    """Devuelve el bucket de Firebase Storage si está disponible."""
+    try:
+        from firebase_admin import storage
+        bucket_name = os.getenv("FIREBASE_STORAGE_BUCKET", "").strip()
+        if bucket_name:
+            return storage.bucket(bucket_name)
+        return storage.bucket()
+    except Exception:
+        return None
+
+
+def _proxy_twilio_media(url_decoded):
+    """Descarga un recurso de Twilio (MediaUrl) con auth y lo devuelve. Solo permite URLs de api.twilio.com."""
+    url_decoded = (url_decoded or "").strip()
+    if not url_decoded.startswith("https://api.twilio.com/"):
+        return None
+    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    if not sid or not token:
+        return None
+    try:
+        from base64 import b64encode
+        from urllib.request import Request, urlopen
+        auth = b64encode(f"{sid}:{token}".encode()).decode()
+        req = Request(url_decoded, headers={"Authorization": f"Basic {auth}"})
+        resp = urlopen(req, timeout=15)
+        content = resp.read()
+        content_type = resp.headers.get("Content-Type") or "application/octet-stream"
+        from flask import Response
+        return Response(content, mimetype=content_type)
+    except Exception:
+        return None
+
+
+@flask_app.get("/api/rrhh/media")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="Sin permiso para ver adjuntos.",
+)
+def rrhh_media_proxy():
+    """Proxy para ver en el panel archivos/imágenes que el colaborador envió por WhatsApp (Twilio MediaUrl)."""
+    from urllib.parse import unquote
+    u = request.args.get("u", "").strip()
+    if not u:
+        return ("", 400)
+    url_decoded = unquote(u)
+    response = _proxy_twilio_media(url_decoded)
+    if response is None:
+        return ("", 404)
+    return response
+
+
+@flask_app.post("/api/rrhh/upload")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para subir archivos.",
+)
+def rrhh_upload_api():
+    """Sube un archivo (imagen o PDF) y devuelve una URL pública o firmada para usar como adjunto."""
+    bucket = _get_storage_bucket()
+    if not bucket:
+        return jsonify({"ok": False, "error": "Storage no configurado (Firebase Storage)."}), 501
+
+    file_storage = request.files.get("file")
+    if not file_storage or not file_storage.filename:
+        return jsonify({"ok": False, "error": "No se envió ningún archivo."}), 400
+
+    raw = file_storage.read()
+    if len(raw) > UPLOAD_MAX_BYTES:
+        return jsonify({"ok": False, "error": f"El archivo supera el límite de {UPLOAD_MAX_BYTES // (1024*1024)} MB."}), 400
+
+    ext = (file_storage.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in UPLOAD_ALLOWED_EXTENSIONS:
+        return jsonify({
+            "ok": False,
+            "error": f"Tipo no permitido. Permitidos: {', '.join(UPLOAD_ALLOWED_EXTENSIONS)}.",
+        }), 400
+
+    content_type = file_storage.content_type or ("application/pdf" if ext == "pdf" else "image/jpeg")
+    safe_name = "".join(c for c in file_storage.filename if c.isalnum() or c in "._- ").strip() or "archivo"
+    path = f"handoff_uploads/{uuid.uuid4().hex}_{safe_name}"
+
+    try:
+        blob = bucket.blob(path)
+        blob.upload_from_string(raw, content_type=content_type)
+        try:
+            url = blob.generate_signed_url(expiration=timedelta(days=7), method="GET")
+        except Exception:
+            blob.make_public()
+            url = blob.public_url
+        return jsonify({"ok": True, "url": url})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/mensajes")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_MANAGE,
@@ -3735,9 +4246,15 @@ def rrhh_cerrar_api(conversation_id):
 def rrhh_responder_api(conversation_id):
     data = request.get_json(silent=True) or {}
     mensaje = str(data.get("mensaje") or "").strip()
+    media_url_raw = data.get("media_url") or data.get("media_urls")
+    media_urls = []
+    if isinstance(media_url_raw, list):
+        media_urls = [str(u).strip() for u in media_url_raw if u and str(u).strip().startswith("http")]
+    elif isinstance(media_url_raw, str) and media_url_raw.strip().startswith("http"):
+        media_urls = [media_url_raw.strip()]
     agente = _resolve_rrhh_agent(data)
-    if not mensaje:
-        return jsonify({"ok": False, "error": "Mensaje vacío"}), 400
+    if not mensaje and not media_urls:
+        return jsonify({"ok": False, "error": "Escribí un mensaje o agregá la URL de una imagen/archivo"}), 400
 
     conv = _fetch_handoff(conversation_id)
     if not conv:
@@ -3759,15 +4276,16 @@ def rrhh_responder_api(conversation_id):
     ahora = _as_utc_naive(_utc_now())
     is_same_message = ultimo_texto_rrhh.lower() == mensaje.lower()
     same_agent = ultimo_agente_rrhh == str(agente.get("agent_id") or "").strip().lower()
-    if ultimo_rrhh_at and ahora and is_same_message and same_agent:
+    if ultimo_rrhh_at and ahora and is_same_message and same_agent and not media_urls:
         if (ahora - ultimo_rrhh_at).total_seconds() <= 8:
             return jsonify({"ok": True, "conversation_id": conversation_id, "duplicate_ignored": True})
 
     _add_handoff_message(
         conversation_id,
         remitente="rrhh",
-        texto=mensaje,
+        texto=mensaje or "(archivo adjunto)",
         agente=agente.get("display_name"),
+        media_url=media_urls if media_urls else None,
     )
     _upsert_handoff(
         conversation_id,
