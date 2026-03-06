@@ -87,6 +87,56 @@ AUTO_CLOSE_DEFAULT_MINUTES = 0
 # Sesión por número de WhatsApp cuando el mensaje llega por webhook (colaborador escribe por WA).
 WHATSAPP_SESSIONS = {}
 
+WHATSAPP_CONTEXT_COLLECTION = "whatsapp_chat_context"
+
+
+def _load_whatsapp_chat_context(phone):
+    """Carga contexto de chat (empresa/sucursal/área/step) desde Firestore para este número."""
+    if not chatbot.db or not phone:
+        return
+    norm = _normalize_phone_for_match(phone)
+    if not norm:
+        return
+    try:
+        doc = chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).get()
+        if not doc.exists:
+            return
+        data = doc.to_dict() or {}
+    except Exception:
+        return
+    sess = getattr(g, "whatsapp_session", None)
+    if not sess:
+        return
+    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name"):
+        if key in data and data[key] is not None:
+            sess[key] = data[key]
+
+
+def _save_whatsapp_chat_context(phone):
+    """Guarda en Firestore el contexto de chat de la sesión WhatsApp actual."""
+    if not chatbot.db or not phone:
+        return
+    norm = _normalize_phone_for_match(phone)
+    if not norm:
+        return
+    sess = getattr(g, "whatsapp_session", None)
+    if not sess:
+        return
+    payload = {
+        "chat_context_step": sess.get("chat_context_step"),
+        "chat_context_company_id": sess.get("chat_context_company_id"),
+        "chat_context_branch": sess.get("chat_context_branch"),
+        "chat_context_area": sess.get("chat_context_area"),
+        "company_id": sess.get("company_id"),
+        "company_name": sess.get("company_name"),
+        "updated_at": _utc_now(),
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+    try:
+        chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).set(payload, merge=True)
+    except Exception:
+        pass
+
 
 def _sess():
     """Sesión efectiva: por WhatsApp (g.whatsapp_session) o sesión web (session)."""
@@ -146,15 +196,20 @@ def _clear_chat_context():
 
 
 def _parse_menu_number(mensaje):
-    """Si el mensaje es un número de menú (ej. '1', '1.', '2)'), devuelve el índice 1-based o None."""
+    """Si el mensaje es un número de menú (ej. '1', '1.', '2)', 'Sucursal 1'), devuelve el índice 1-based o None."""
     s = (mensaje or "").strip()
     if not s:
         return None
-    s = s.rstrip(".)")
-    if not s.isdigit():
-        return None
-    n = int(s)
-    return n if n >= 1 else None
+    s_clean = s.rstrip(".)")
+    if s_clean.isdigit():
+        n = int(s_clean)
+        return n if n >= 1 else None
+    import re
+    m = re.search(r"\b([1-9]\d*)\b", s)
+    if m:
+        n = int(m.group(1))
+        return n if n >= 1 else None
+    return None
 
 
 def _resolve_message_to_company(mensaje):
@@ -170,8 +225,14 @@ def _resolve_message_to_company(mensaje):
         return cid, item
     for item in lista:
         cid = _normalize_company_id(item.get("company_id"))
-        name = chatbot.normalizar_texto(item.get("company_name") or "")
-        if mensaje_norm == chatbot.normalizar_texto(cid) or (name and mensaje_norm in name):
+        raw_name = (item.get("company_name") or cid or "").strip()
+        name = chatbot.normalizar_texto(raw_name)
+        cid_norm = chatbot.normalizar_texto(cid or "")
+        if not name:
+            name = cid_norm
+        if mensaje_norm == cid_norm or mensaje_norm == name:
+            return cid, item
+        if name and (mensaje_norm in name or (len(mensaje_norm) >= 2 and name in mensaje_norm)):
             return cid, item
     return None, None
 
@@ -529,6 +590,29 @@ def _normalize_optional_company_text(value, max_len=180):
     return raw[:max_len]
 
 
+def _normalize_whatsapp_numbers(raw):
+    """Lista de { "phone": str, "label": str } por empresa/área (ej. RRHH, Tesorería)."""
+    if not raw:
+        return []
+    out = []
+    seen_phones = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        phone = str(item.get("phone") or "").strip()
+        if not phone:
+            continue
+        if not phone.startswith("+"):
+            phone = "+" + phone.lstrip("0")
+        key = "".join(c for c in phone if c.isdigit())
+        if key in seen_phones:
+            continue
+        seen_phones.add(key)
+        label = str(item.get("label") or "").strip() or "Principal"
+        out.append({"phone": phone[:30], "label": label[:80]})
+    return out
+
+
 def _normalize_bool_flag(value, default=False):
     if isinstance(value, bool):
         return value
@@ -585,6 +669,7 @@ def _normalize_company_entry(entry):
     areas_by_branch = _normalize_areas_by_branch(entry.get("areas_by_branch"))
     if not areas_by_branch and areas:
         areas_by_branch = {AREA_BRANCH_KEY_EMPRESA: areas}
+    whatsapp_numbers = _normalize_whatsapp_numbers(entry.get("whatsapp_numbers"))
     return {
         "company_id": company_id,
         "company_name": company_name,
@@ -602,6 +687,7 @@ def _normalize_company_entry(entry):
         "active": bool(entry.get("active", True)),
         "permitir_hablar_con_humano": permitir_humano,
         "temas_habilitados": temas_habilitados,
+        "whatsapp_numbers": whatsapp_numbers,
     }
 
 
@@ -624,7 +710,23 @@ def _default_company_entry():
         "active": True,
         "permitir_hablar_con_humano": True,
         "temas_habilitados": [],
+        "whatsapp_numbers": [],
     }
+
+
+def _company_by_whatsapp_phone(phone):
+    """Si el número recibido está configurado en alguna empresa, devuelve (company_id, company, label)."""
+    if not phone:
+        return None, None, None
+    norm = _normalize_phone_for_match(phone)
+    if not norm:
+        return None, None, None
+    for company in _list_companies(include_inactive=False):
+        for line in (company.get("whatsapp_numbers") or []):
+            p = (line.get("phone") or "").strip()
+            if _normalize_phone_for_match(p) == norm:
+                return company.get("company_id"), company, (line.get("label") or "").strip() or None
+    return None, None, None
 
 
 def _merge_company_entries(current, candidate):
@@ -670,6 +772,10 @@ def _merge_company_entries(current, candidate):
         base["temas_habilitados"] = [str(t).strip().lower() for t in extra["temas_habilitados"] if str(t).strip()]
     else:
         base.setdefault("temas_habilitados", [])
+    if "whatsapp_numbers" in extra and isinstance(extra.get("whatsapp_numbers"), list):
+        base["whatsapp_numbers"] = _normalize_whatsapp_numbers(extra["whatsapp_numbers"])
+    else:
+        base.setdefault("whatsapp_numbers", [])
     return base
 
 
@@ -2111,6 +2217,8 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             branch=collaborator_branch or None,
             area=collaborator_area or None,
         )
+        if not assigned_agent:
+            assigned_agent = _select_auto_agent(company_id=company_id, branch=None, area=None)
         estado_inicial = HANDOFF_STATUS_ACTIVE if assigned_agent else HANDOFF_STATUS_PENDING
         handoff_payload = {
             "conversation_id": conversation_id,
@@ -2317,7 +2425,9 @@ def responder_chat(mensaje_usuario):
     if chatbot.solicita_contacto_rrhh(mensaje_norm):
         if not permitir:
             return _payload(
-                "En este momento no está disponible la derivación a un agente. Podés consultar el menú de temas.",
+                "En este momento la derivación a un agente está desactivada para esta empresa. "
+                "Para activarla: entrá a Preferencias en el panel, sección «Reglas del chat», elegí la empresa y marcá «Mostrar botón de derivación y permitir hablar con un agente», luego Guardar. "
+                "Mientras tanto podés consultar el menú de temas.",
                 quick_actions=_acciones_menu(6),
             )
         conversation_id = _iniciar_handoff_rrhh(mensaje_usuario)
@@ -2811,16 +2921,39 @@ def api_comunicados_enviar():
         phones = _normalize_phones_for_comunicado([destinatarios_raw])
     else:
         phones = []
-    mensaje = str(data.get("mensaje") or "").strip()
+    mensaje_raw = str(data.get("mensaje") or "").strip()
+    try:
+        mensaje = mensaje_raw.encode("utf-8", errors="replace").decode("utf-8")
+    except Exception:
+        mensaje = "".join(c for c in mensaje_raw if ord(c) < 0xD800 or ord(c) > 0xDFFF)
+    imagen_url = (data.get("imagen_url") or data.get("media_url") or "").strip()
+    if isinstance(imagen_url, list):
+        media_urls = [u.strip() for u in imagen_url if isinstance(u, str) and u.strip()]
+    else:
+        media_urls = [imagen_url] if imagen_url else []
 
     if not phones:
         return jsonify({"ok": False, "error": "No hay destinatarios. Pegá números o importá un archivo."}), 400
-    if not mensaje:
-        return jsonify({"ok": False, "error": "Escribí el texto del comunicado."}), 400
+    if not mensaje and not media_urls:
+        return jsonify({"ok": False, "error": "Escribí el texto del comunicado o agregá una imagen (URL)."}), 400
 
-    phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    phone_number_id = (data.get("whatsapp_phone") or "").strip()
+    if not phone_number_id and company_id:
+        company = _get_company(company_id, include_inactive=False)
+        if company:
+            nums = company.get("whatsapp_numbers") or []
+            label = (data.get("whatsapp_label") or "").strip().lower()
+            if label and nums:
+                for line in nums:
+                    if (str(line.get("label") or "")).strip().lower() == label:
+                        phone_number_id = (line.get("phone") or "").strip()
+                        break
+            if not phone_number_id and nums:
+                phone_number_id = (nums[0].get("phone") or "").strip()
     if not phone_number_id:
-        return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM)."}), 503
+        phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    if not phone_number_id:
+        return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM o números por empresa)."}), 503
     if not phone_number_id.startswith("whatsapp:"):
         try:
             from twilio_whatsapp import _format_to_whatsapp
@@ -2835,8 +2968,9 @@ def api_comunicados_enviar():
 
     result = broadcast_messages(
         phone_list=phones,
-        body_text=mensaje,
+        body_text=mensaje or None,
         phone_number_id=phone_number_id,
+        media_url=media_urls if media_urls else None,
     )
     sent = result.get("sent", 0)
     failed = result.get("failed", 0)
@@ -2851,8 +2985,9 @@ def api_comunicados_enviar():
     if failed > 0:
         try:
             from twilio_whatsapp import last_twilio_error as twilio_err
-            err_text = (twilio_err or "").lower()
-            if "50 daily" in err_text or ("exceeded" in err_text and "limit" in err_text) or "63038" in err_text:
+            err_text = (twilio_err or "").strip()
+            err_lower = err_text.lower()
+            if "50 daily" in err_lower or ("exceeded" in err_lower and "limit" in err_lower) or "63038" in err_lower:
                 resp["error_detail"] = (
                     "Tu cuenta Twilio alcanzó el límite de 50 mensajes por día (cuenta trial). "
                     "Mañana se reinicia el límite, o pasate a una cuenta de pago en twilio.com para enviar más."
@@ -2860,8 +2995,10 @@ def api_comunicados_enviar():
             else:
                 resp["error_detail"] = (
                     "Algunos o todos los envíos fallaron. Revisá TWILIO_WHATSAPP_FROM, "
-                    "que los números tengan WhatsApp y la consola del servidor para el error de Twilio."
+                    "que los números tengan WhatsApp y que la URL de la imagen sea pública (Twilio tiene que poder descargarla)."
                 )
+                if err_text:
+                    resp["error_detail"] += " Error de Twilio: " + err_text[:400]
         except Exception:
             resp["error_detail"] = (
                 "Algunos o todos los envíos fallaron. Revisá en el servidor TWILIO_WHATSAPP_FROM, "
@@ -2894,6 +3031,21 @@ def _process_chat_turn(mensaje_trim):
     step = _chat_context_step()
 
     if step == CHAT_CONTEXT_STEP_COMPANY:
+        mensaje_norm = chatbot.normalizar_texto(mensaje_trim)
+        if chatbot.solicita_contacto_rrhh(mensaje_norm):
+            opciones = _construir_acciones_empresas(limite=8)
+            nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
+            reply = "Para hablar con un agente primero elegí tu empresa en el menú."
+            if nombres:
+                reply += "\n\nMenú:\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+            return {
+                "ok": True,
+                "reply": reply,
+                "await_feedback": False,
+                "end_session": False,
+                "quick_actions": opciones,
+                "handoff_active": False,
+            }
         cid, company = _resolve_message_to_company(mensaje_trim)
         if cid and company:
             _set_chat_context_company(cid)
@@ -2909,7 +3061,7 @@ def _process_chat_turn(mensaje_trim):
             else:
                 _set_chat_context_area("")
                 _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
-                reply = f"Listo. ¿En qué puedo ayudarte?"
+                reply = "Listo. ¿Sobre qué tema querés consultar? Escribí el número o el nombre del menú."
                 company = _current_company()
                 temas_map = construir_temas_map(
                     company_id=cid,
@@ -2944,6 +3096,14 @@ def _process_chat_turn(mensaje_trim):
 
     if step == CHAT_CONTEXT_STEP_BRANCH:
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
+        mensaje_norm_b = chatbot.normalizar_texto(mensaje_trim)
+        if chatbot.solicita_contacto_rrhh(mensaje_norm_b):
+            opciones_b = _construir_acciones_sucursales(ctx_cid, limite=8)
+            nombres_b = [a.get("label") or a.get("value") for a in opciones_b if a.get("label") or a.get("value")]
+            reply_b = "Para hablar con un agente primero elegí tu sucursal en el menú."
+            if nombres_b:
+                reply_b += "\n\nMenú:\n" + "\n".join(nombres_b) + "\n\nEscribí el número o el nombre."
+            return {"ok": True, "reply": reply_b, "await_feedback": False, "end_session": False, "quick_actions": opciones_b, "handoff_active": False}
         branch = _resolve_message_to_branch(mensaje_trim, ctx_cid)
         if branch:
             _set_chat_context_branch(branch)
@@ -2957,11 +3117,14 @@ def _process_chat_turn(mensaje_trim):
                 _set_chat_context_area("")
                 _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
                 settings = _apply_company_branding(_read_general_settings())
-                company_name = settings.get("company_name") or "Empresa"
-                hr_display = (settings.get("hr_team_name") or "Atención").strip()
+                company_name = (settings.get("company_name") or "Empresa").strip() or "Empresa"
+                hr_display = (settings.get("hr_team_name") or "Atención").strip() or "Atención"
                 if hr_display.upper() == "RRHH":
                     hr_display = "Atención"
-                reply = f"👋 Listo (sucursal: {branch}). Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+                reply = (
+                    "👋 Listo (sucursal: {}). Soy el asistente de {} de {}.\n"
+                    "¿Sobre qué tema querés consultar? Escribí el número o el nombre del menú."
+                ).format(branch, hr_display, company_name)
                 permitir = (company or {}).get("permitir_hablar_con_humano", True)
                 temas_map = construir_temas_map(
                     company_id=ctx_cid,
@@ -2994,6 +3157,14 @@ def _process_chat_turn(mensaje_trim):
     if step == CHAT_CONTEXT_STEP_AREA:
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         ctx_branch = _sess().get("chat_context_branch") or None
+        mensaje_norm_a = chatbot.normalizar_texto(mensaje_trim)
+        if chatbot.solicita_contacto_rrhh(mensaje_norm_a):
+            opciones_a = _construir_acciones_areas(ctx_cid, limite=8, branch=ctx_branch)
+            nombres_a = [a.get("label") or a.get("value") for a in opciones_a if a.get("label") or a.get("value")]
+            reply_a = "Para hablar con un agente primero elegí tu área en el menú."
+            if nombres_a:
+                reply_a += "\n\nMenú:\n" + "\n".join(nombres_a) + "\n\nEscribí el número o el nombre."
+            return {"ok": True, "reply": reply_a, "await_feedback": False, "end_session": False, "quick_actions": opciones_a, "handoff_active": False}
         area = _resolve_message_to_area(mensaje_trim, ctx_cid, branch=ctx_branch)
         if area:
             _set_chat_context_area(area)
@@ -3002,11 +3173,14 @@ def _process_chat_turn(mensaje_trim):
             temas_habilitados = (company or {}).get("temas_habilitados") or []
             temas_map = construir_temas_map(company_id=ctx_cid, temas_habilitados=temas_habilitados)
             settings = _apply_company_branding(_read_general_settings())
-            company_name = settings.get("company_name") or "Empresa"
-            hr_display = (settings.get("hr_team_name") or "Atención").strip()
+            company_name = (settings.get("company_name") or "Empresa").strip() or "Empresa"
+            hr_display = (settings.get("hr_team_name") or "Atención").strip() or "Atención"
             if hr_display.upper() == "RRHH":
                 hr_display = "Atención"
-            reply = f"👋 Listo (área: {area}). Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+            reply = (
+                "👋 Listo (área: {}). Soy el asistente de {} de {}.\n"
+                "¿Sobre qué tema querés consultar? Escribí el número o el nombre del menú."
+            ).format(area, hr_display, company_name)
             return {
                 "ok": True,
                 "reply": reply,
@@ -3029,6 +3203,35 @@ def _process_chat_turn(mensaje_trim):
             "quick_actions": opciones_area,
             "handoff_active": False,
         }
+
+    if step == CHAT_CONTEXT_STEP_READY:
+        mensaje_norm_ready = chatbot.normalizar_texto(mensaje_trim)
+        quiere_cambiar = getattr(chatbot, "solicita_cambiar_empresa", None) and chatbot.solicita_cambiar_empresa(mensaje_norm_ready)
+        if not quiere_cambiar:
+            cid_actual = _normalize_company_id(_sess().get("company_id") or _default_company_id())
+            cid_otro, company_otra = _resolve_message_to_company(mensaje_trim)
+            if cid_otro and company_otra and cid_otro != cid_actual:
+                quiere_cambiar = True
+        if quiere_cambiar:
+            _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_COMPANY
+            _sess().pop("chat_context_company_id", None)
+            _sess().pop("chat_context_branch", None)
+            _sess().pop("chat_context_area", None)
+            _sess().pop("company_id", None)
+            _sess().pop("company_name", None)
+            opciones = _construir_acciones_empresas(limite=8)
+            nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
+            reply = "Sin problema. Elegí la empresa con la que querés hablar."
+            if nombres:
+                reply += "\n\nMenú:\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+            return {
+                "ok": True,
+                "reply": reply,
+                "await_feedback": False,
+                "end_session": False,
+                "quick_actions": opciones,
+                "handoff_active": False,
+            }
 
     company = _set_company_session(_sess().get("company_id") or _default_company_id())
     mensaje_norm = chatbot.normalizar_texto(mensaje)
@@ -3118,7 +3321,26 @@ def webhook_twilio_whatsapp():
     g.whatsapp_from = from_phone
     g.whatsapp_to = to_phone
     g.whatsapp_session = WHATSAPP_SESSIONS.setdefault(from_phone, {})
-    # Recuperar handoff abierto si la sesión se perdió (p. ej. otra instancia de Cloud Run)
+    if not g.whatsapp_session.get("chat_context_step"):
+        _load_whatsapp_chat_context(from_phone)
+    if not g.whatsapp_session.get("chat_context_company_id"):
+        cid, company, line_label = _company_by_whatsapp_phone(to_phone)
+        if cid and company:
+            g.whatsapp_session["chat_context_company_id"] = cid
+            g.whatsapp_session["company_id"] = cid
+            g.whatsapp_session["company_name"] = company.get("company_name") or cid
+            branches = _get_branches_for_company(company)
+            areas = _get_all_areas_for_company(company)
+            label_norm = (line_label or "").strip().lower()
+            if label_norm and areas and any(str(a).strip().lower() == label_norm for a in areas):
+                g.whatsapp_session["chat_context_area"] = line_label.strip()
+                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+            elif branches:
+                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
+            elif areas:
+                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+            else:
+                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
     if not g.whatsapp_session.get("handoff_conversation_id"):
         open_handoff_id = _find_open_handoff_by_whatsapp_phone(from_phone)
         if open_handoff_id:
@@ -3139,6 +3361,7 @@ def webhook_twilio_whatsapp():
             send_one(from_phone, body=reply, phone_number_id=to_phone)
         except Exception as e:
             logger.warning("Webhook Twilio: no se pudo enviar respuesta por WhatsApp: %s", e)
+    _save_whatsapp_chat_context(from_phone)
     from twilio.twiml.messaging_response import MessagingResponse
     resp = MessagingResponse()
     return str(resp), 200, {"Content-Type": "text/xml"}
@@ -3623,6 +3846,9 @@ def configuracion_editar_empresa_api(company_id):
             default=True,
         ),
         "temas_habilitados": current.get("temas_habilitados") or [],
+        "whatsapp_numbers": _normalize_whatsapp_numbers(
+            data.get("whatsapp_numbers") if "whatsapp_numbers" in data else (current.get("whatsapp_numbers") or [])
+        ),
     }
     th = data.get("temas_habilitados")
     if isinstance(th, list):
@@ -3686,15 +3912,40 @@ def configuracion_autocierre_ejecutar_api():
 def rrhh_conversaciones_api():
     _heartbeat_current_agent()
     include_closed = str(request.args.get("include_closed", "false")).lower() == "true"
+    include_all_filters = str(request.args.get("include_all_filters", "false")).lower() == "true"
     branches_param = request.args.get("branches")
-    branches = None
-    if branches_param is not None and str(branches_param).strip():
+    if branches_param is not None:
         branches = [b.strip() for b in str(branches_param).split(",") if b.strip()]
+    else:
+        branches = None
     areas_param = request.args.get("areas")
-    areas = None
-    if areas_param is not None and str(areas_param).strip():
+    if areas_param is not None:
         areas = [a.strip() for a in str(areas_param).split(",") if a.strip()]
+    else:
+        areas = None
     company = _current_company()
+    company_id_norm = _normalize_company_id(company.get("company_id"))
+    default_branches = None
+    default_areas = None
+    if _auth_enabled() and not include_all_filters and branches is None and areas is None:
+        user = _current_rrhh_user()
+        if user:
+            assignments = user.get("assignments") or []
+            branch_set = set()
+            for a in assignments:
+                if isinstance(a, dict) and _normalize_company_id(a.get("company_id")) == company_id_norm:
+                    b = str(a.get("branch") or "").strip()
+                    if b:
+                        branch_set.add(b)
+            if branch_set:
+                default_branches = list(branch_set)
+            user_area = str(user.get("area") or "").strip()
+            if user_area:
+                default_areas = [user_area]
+    if branches is None and default_branches is not None:
+        branches = default_branches
+    if areas is None and default_areas is not None:
+        areas = default_areas
     auto_close_result = _auto_close_expired_handoffs(company=company)
     convs = _list_handoffs(
         include_closed=include_closed,
@@ -3709,22 +3960,25 @@ def rrhh_conversaciones_api():
         if name:
             company_branches.append({"name": name})
     company_areas = _get_all_areas_for_company(company)
-    return jsonify(
-        {
-            "ok": True,
-            "conversaciones": [_serialize_handoff(c) for c in convs],
-            "agente_actual": _rrhh_agent_name() if _auth_enabled() else "",
-            "agentes_activos": [
-                _serialize_active_agent(agent)
-                for agent in _list_active_agents(company_id=company.get("company_id"))
-            ],
-            "selected_company_id": company.get("company_id"),
-            "selected_company_name": company.get("company_name"),
-            "branches": company_branches,
-            "areas": [str(a).strip() for a in (company_areas or []) if str(a).strip()],
-            "autocierre": auto_close_result,
-        }
-    )
+    out = {
+        "ok": True,
+        "conversaciones": [_serialize_handoff(c) for c in convs],
+        "agente_actual": _rrhh_agent_name() if _auth_enabled() else "",
+        "agentes_activos": [
+            _serialize_active_agent(agent)
+            for agent in _list_active_agents(company_id=company.get("company_id"))
+        ],
+        "selected_company_id": company.get("company_id"),
+        "selected_company_name": company.get("company_name"),
+        "branches": company_branches,
+        "areas": [str(a).strip() for a in (company_areas or []) if str(a).strip()],
+        "autocierre": auto_close_result,
+    }
+    if default_branches is not None:
+        out["filter_by_branches"] = default_branches
+    if default_areas is not None:
+        out["filter_by_areas"] = default_areas
+    return jsonify(out)
 
 
 @flask_app.post("/api/rrhh/empresa/seleccionar")
@@ -4202,29 +4456,37 @@ def rrhh_media_proxy():
 )
 def rrhh_upload_api():
     """Sube un archivo (imagen o PDF) y devuelve una URL pública o firmada para usar como adjunto."""
+    url, err = _upload_file_to_storage("handoff_uploads")
+    if err:
+        if "Storage no configurado" in err:
+            return jsonify({"ok": False, "error": err}), 501
+        if "supera el límite" in err:
+            return jsonify({"ok": False, "error": err}), 400
+        if "Tipo no permitido" in err:
+            return jsonify({"ok": False, "error": err}), 400
+        if "No se envió" in err:
+            return jsonify({"ok": False, "error": err}), 400
+        return jsonify({"ok": False, "error": err}), 500
+    return jsonify({"ok": True, "url": url})
+
+
+def _upload_file_to_storage(prefix_path: str):
+    """Sube el archivo del request a Firebase Storage. prefix_path ej: 'handoff_uploads' o 'comunicados_uploads'."""
     bucket = _get_storage_bucket()
     if not bucket:
-        return jsonify({"ok": False, "error": "Storage no configurado (Firebase Storage)."}), 501
-
+        return None, "Storage no configurado (Firebase Storage)."
     file_storage = request.files.get("file")
     if not file_storage or not file_storage.filename:
-        return jsonify({"ok": False, "error": "No se envió ningún archivo."}), 400
-
+        return None, "No se envió ningún archivo."
     raw = file_storage.read()
     if len(raw) > UPLOAD_MAX_BYTES:
-        return jsonify({"ok": False, "error": f"El archivo supera el límite de {UPLOAD_MAX_BYTES // (1024*1024)} MB."}), 400
-
+        return None, f"El archivo supera el límite de {UPLOAD_MAX_BYTES // (1024*1024)} MB."
     ext = (file_storage.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in UPLOAD_ALLOWED_EXTENSIONS:
-        return jsonify({
-            "ok": False,
-            "error": f"Tipo no permitido. Permitidos: {', '.join(UPLOAD_ALLOWED_EXTENSIONS)}.",
-        }), 400
-
+        return None, f"Tipo no permitido. Permitidos: {', '.join(UPLOAD_ALLOWED_EXTENSIONS)}."
     content_type = file_storage.content_type or ("application/pdf" if ext == "pdf" else "image/jpeg")
     safe_name = "".join(c for c in file_storage.filename if c.isalnum() or c in "._- ").strip() or "archivo"
-    path = f"handoff_uploads/{uuid.uuid4().hex}_{safe_name}"
-
+    path = f"{prefix_path}/{uuid.uuid4().hex}_{safe_name}"
     try:
         blob = bucket.blob(path)
         blob.upload_from_string(raw, content_type=content_type)
@@ -4233,9 +4495,26 @@ def rrhh_upload_api():
         except Exception:
             blob.make_public()
             url = blob.public_url
-        return jsonify({"ok": True, "url": url})
+        return url, None
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return None, str(e)
+
+
+@flask_app.post("/api/comunicados/upload")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos para enviar comunicados.",
+)
+def api_comunicados_upload():
+    """Sube una imagen o PDF para adjuntar al comunicado; devuelve la URL pública o firmada."""
+    url, err = _upload_file_to_storage("comunicados_uploads")
+    if err:
+        if "Storage no configurado" in err:
+            return jsonify({"ok": False, "error": err + " Configurá FIREBASE_STORAGE_BUCKET (ej: it-analyzer.firebasestorage.app)."}), 501
+        if "No se envió" in err or "Tipo no permitido" in err or "supera el límite" in err:
+            return jsonify({"ok": False, "error": err}), 400
+        return jsonify({"ok": False, "error": err}), 500
+    return jsonify({"ok": True, "url": url})
 
 
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/mensajes")

@@ -174,6 +174,11 @@ INTENCIONES_CONTACTO = {
     "asistente", "agente", "hablar con un agente", "hablar con un asistente",
     "hablar con alguien", "contacto humano", "atencion humana",
 }
+INTENCIONES_CAMBIAR_EMPRESA = {
+    "otra empresa", "cambiar empresa", "cambiar de empresa", "otra compania",
+    "cambiar compania", "hablar con otra empresa", "quiero otra empresa",
+    "cambiar a otra empresa", "elegir otra empresa",
+}
 PALABRAS_NEGATIVAS = {
     "mal",
     "pesimo",
@@ -505,6 +510,18 @@ def solicita_contacto_rrhh(entrada_norm):
     if entrada_norm == "h":
         return True
     return any(contiene_frase(entrada_norm, clave) for clave in INTENCIONES_CONTACTO)
+
+
+def solicita_cambiar_empresa(entrada_norm):
+    """True si el usuario pide cambiar de empresa (ej. 'quiero hablar con otra empresa')."""
+    if any(contiene_frase(entrada_norm, clave) for clave in INTENCIONES_CAMBIAR_EMPRESA):
+        return True
+    # Fallback: "otra" + "empresa" o "cambiar" + "empresa" en el mensaje
+    if "empresa" in entrada_norm and ("otra" in entrada_norm or "cambiar" in entrada_norm):
+        return True
+    if "compania" in entrada_norm and ("otra" in entrada_norm or "cambiar" in entrada_norm):
+        return True
+    return False
 
 
 def sugerir_temas(entrada, temas_map, limite=3):

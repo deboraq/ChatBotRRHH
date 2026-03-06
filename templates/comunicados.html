@@ -14,7 +14,7 @@
       .comunicados-step h2 { margin: 0 0 0.75rem 0; font-size: 1.1rem; color: var(--text, #333); }
       .comunicados-step .step-desc { font-size: 0.9rem; color: var(--text-muted, #666); margin-bottom: 0.75rem; }
       .comunicados-form label { display: flex; flex-direction: column; gap: 0.35rem; font-weight: 500; margin-bottom: 0.75rem; }
-      .comunicados-form textarea { min-height: 80px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; font-family: inherit; }
+      .comunicados-form textarea { min-height: 80px; resize: vertical; padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", Inter, "Segoe UI", Arial, sans-serif !important; }
       .comunicados-form select { padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; max-width: 320px; }
       .comunicados-form .hint { font-size: 0.85rem; color: var(--text-muted, #666); font-weight: normal; }
       .comunicados-dest-options { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
@@ -82,6 +82,13 @@
       .contactos-add .nombre { min-width: 140px; }
       .contactos-add .telefono { min-width: 140px; }
       .contactos-add .legajo { min-width: 100px; }
+      .comunicados-paso1-block { margin-top: 1.5rem; padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-color, #e0e0e0); background: var(--panel-bg, #fff); }
+      .comunicados-paso1-block:first-of-type { margin-top: 1rem; }
+      .comunicados-paso1-block h3.block-title { margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 600; color: var(--text, #333); }
+      .comunicados-paso1-block .block-desc { font-size: 0.875rem; color: var(--text-muted, #666); margin-bottom: 0.75rem; line-height: 1.4; }
+      .comunicados-paso1-block .comunicados-dest-options { margin-bottom: 0.5rem; }
+      html[data-theme="dark"] .comunicados-paso1-block { background: var(--panel-bg); border-color: var(--border-color, #333); }
+      html[data-theme="dark"] .comunicados-paso1-block h3.block-title { color: var(--text, #eee); }
       .comunicados-result { margin-top: 1.5rem; padding: 1rem; border-radius: 8px; background: var(--panel-bg, #f5f5f5); border: 1px solid var(--border-color, #ddd); }
       .comunicados-result.success { background: #e8f5e9; border-color: #81c784; }
       .comunicados-result.error { background: #ffebee; border-color: #e57373; }
@@ -91,6 +98,25 @@
       .btn-send:hover { opacity: 0.9; }
       .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
       .btn-primary-small { padding: 0.35rem 0.7rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+      .comunicados-msg-wrap { position: relative; }
+      .comunicados-msg-toolbar { position: relative; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+      .comunicados-emoji-btn { padding: 0.35rem 0.6rem; font-size: 1.1rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; background: var(--panel-bg, #fff); cursor: pointer; }
+      .comunicados-emoji-btn:hover { background: var(--border-color, #eee); }
+      .comunicados-emoji-panel { display: none; position: absolute; left: 0; bottom: 100%; margin-bottom: 4px; padding: 0.5rem; background: var(--panel-bg, #fff); border: 1px solid var(--border-color, #ccc); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 50; max-width: 280px; max-height: 200px; overflow-y: auto; }
+      .comunicados-emoji-panel.open { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+      .comunicados-emoji-panel span { font-size: 1.25rem; cursor: pointer; padding: 0.2rem; line-height: 1.2; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif; }
+      .comunicados-emoji-panel span:hover { background: rgba(0,0,0,0.08); border-radius: 4px; }
+      .comunicados-imagen-url { margin-top: 0.75rem; }
+      .comunicados-imagen-url input { width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; }
+      .comunicados-file-wrap { margin-top: 0.75rem; padding: 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; background: var(--panel-bg, #fff); max-width: 400px; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+      .comunicados-file-label { font-size: 0.9rem; cursor: pointer; font-weight: 500; margin: 0; }
+      .comunicado-file-input { font-size: 0.9rem; min-height: auto; padding: 0.35rem 0.5rem; border: 1px solid var(--border-color, #ccc); border-radius: 6px; background: var(--panel-bg, #fff); color: var(--text, #333); }
+      .comunicado-file-name { font-size: 0.85rem; color: var(--text-muted, #666); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      html[data-theme="dark"] .comunicados-file-wrap { background: var(--panel-bg); border-color: var(--border-color, #444); }
+      html[data-theme="dark"] .comunicado-file-input { background: var(--panel-bg); border-color: var(--border-color, #444); color: var(--text); }
+      html[data-theme="dark"] .comunicado-file-name { color: #aaa; }
+      html[data-theme="dark"] .comunicados-emoji-panel { background: #1a1a1a; border-color: #444; }
+      html[data-theme="dark"] .comunicados-emoji-btn { background: #2a2a2a; border-color: #444; }
       html[data-theme="dark"] .comunicados-step { background: var(--panel-bg); }
       html[data-theme="dark"] .comunicados-result { background: var(--panel-bg); }
       html[data-theme="dark"] .comunicados-result.success { background: rgba(76, 175, 80, 0.15); }
@@ -133,23 +159,46 @@
             </option>
             {% endfor %}
           </select>
-          <span class="hint">Se usa el número de WhatsApp del proyecto (Twilio).</span>
+          <span class="hint">Se usa el número de WhatsApp del proyecto o el que configuraste por empresa/canal.</span>
         </label>
+        <div id="comunicados-canal-wrap" class="comunicados-canal-wrap" style="display:none;">
+          <label>
+            Enviar desde (canal/número)
+            <select id="whatsapp-canal" name="whatsapp_label">
+              <option value="">Por defecto</option>
+            </select>
+          </label>
+          <span class="hint">Si la empresa tiene varios números (RRHH, Tesorería, etc.), elegí desde cuál enviar.</span>
+        </div>
 
         <div class="comunicados-step">
           <h2>Paso 1 – Quién recibe el mensaje (destinatarios)</h2>
-          <p class="step-desc">Elegí una o más opciones: seleccionar de tus contactos guardados, descargar plantilla para completar en Excel, o pegar/importar números.</p>
+          <p class="step-desc">Primero cargá contactos (con la plantilla o uno por uno). Después elegí quiénes reciben este mensaje con «Seleccionar contactos» o pegando números en la lista final.</p>
 
-          <p style="margin-bottom: 0.5rem; font-weight: 500;">Mis contactos guardados</p>
-          <div class="contactos-add">
-            <input type="text" id="contacto-nombre" class="nombre" placeholder="Nombre" />
-            <input type="text" id="contacto-telefono" class="telefono" placeholder="Teléfono ej. +54911..." />
-            <input type="text" id="contacto-legajo" class="legajo" placeholder="Legajo (opcional)" />
-            <button type="button" id="btn-agregar-contacto" class="btn-primary-small">Agregar contacto</button>
+          <div class="comunicados-paso1-block">
+            <h3 class="block-title">1. Cargar contactos</h3>
+            <p class="block-desc">Importá varios con la plantilla CSV o agregá uno por uno. Todo queda en «Mis contactos guardados».</p>
+            <p style="margin: 0 0 0.5rem 0; font-weight: 600; font-size: 0.9rem;">Plantilla (CSV)</p>
+            <div class="comunicados-dest-options">
+              <a href="/api/comunicados/plantilla" class="plantilla" download>Descargar plantilla</a>
+              <input type="file" id="file-import" accept=".csv,.txt" style="max-width: 220px;" />
+            </div>
+            <span class="hint">Completá teléfono, nombre y legajo en Excel, guardá como CSV y subí el archivo.</span>
+            <p style="margin: 1.25rem 0 0.5rem 0; font-weight: 600; font-size: 0.9rem;">Agregar uno por uno</p>
+            <div class="contactos-add">
+              <input type="text" id="contacto-nombre" class="nombre" placeholder="Nombre" />
+              <input type="text" id="contacto-telefono" class="telefono" placeholder="Teléfono ej. +54911..." />
+              <input type="text" id="contacto-legajo" class="legajo" placeholder="Legajo (opcional)" />
+              <button type="button" id="btn-agregar-contacto" class="btn-primary-small">Agregar contacto</button>
+            </div>
           </div>
-          <div id="contactos-list-wrap">
-            <p class="hint" id="contactos-summary" style="margin-bottom: 0.5rem;">Cargando contactos…</p>
+
+          <div class="comunicados-paso1-block">
+            <h3 class="block-title">2. Elegir destinatarios</h3>
+            <p class="block-desc">Desde tus contactos guardados, elegí quiénes reciben este mensaje.</p>
+            <p class="hint" id="contactos-summary" style="margin-bottom: 0.75rem;">Cargando contactos…</p>
             <button type="button" id="btn-seleccionar-contactos" class="btn-seleccionar-contactos">Seleccionar contactos</button>
+            <p class="hint" style="margin-top: 0.5rem;">Se abrirá una ventana para marcar contactos y sumarlos a la lista de abajo.</p>
           </div>
 
           <!-- Modal Seleccionar contactos -->
@@ -174,26 +223,37 @@
             </div>
           </div>
 
-          <p style="margin: 1rem 0 0.5rem 0; font-weight: 500;">Plantilla e importar</p>
-          <div class="comunicados-dest-options">
-            <a href="/api/comunicados/plantilla" class="plantilla" download>Descargar plantilla (CSV para Excel)</a>
-            <input type="file" id="file-import" accept=".csv,.txt" style="max-width: 220px;" />
+          <div class="comunicados-paso1-block">
+            <h3 class="block-title">3. Lista de destinatarios de este mensaje</h3>
+            <p class="block-desc">Acá van los teléfonos que recibirán el comunicado. Llenala con «Seleccionar contactos» o pegando números (uno por línea o separados por coma).</p>
+            <label>
+              <textarea id="destinatarios" name="destinatarios" placeholder="Pegá números o usá «Seleccionar contactos» para agregar desde tus contactos guardados."></textarea>
+              <span class="hint" id="destinatarios-count">0 destinatario(s).</span>
+            </label>
           </div>
-          <span class="hint">Abrí la plantilla en Excel, completá teléfono, nombre y legajo, guardala como CSV y subila acá. También podés pegar números en el cuadro de abajo (uno por línea o separados por coma).</span>
-
-          <label style="margin-top: 1rem;">
-            Lista de teléfonos que recibirán el comunicado
-            <textarea id="destinatarios" name="destinatarios" placeholder="Acá se arma la lista: pegá números (uno por línea o separados por coma), o usá «Agregar seleccionados» desde tus contactos, o importá un archivo."></textarea>
-            <span class="hint" id="destinatarios-count">0 destinatario(s).</span>
-          </label>
         </div>
 
         <div class="comunicados-step">
           <h2>Paso 2 – Mensaje</h2>
-          <p class="step-desc">El texto que recibirán todos por WhatsApp.</p>
-          <label>
-            <textarea id="mensaje" name="mensaje" placeholder="Escribí el mensaje del comunicado..." required minlength="1"></textarea>
-          </label>
+          <p class="step-desc">El texto que recibirán todos por WhatsApp. Podés usar emojis y adjuntar una imagen por URL o subir un archivo del equipo o celular.</p>
+          <div class="comunicados-msg-wrap">
+            <div class="comunicados-msg-toolbar">
+              <button type="button" id="btn-emoji-comunicado" class="comunicados-emoji-btn" title="Insertar emoji">😀</button>
+              <div id="emoji-panel-comunicado" class="comunicados-emoji-panel" role="group" aria-label="Emojis"></div>
+            </div>
+            <label>
+              <textarea id="mensaje" name="mensaje" placeholder="Escribí el mensaje del comunicado..." minlength="1"></textarea>
+            </label>
+            <div class="comunicados-imagen-url">
+              <label for="imagen-url">URL de imagen (opcional)</label>
+              <input type="url" id="imagen-url" name="imagen_url" placeholder="https://ejemplo.com/imagen.jpg" autocomplete="off" />
+            </div>
+            <div class="comunicados-file-wrap">
+              <label for="comunicado-archivo" class="comunicados-file-label">📎 Subir foto o archivo</label>
+              <input type="file" id="comunicado-archivo" accept="image/*,.pdf,application/pdf" class="comunicado-file-input" />
+              <span id="comunicado-archivo-name" class="comunicado-file-name"></span>
+            </div>
+          </div>
         </div>
 
         <div class="comunicados-step">
@@ -205,10 +265,14 @@
       <div id="resultado" class="comunicados-result" style="display: none;" role="status"></div>
     </main>
 
+    <script>window.availableCompaniesForComunicados = {{ available_companies | tojson }};</script>
     <script>
       (function() {
         var form = document.getElementById("form-comunicados");
         var companyEl = document.getElementById("company-id");
+        var canalWrap = document.getElementById("comunicados-canal-wrap");
+        var whatsappCanalEl = document.getElementById("whatsapp-canal");
+        var availableCompanies = window.availableCompaniesForComunicados || [];
         var destinatariosEl = document.getElementById("destinatarios");
         var fileImport = document.getElementById("file-import");
         var btnEnviar = document.getElementById("btn-enviar");
@@ -227,6 +291,73 @@
         destinatariosEl.addEventListener("input", updateDestinatariosCount);
 
         function getCompanyId() { return (companyEl && companyEl.value) ? companyEl.value.trim() : ""; }
+
+        function updateCanalSelect() {
+          var cid = getCompanyId();
+          var company = availableCompanies.filter(function(c) { return (c.company_id || "") === cid; })[0] || null;
+          var nums = (company && company.whatsapp_numbers) ? company.whatsapp_numbers : [];
+          if (!whatsappCanalEl) return;
+          whatsappCanalEl.innerHTML = "<option value=\"\">Por defecto</option>";
+          nums.forEach(function(line) {
+            var opt = document.createElement("option");
+            opt.value = (line.label || "").trim() || "Principal";
+            opt.textContent = (opt.value + " (" + (line.phone || "") + ")").trim();
+            whatsappCanalEl.appendChild(opt);
+          });
+          if (canalWrap) canalWrap.style.display = nums.length ? "block" : "none";
+        }
+        if (companyEl) companyEl.addEventListener("change", updateCanalSelect);
+        updateCanalSelect();
+
+        var mensajeEl = document.getElementById("mensaje");
+        var imagenUrlEl = document.getElementById("imagen-url");
+        var comunicadoArchivoEl = document.getElementById("comunicado-archivo");
+        var comunicadoArchivoNameEl = document.getElementById("comunicado-archivo-name");
+        var btnEmojiComunicado = document.getElementById("btn-emoji-comunicado");
+        var emojiPanelComunicado = document.getElementById("emoji-panel-comunicado");
+        var EMOJIS_COMUNICADO = "😀😃😄😁😅😂🤣😊😇🙂😉😌😍🥰😘😗😙😚😋😛😜🤪😝🤑🤗🤭🤫🤔😐😑😶😏😣😥😮🤐😯😪😫😴🤤😷🤒🤕🤢🤮🤧🥵🥶🥴😵🤯🤠🥳😎🤓🧐😕😟🙁😮😯😲😳🥺😦😧😨😰😥😢😭😱😖😣😞😓😩😫🥱😤😡😠🤬😈💀☠️👍👎👌✌️🤞🤟🤘🤙👈👉👆👇☝️✋🤚🖐️🖖👋🤙💪🦾🙏💯🔥❤️🧡💛💚💙💜🖤🤍🤎💔❣️💕💞💓💗💖💘💝💟✅❌⭐🌟✨💫📌📍🎉🎊🏆🥇🥈🥉";
+        if (btnEmojiComunicado && emojiPanelComunicado && mensajeEl) {
+          Array.from(EMOJIS_COMUNICADO).forEach(function(c) {
+            if (/\s/.test(c)) return;
+            var span = document.createElement("span");
+            span.textContent = c;
+            span.setAttribute("role", "button");
+            span.setAttribute("tabindex", "0");
+            span.addEventListener("click", function() {
+              var em = this.textContent;
+              var ta = mensajeEl;
+              var start = ta.selectionStart, end = ta.selectionEnd;
+              ta.value = ta.value.slice(0, start) + em + ta.value.slice(end);
+              ta.selectionStart = ta.selectionEnd = start + em.length;
+              ta.focus();
+            });
+            emojiPanelComunicado.appendChild(span);
+          });
+          btnEmojiComunicado.addEventListener("click", function(e) {
+            e.preventDefault();
+            emojiPanelComunicado.classList.toggle("open");
+          });
+          document.addEventListener("click", function(e) {
+            if (!emojiPanelComunicado.contains(e.target) && e.target !== btnEmojiComunicado) emojiPanelComunicado.classList.remove("open");
+          });
+        }
+
+        if (comunicadoArchivoEl) {
+          comunicadoArchivoEl.addEventListener("change", function() {
+            if (comunicadoArchivoNameEl) comunicadoArchivoNameEl.textContent = this.files && this.files[0] ? this.files[0].name : "";
+          });
+        }
+
+        function subirArchivoComunicado(file) {
+          var formData = new FormData();
+          formData.append("file", file);
+          return fetch("/api/comunicados/upload", { method: "POST", body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (!data.ok) throw new Error(data.error || "No se pudo subir el archivo.");
+              return data.url;
+            });
+        }
 
         var contactosSummaryEl = document.getElementById("contactos-summary");
         var btnSeleccionarContactos = document.getElementById("btn-seleccionar-contactos");
@@ -373,42 +504,64 @@
             .catch(function() { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>No se pudo agregar.</p>"; });
         });
 
-        function parseCSV(text) {
+        function parseCSVContactos(text) {
           var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
-          if (lines.length === 0) return [];
-          var header = lines[0].split(/[,;\t]/).map(function(h) { return h.trim().toLowerCase().replace(/^["']|["']$/g, ""); });
-          var colNames = ["telefono", "teléfono", "numero", "número", "phone", "celular", "whatsapp", "contacto"];
-          // La plantilla tiene columnas: teléfono, nombre, legajo (solo se usa la columna de teléfono para destinatarios)
-          var colIndex = -1;
+          if (lines.length < 2) return [];
+          var header = lines[0].split(/[,;\t]/).map(function(h) { return h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s/g, ""); });
+          var idxTel = -1, idxNom = -1, idxLeg = -1;
+          var telNames = ["telefono", "teléfono", "numero", "número", "phone", "celular", "whatsapp"];
+          var nomNames = ["nombre", "name", "contacto"];
+          var legNames = ["legajo", "leg", "id"];
           for (var i = 0; i < header.length; i++) {
-            var h = header[i].replace(/\s/g, "");
-            if (colNames.indexOf(h) !== -1 || colNames.some(function(c) { return h.indexOf(c) !== -1; })) { colIndex = i; break; }
+            var h = header[i];
+            if (telNames.indexOf(h) !== -1 && idxTel === -1) idxTel = i;
+            if (nomNames.indexOf(h) !== -1 && idxNom === -1) idxNom = i;
+            if (legNames.indexOf(h) !== -1 && idxLeg === -1) idxLeg = i;
           }
-          if (colIndex === -1) colIndex = 0;
-          var nums = [];
+          if (idxTel === -1) idxTel = 0;
+          var rows = [];
           for (var j = 1; j < lines.length; j++) {
             var parts = lines[j].split(/[,;\t]/);
-            if (parts[colIndex] !== undefined) {
-              var val = parts[colIndex].trim().replace(/^["']|["']$/g, "");
-              if (val) nums.push(val);
-            }
+            var telefono = (parts[idxTel] !== undefined ? parts[idxTel].trim().replace(/^["']|["']$/g, "") : "").trim();
+            if (!telefono) continue;
+            var nombre = idxNom >= 0 && parts[idxNom] !== undefined ? parts[idxNom].trim().replace(/^["']|["']$/g, "") : "";
+            var legajo = idxLeg >= 0 && parts[idxLeg] !== undefined ? parts[idxLeg].trim().replace(/^["']|["']$/g, "") : "";
+            rows.push({ telefono: telefono, nombre: nombre || "Sin nombre", legajo: legajo });
           }
-          return nums;
+          return rows;
         }
 
         fileImport.addEventListener("change", function() {
           var file = this.files && this.files[0];
           if (!file) return;
+          var cid = getCompanyId();
+          if (!cid) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>Elegí una empresa.</p>"; this.value = ""; return; }
           var reader = new FileReader();
           reader.onload = function() {
             var text = reader.result || "";
-            var nums = parseCSV(text);
-            var current = destinatariosEl.value.trim();
-            var existing = current ? current.split(/\r?\n|[,;]/).map(function(s) { return s.trim(); }).filter(Boolean) : [];
-            var combined = existing.concat(nums);
-            destinatariosEl.value = combined.join("\n");
-            updateDestinatariosCount();
-            resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result success"; resultadoEl.innerHTML = "<h3>Importación</h3><p>Se agregaron " + nums.length + " número(s). Total: " + combined.length + " destinatarios.</p>";
+            var contactos = parseCSVContactos(text);
+            if (contactos.length === 0) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Importación</h3><p>No se encontraron filas con teléfono en el CSV. La plantilla debe tener columnas teléfono, nombre y legajo.</p>"; return; }
+            var agregados = 0;
+            var errores = 0;
+            function agregarSiguiente(idx) {
+              if (idx >= contactos.length) {
+                loadContactos();
+                resultadoEl.style.display = "block";
+                resultadoEl.className = errores === contactos.length ? "comunicados-result error" : "comunicados-result success";
+                resultadoEl.innerHTML = "<h3>Importación</h3><p>Se agregaron " + agregados + " contacto(s) a Mis contactos guardados. Usá «Seleccionar contactos» para elegir quiénes reciben el mensaje.</p>" + (errores > 0 ? "<p class=\"hint\">" + errores + " fila(s) no se pudieron guardar (teléfono duplicado o error).</p>" : "");
+                return;
+              }
+              var c = contactos[idx];
+              fetch("/api/comunicados/contactos", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: cid, nombre: c.nombre, telefono: c.telefono, legajo: c.legajo })
+              })
+                .then(function(r) { return r.json(); })
+                .then(function(data) { if (data.ok) agregados++; else errores++; agregarSiguiente(idx + 1); })
+                .catch(function() { errores++; agregarSiguiente(idx + 1); });
+            }
+            agregarSiguiente(0);
           };
           reader.readAsText(file, "UTF-8");
           this.value = "";
@@ -419,25 +572,34 @@
           var companyId = getCompanyId();
           var raw = destinatariosEl.value.trim();
           var destinatarios = raw ? raw.split(/\r?\n|[,;]/).map(function(s) { return s.trim(); }).filter(Boolean) : [];
-          var mensaje = document.getElementById("mensaje").value.trim();
+          var mensaje = (mensajeEl && mensajeEl.value) ? mensajeEl.value.trim() : "";
+          var imagenUrl = (imagenUrlEl && imagenUrlEl.value) ? imagenUrlEl.value.trim() : "";
+          var archivo = comunicadoArchivoEl && comunicadoArchivoEl.files && comunicadoArchivoEl.files[0] ? comunicadoArchivoEl.files[0] : null;
           if (!destinatarios.length) {
             resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
-            resultadoEl.innerHTML = "<h3>Error</h3><p>No hay destinatarios. Agregá contactos, pegá números o importá la plantilla.</p>";
+            resultadoEl.innerHTML = "<h3>Error</h3><p>No hay destinatarios. Usá «Seleccionar contactos» o pegá números en la lista.</p>";
             return;
           }
-          if (!mensaje) {
+          if (!mensaje && !imagenUrl && !archivo) {
             resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
-            resultadoEl.innerHTML = "<h3>Error</h3><p>Escribí el mensaje del comunicado.</p>";
+            resultadoEl.innerHTML = "<h3>Error</h3><p>Escribí el mensaje del comunicado o agregá una imagen (URL o archivo del equipo/celular).</p>";
             return;
           }
           btnEnviar.disabled = true;
           resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result";
-          resultadoEl.innerHTML = "<h3>Enviando...</h3><p>Se enviará a " + destinatarios.length + " contacto(s). No cierres esta página.</p>";
+          resultadoEl.innerHTML = "<h3>Enviando...</h3><p>" + (archivo ? "Subiendo archivo y luego se enviará a " : "Se enviará a ") + destinatarios.length + " contacto(s). No cierres esta página.</p>";
 
-          fetch("/api/comunicados/enviar", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ company_id: companyId, destinatarios: destinatarios, mensaje: mensaje })
+          var urlFinal = imagenUrl;
+          var promesa = archivo ? subirArchivoComunicado(archivo).then(function(url) { urlFinal = url; }) : Promise.resolve();
+          promesa.then(function() {
+            var payload = { company_id: companyId, destinatarios: destinatarios, mensaje: mensaje };
+            if (urlFinal) payload.imagen_url = urlFinal;
+            if (whatsappCanalEl && whatsappCanalEl.value) payload.whatsapp_label = whatsappCanalEl.value;
+            return fetch("/api/comunicados/enviar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
           })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -448,6 +610,7 @@
                 var msg = "<h3>Comunicado</h3><p>Enviados: " + (data.sent || 0) + ". Fallidos: " + failed + ". Total: " + (data.total || 0) + ".</p>";
                 if (failed > 0 && data.error_detail) msg += "<p class=\"hint\">" + data.error_detail + "</p>";
                 resultadoEl.innerHTML = msg;
+                if (comunicadoArchivoEl) { comunicadoArchivoEl.value = ""; if (comunicadoArchivoNameEl) comunicadoArchivoNameEl.textContent = ""; }
               } else {
                 resultadoEl.className = "comunicados-result error";
                 resultadoEl.innerHTML = "<h3>Error</h3><p>" + (data.error || "No se pudo enviar.") + "</p>";
