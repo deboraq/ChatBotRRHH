@@ -254,6 +254,12 @@
                   ID empresa (opcional)
                   <input id="modal-company-id" type="text" placeholder="ej: bacar_norte" />
                 </label>
+                <div class="field whatsapp-numbers-block">
+                  <p class="field-label" style="font-weight:600; margin:0 0 0.5rem 0;">Números de WhatsApp (por área/canal)</p>
+                  <p class="subtle" style="margin:0 0 0.5rem 0; font-size:0.9rem;">Uno por línea: etiqueta (ej. RRHH, Tesorería) y teléfono. El número que recibe el mensaje identifica la empresa y, si coincide con un área, se asigna automáticamente.</p>
+                  <div id="modal-company-whatsapp-list" class="whatsapp-numbers-list"></div>
+                  <button type="button" id="modal-company-whatsapp-add" class="btn ghost" style="margin-top:0.5rem;">+ Agregar número</button>
+                </div>
                 <div class="config-modal-actions">
                   <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
                   <button type="submit">Agregar empresa</button>
@@ -701,6 +707,8 @@
       const modalCompanyAddress = document.getElementById("modal-company-address");
       const modalCompanyPhone = document.getElementById("modal-company-phone");
       const modalCompanyWebsite = document.getElementById("modal-company-website");
+      const modalCompanyWhatsappList = document.getElementById("modal-company-whatsapp-list");
+      const modalCompanyWhatsappAdd = document.getElementById("modal-company-whatsapp-add");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
       const cfgHrTeamNameEl = document.getElementById("cfg-hr-team-name");
       const cfgHrContactEl = document.getElementById("cfg-hr-contact");
@@ -2562,8 +2570,53 @@
           if (modalCompanyPhone) modalCompanyPhone.value = company.company_phone || "";
           if (modalCompanyWebsite) modalCompanyWebsite.value = company.company_website || "";
           if (companyFormModalTitle) companyFormModalTitle.textContent = "Modificar empresa";
+          renderWhatsappNumbersList(company.whatsapp_numbers || []);
+        } else {
+          renderWhatsappNumbersList([]);
         }
         companyFormModal.hidden = false;
+      }
+
+      function renderWhatsappNumbersList(items) {
+        if (!modalCompanyWhatsappList) return;
+        modalCompanyWhatsappList.innerHTML = "";
+        (items.length ? items : [{ label: "", phone: "" }]).forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "whatsapp-number-row";
+          row.style.cssText = "display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;";
+          const labelInput = document.createElement("input");
+          labelInput.type = "text";
+          labelInput.placeholder = "ej. RRHH, Tesorería";
+          labelInput.value = item.label || "";
+          labelInput.style.cssText = "flex:1; min-width:120px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
+          const phoneInput = document.createElement("input");
+          phoneInput.type = "text";
+          phoneInput.placeholder = "+54 9 11 1234-5678";
+          phoneInput.value = item.phone || "";
+          phoneInput.style.cssText = "flex:1; min-width:140px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
+          const btnRemove = document.createElement("button");
+          btnRemove.type = "button";
+          btnRemove.textContent = "Quitar";
+          btnRemove.className = "btn ghost";
+          btnRemove.addEventListener("click", () => { row.remove(); });
+          row.appendChild(labelInput);
+          row.appendChild(phoneInput);
+          row.appendChild(btnRemove);
+          modalCompanyWhatsappList.appendChild(row);
+        });
+      }
+
+      function getModalWhatsappNumbers() {
+        if (!modalCompanyWhatsappList) return [];
+        const rows = modalCompanyWhatsappList.querySelectorAll(".whatsapp-number-row");
+        const out = [];
+        rows.forEach((row) => {
+          const inputs = row.querySelectorAll("input");
+          const label = (inputs[0]?.value || "").trim();
+          const phone = (inputs[1]?.value || "").trim();
+          if (phone) out.push({ label: label || "Principal", phone });
+        });
+        return out;
       }
 
       function closeCompanyModal() {
@@ -2585,6 +2638,7 @@
           company_phone: (modalCompanyPhone?.value || "").trim(),
           company_website: (modalCompanyWebsite?.value || "").trim(),
           branches: currentCompany && Array.isArray(currentCompany.branches) ? currentCompany.branches : [],
+          whatsapp_numbers: getModalWhatsappNumbers(),
         };
         if (!payload.company_name || !payload.hr_team_name || !payload.hr_contact) {
           throw new Error("Completá nombre, equipo y contacto.");
@@ -3061,6 +3115,11 @@
             setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
             showToast(getErrorMessage(error), true);
           }
+        });
+      }
+      if (modalCompanyWhatsappAdd) {
+        modalCompanyWhatsappAdd.addEventListener("click", () => {
+          renderWhatsappNumbersList([...getModalWhatsappNumbers(), { label: "", phone: "" }]);
         });
       }
       if (companyFormModal) {

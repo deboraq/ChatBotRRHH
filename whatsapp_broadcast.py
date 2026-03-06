@@ -28,6 +28,7 @@ def _noop_send(
     template_params: Optional[List[str]] = None,
     phone_number_id: Optional[str] = None,
     access_token: Optional[str] = None,
+    media_url: Optional[List[str]] = None,
 ) -> bool:
     """
     Placeholder: no envía nada. Reemplazá por tu integración real a WhatsApp.
@@ -50,6 +51,7 @@ def broadcast_messages(
     delay_seconds: Optional[float] = None,
     phone_number_id: Optional[str] = None,
     access_token: Optional[str] = None,
+    media_url: Optional[List[str]] = None,
 ) -> dict:
     """
     Envía mensajes a una lista de teléfonos en lotes con pausa entre lotes.
@@ -84,6 +86,7 @@ def broadcast_messages(
                 template_params=template_params,
                 phone_number_id=phone_number_id,
                 access_token=access_token,
+                media_url=media_url,
             )
             if ok:
                 sent += 1

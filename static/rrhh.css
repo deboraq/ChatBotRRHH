@@ -24,7 +24,7 @@
 
 body {
   margin: 0;
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: Inter, "Segoe UI", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
   color: var(--text);
   background:
     radial-gradient(circle at 20% -10%, #dbeafe 0%, transparent 40%),
@@ -596,6 +596,9 @@ textarea:focus {
   padding: 8px 10px;
   max-width: 88%;
   box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .msg.colaborador {
@@ -621,10 +624,25 @@ textarea:focus {
   color: var(--text-soft);
 }
 
+.msg,
+.msg p,
+.reply-emoji-panel,
+.reply-emoji-panel span {
+  font-family: Inter, "Segoe UI", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif;
+}
+
 .msg p {
   margin: 6px 0 0;
   white-space: pre-wrap;
   line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.msg p a {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .reply-form {
@@ -632,6 +650,83 @@ textarea:focus {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
+}
+
+.reply-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reply-input-wrap input {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-emoji-btn {
+  flex-shrink: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 1.1rem;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 6px;
+  background: var(--panel-bg, #fff);
+  cursor: pointer;
+}
+
+.reply-emoji-btn:hover {
+  background: var(--hover-bg, #f0f0f0);
+}
+
+.reply-emoji-panel {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: auto;
+  margin-bottom: 4px;
+  padding: 0.5rem;
+  background: var(--panel-bg, #fff);
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  max-width: 280px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.reply-emoji-panel[hidden] {
+  display: none !important;
+}
+
+.reply-emoji-panel span {
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.2rem;
+  line-height: 1.2;
+}
+
+.reply-emoji-panel span:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+}
+
+:root[data-theme="dark"] .reply-emoji-panel {
+  background: #1a1a1a;
+  border-color: #444;
+}
+
+:root[data-theme="dark"] .reply-emoji-btn {
+  background: #2a2a2a;
+  border-color: #444;
+  color: #fff;
+}
+
+:root[data-theme="dark"] .reply-emoji-btn:hover {
+  background: #333;
 }
 
 .reply-form input {
@@ -674,8 +769,15 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.msg-media-wrap {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+}
+
 .msg-attachment-img {
   max-width: 100%;
+  height: auto;
   max-height: 200px;
   border-radius: 8px;
   display: block;

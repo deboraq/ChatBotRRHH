@@ -101,12 +101,16 @@
           <div id="messages" class="messages"></div>
 
           <form id="reply-form" class="reply-form">
-            <input
-              id="reply-input"
-              type="text"
-              placeholder="Escribí la respuesta para el colaborador..."
-              autocomplete="off"
-            />
+            <div class="reply-input-wrap">
+              <input
+                id="reply-input"
+                type="text"
+                placeholder="Escribí la respuesta para el colaborador..."
+                autocomplete="off"
+              />
+              <button type="button" id="btn-emoji-rrhh" class="reply-emoji-btn" title="Insertar emoji">😀</button>
+              <div id="emoji-panel-rrhh" class="reply-emoji-panel" role="group" aria-label="Emojis" hidden></div>
+            </div>
             <input
               id="reply-media-url"
               type="url"
@@ -181,6 +185,35 @@
       const replyFileEl = document.getElementById("reply-file");
       const replyFileNameEl = document.getElementById("reply-file-name");
       const replySubmitBtn = replyForm ? replyForm.querySelector("button[type='submit']") : null;
+      const btnEmojiRrhh = document.getElementById("btn-emoji-rrhh");
+      const emojiPanelRrhh = document.getElementById("emoji-panel-rrhh");
+      const EMOJIS_RRHH = "😀😃😄😁😅😂🤣😊😇🙂😉😌😍🥰😘😋😛😜🤪😝🤗🤔😐😏😣😮😯😲😳🥺😢😭😱😤😡🤬👍👎👌✌️🤞🤟🤘👈👉👆👇✋🤚👋💪🙏💯🔥❤️🧡💛💚💙💜🖤🤍💔💕💞💓💗💖💘💝✅❌⭐🌟✨💫🎉🎊🏆";
+      if (btnEmojiRrhh && emojiPanelRrhh && replyInput) {
+        Array.from(EMOJIS_RRHH).forEach((c) => {
+          if (/\s/.test(c)) return;
+          const span = document.createElement("span");
+          span.textContent = c;
+          span.setAttribute("role", "button");
+          span.setAttribute("tabindex", "0");
+          span.addEventListener("click", () => {
+            const em = span.textContent;
+            const start = replyInput.selectionStart;
+            const end = replyInput.selectionEnd;
+            replyInput.value = replyInput.value.slice(0, start) + em + replyInput.value.slice(end);
+            replyInput.selectionStart = replyInput.selectionEnd = start + em.length;
+            replyInput.focus();
+          });
+          emojiPanelRrhh.appendChild(span);
+        });
+        btnEmojiRrhh.addEventListener("click", (e) => {
+          e.preventDefault();
+          const isHidden = emojiPanelRrhh.hidden;
+          emojiPanelRrhh.hidden = !isHidden;
+        });
+        document.addEventListener("click", (e) => {
+          if (!emojiPanelRrhh.contains(e.target) && e.target !== btnEmojiRrhh) emojiPanelRrhh.hidden = true;
+        });
+      }
       const btnTomar = document.getElementById("btn-tomar");
       const btnReasignar = document.getElementById("btn-reasignar");
       const reassignAgentEl = document.getElementById("reassign-agent");
@@ -239,6 +272,7 @@
       let unreadConversationIds = new Set();
       let notifiedConversationMap = {};
       let hasConversationSnapshot = false;
+      let hasAppliedFilterOnce = false;
       let autoCloseConfig = { auto_close_enabled: false, auto_close_minutes: 0 };
 
       function getInitialTheme() {
@@ -969,12 +1003,9 @@
         selectedBranchNames = getSelectedBranchNames();
         selectedAreaNames = getSelectedAreaNames();
         let url = `/api/rrhh/conversaciones?include_closed=${includeClosed}`;
-        if (selectedBranchNames.length > 0) {
-          url += "&branches=" + encodeURIComponent(selectedBranchNames.join(","));
-        }
-        if (selectedAreaNames.length > 0) {
-          url += "&areas=" + encodeURIComponent(selectedAreaNames.join(","));
-        }
+        if (selectedBranchNames.length > 0) url += "&branches=" + encodeURIComponent(selectedBranchNames.join(","));
+        if (selectedAreaNames.length > 0) url += "&areas=" + encodeURIComponent(selectedAreaNames.join(","));
+        if (selectedBranchNames.length === 0 && selectedAreaNames.length === 0 && hasAppliedFilterOnce) url += "&include_all_filters=true";
         const response = await fetch(url);
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/rrhh")}`;
@@ -995,6 +1026,14 @@
           };
         }
         conversations = data.conversaciones || [];
+        if (Array.isArray(data.filter_by_branches) && data.filter_by_branches.length > 0) {
+          selectedBranchNames = data.filter_by_branches.map((b) => String(b).trim()).filter(Boolean);
+          hasAppliedFilterOnce = true;
+        }
+        if (Array.isArray(data.filter_by_areas) && data.filter_by_areas.length > 0) {
+          selectedAreaNames = data.filter_by_areas.map((a) => String(a).trim()).filter(Boolean);
+          hasAppliedFilterOnce = true;
+        }
         fillBranchFilterPanel(Array.isArray(data.branches) ? data.branches : []);
         updateBranchTriggerLabel();
         fillAreaFilterPanel(Array.isArray(data.areas) ? data.areas : []);
