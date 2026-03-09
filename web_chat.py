@@ -2667,8 +2667,10 @@ def responder_chat(mensaje_usuario):
     if chatbot.es_saludo(mensaje_norm):
         company_obj = _current_company()
         c_name = (company_obj or {}).get("company_name") or "tu empresa"
+        area_ctx = session.get("chat_context_area") or ""
+        area_str = f" del área {area_ctx}" if area_ctx else ""
         return _payload(
-            f"👋 ¡Hola! ¿Cómo estás? Soy el asistente virtual de {c_name}. ¿En qué te puedo ayudar hoy?",
+            f"👋 ¡Hola! ¿Cómo estás? Soy Debo, tu asistente{area_str} de {c_name}. ¿En qué te puedo ayudar hoy? 😊",
             quick_actions=_acciones_menu(6),
         )
 
@@ -2829,18 +2831,19 @@ def chat_page():
     if hr_display.upper() == "RRHH":
         hr_display = "Atención"
 
+    _bot_name = "Debo"
     if step == CHAT_CONTEXT_STEP_COMPANY:
         quick_actions_iniciales = _construir_acciones_empresas(limite=8)
         nombres_empresas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
         if nombres_empresas:
             bienvenida = (
-                f"👋 ¡Hola! Bienvenido/a al asistente virtual de {hr_display}.\n"
+                f"👋 ¡Hola! Soy {_bot_name}, tu asistente de {hr_display}. 😊\n"
                 f"Para orientarte mejor, ¿con qué empresa estás relacionado/a?\n\n"
                 + "\n".join(nombres_empresas)
                 + "\n\nEscribí el número o el nombre."
             )
         else:
-            bienvenida = f"👋 ¡Hola! Bienvenido/a. ¿Con qué empresa estás relacionado/a? Escribí el nombre."
+            bienvenida = f"👋 ¡Hola! Soy {_bot_name}. 😊 ¿Con qué empresa estás relacionado/a? Escribí el nombre."
     elif step == CHAT_CONTEXT_STEP_BRANCH:
         ctx_company_id = session.get("chat_context_company_id") or company_id
         company_for_branch = _get_company(ctx_company_id, include_inactive=False)
@@ -2888,7 +2891,7 @@ def chat_page():
         else:
             _label = f"de {company_name}"
         bienvenida = (
-            f"👋 ¡Hola! Soy el asistente {_label}{ctx_str}.\n"
+            f"👋 ¡Hola! Soy {_bot_name}, tu asistente {_label}{ctx_str}. 😊\n"
             f"Estoy acá para ayudarte. ¿Sobre qué tema querés consultar?"
         )
         quick_actions_iniciales = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir)
@@ -3561,8 +3564,9 @@ def _process_chat_turn(mensaje_trim):
                     asistente_label = f"de {hr_display} de {company_name}"
                 else:
                     asistente_label = f"de {company_name}"
+                _bot = "Debo"
                 reply = (
-                    f"👋 ¡Hola! Soy el asistente {asistente_label} (sucursal: {branch}).\n"
+                    f"👋 ¡Hola! Soy {_bot}, tu asistente {asistente_label} (sucursal: {branch}). 😊\n"
                     "Estoy acá para ayudarte. ¿Sobre qué tema querés consultar?"
                 )
                 permitir = (company or {}).get("permitir_hablar_con_humano", True)
@@ -3623,8 +3627,9 @@ def _process_chat_turn(mensaje_trim):
                 asistente_label = f"de {hr_display} de {company_name}"
             else:
                 asistente_label = f"de {company_name}"
+            _bot = "Debo"
             reply = (
-                f"👋 ¡Hola! Soy el asistente {asistente_label} (área: {area}).\n"
+                f"👋 ¡Hola! Soy {_bot}, tu asistente {asistente_label} (área: {area}). 😊\n"
                 "Estoy acá para ayudarte. ¿Sobre qué tema querés consultar?"
             )
             return {
@@ -4913,6 +4918,7 @@ def rrhh_actualizar_asignaciones_api(username):
 def rrhh_actualizar_perfil_usuario_api(username):
     data = request.get_json(silent=True) or {}
     updated_by = (_current_rrhh_user() or {}).get("username") or ""
+    password_raw = (data.get("password") or "").strip() or None
     ok, user, error = auth_rrhh.update_user_profile(
         username=username,
         role=data.get("role"),
@@ -4921,6 +4927,7 @@ def rrhh_actualizar_perfil_usuario_api(username):
         email=data.get("email"),
         phone=data.get("phone"),
         area=data.get("area"),
+        password=password_raw,
         updated_by=updated_by,
     )
     if not ok:

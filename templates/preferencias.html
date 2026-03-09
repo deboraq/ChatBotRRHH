@@ -223,7 +223,7 @@
           <span class="pref-section-num" aria-hidden="true">3</span>
           <h2>Reglas del chat (por empresa)</h2>
         </div>
-        <p class="pref-section-desc">Definí si en el chat se puede derivar a un agente humano y qué temas mostrar. Aplican a la empresa seleccionada arriba. Guardá con «Guardar y aplicar».</p>
+        <p class="pref-section-desc">Definí si en el chat se puede derivar a un agente humano y qué temas mostrar. Aplican a la empresa seleccionada arriba.</p>
         <div class="pref-checkbox-wrap">
           <input type="checkbox" id="pref-permitir-humano" checked />
           <span>Mostrar botón de derivación y permitir hablar con un agente</span>
@@ -233,6 +233,10 @@
           <textarea id="pref-temas-habilitados" rows="4" placeholder="vacaciones&#10;recibo&#10;aguinaldo"></textarea>
           <p class="pref-hint">Uno por línea. Si dejás vacío, se muestran todos los temas de la empresa.</p>
         </label>
+        <div class="form-actions">
+          <button type="button" id="pref-save-reglas" class="primary">Guardar</button>
+        </div>
+        <p id="pref-reglas-status" class="pref-status" aria-live="polite"></p>
       </section>
     </main>
 
@@ -248,6 +252,8 @@
         const statusEl = document.getElementById("pref-autoclose-status");
         const permitirHumanoEl = document.getElementById("pref-permitir-humano");
         const temasHabilitadosEl = document.getElementById("pref-temas-habilitados");
+        const saveReglasBtn = document.getElementById("pref-save-reglas");
+        const reglasStatusEl = document.getElementById("pref-reglas-status");
         const AUTO_CLOSE_DISABLED = "disabled";
         let companies = [];
 
@@ -481,7 +487,37 @@
         });
         if (saveBtn) saveBtn.addEventListener("click", saveAutocierre);
         if (runNowBtn) runNowBtn.addEventListener("click", runAutocloseNow);
+        if (saveReglasBtn) saveReglasBtn.addEventListener("click", saveReglas);
         loadAutocierre();
+
+        async function saveReglas() {
+          const companyId = companySelect ? companySelect.value : "";
+          const cur = getCompanyById(companyId);
+          if (!cur) { if (reglasStatusEl) { reglasStatusEl.textContent = "Seleccioná una empresa primero."; reglasStatusEl.style.color = "red"; } return; }
+          const temasLines = (temasHabilitadosEl && temasHabilitadosEl.value) ? temasHabilitadosEl.value.split(/\r?\n/) : [];
+          const temasList = temasLines.map(function(t) { return t.trim().toLowerCase(); }).filter(Boolean);
+          const payload = {
+            company_id: cur.company_id,
+            company_name: (cur.company_name || "").trim(),
+            hr_team_name: (cur.hr_team_name || "").trim(),
+            hr_contact: (cur.hr_contact || "").trim(),
+            company_email: (cur.company_email || "").trim(),
+            company_address: (cur.company_address || "").trim(),
+            company_phone: (cur.company_phone || "").trim(),
+            company_website: (cur.company_website || "").trim(),
+            branches: Array.isArray(cur.branches) ? cur.branches : [],
+            handoff_auto_close_enabled: getAutoClosePayload().handoff_auto_close_enabled,
+            handoff_auto_close_minutes: getAutoClosePayload().handoff_auto_close_minutes,
+            permitir_hablar_con_humano: permitirHumanoEl ? permitirHumanoEl.checked : true,
+            temas_habilitados: temasList,
+          };
+          if (reglasStatusEl) { reglasStatusEl.textContent = "Guardando…"; reglasStatusEl.style.color = ""; }
+          try {
+            const res = await fetch("/api/configuracion/general", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if (reglasStatusEl) { reglasStatusEl.textContent = data.ok ? "Guardado correctamente." : (data.error || "Error al guardar."); reglasStatusEl.style.color = data.ok ? "green" : "red"; }
+          } catch (e) { if (reglasStatusEl) { reglasStatusEl.textContent = "Error de red."; reglasStatusEl.style.color = "red"; } }
+        }
       })();
     </script>
   </body>
