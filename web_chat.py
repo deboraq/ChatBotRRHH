@@ -135,8 +135,8 @@ def _save_whatsapp_chat_context(phone):
     payload = {k: v for k, v in payload.items() if v is not None}
     try:
         chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).set(payload, merge=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_save_whatsapp_chat_context: error guardando sesión para %s: %s", norm, e)
 
 
 def _sess():
@@ -227,6 +227,7 @@ def _resolve_message_to_company(mensaje):
         item = lista[num - 1]
         cid = _normalize_company_id(item.get("company_id"))
         return cid, item
+    msg_nospace = mensaje_norm.replace(" ", "")
     for item in lista:
         cid = _normalize_company_id(item.get("company_id"))
         raw_name = (item.get("company_name") or cid or "").strip()
@@ -237,6 +238,16 @@ def _resolve_message_to_company(mensaje):
         if mensaje_norm == cid_norm or mensaje_norm == name:
             return cid, item
         if name and (mensaje_norm in name or (len(mensaje_norm) >= 2 and name in mensaje_norm)):
+            return cid, item
+        # Comparación sin espacios: "test3" coincide con "test 3"
+        name_nospace = name.replace(" ", "")
+        cid_nospace = cid_norm.replace(" ", "")
+        if name_nospace and len(name_nospace) >= 2 and (
+            msg_nospace == name_nospace or
+            name_nospace in msg_nospace or
+            cid_nospace == msg_nospace or
+            (len(cid_nospace) >= 2 and cid_nospace in msg_nospace)
+        ):
             return cid, item
     return None, None
 
@@ -2356,9 +2367,16 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             "chat_session_id": chat_session_id,
         }
         if getattr(g, "whatsapp_from", None) and getattr(g, "whatsapp_to", None):
+            wa_phone_raw = g.whatsapp_from
+            wa_profile = getattr(g, "whatsapp_profile_name", "") or ""
+            collab_nombre, collab_tel = _resolve_whatsapp_contact(
+                wa_phone_raw, company_id, wa_profile
+            )
             handoff_payload["channel"] = "whatsapp"
-            handoff_payload["whatsapp_to_phone"] = g.whatsapp_from
+            handoff_payload["whatsapp_to_phone"] = wa_phone_raw
             handoff_payload["whatsapp_from_number"] = g.whatsapp_to
+            handoff_payload["colaborador_nombre"] = collab_nombre
+            handoff_payload["colaborador_telefono"] = collab_tel
         _upsert_handoff(conversation_id, handoff_payload, merge=False)
         # Resumen de la conversación previa para el agente
         resumen = _generar_resumen_conversacion(chat_session_id)
@@ -2377,15 +2395,19 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             remitente="colaborador",
             texto=mensaje_usuario,
         )
-        _upsert_handoff(
-            conversation_id,
-            {
-                "ultima_consulta": mensaje_usuario.strip(),
-                "updated_at": now,
-                "chat_session_id": chat_session_id,
-            },
-            merge=True,
-        )
+        update_payload = {
+            "ultima_consulta": mensaje_usuario.strip(),
+            "updated_at": now,
+            "chat_session_id": chat_session_id,
+        }
+        if getattr(g, "whatsapp_from", None):
+            wa_profile = getattr(g, "whatsapp_profile_name", "") or ""
+            collab_nombre, collab_tel = _resolve_whatsapp_contact(
+                g.whatsapp_from, company_id, wa_profile
+            )
+            update_payload["colaborador_nombre"] = collab_nombre
+            update_payload["colaborador_telefono"] = collab_tel
+        _upsert_handoff(conversation_id, update_payload, merge=True)
 
     _set_handoff_session(conversation_id)
     return conversation_id
@@ -2680,6 +2702,9 @@ def _serialize_handoff(conv):
         "ultimo_mensaje_iso": _iso_utc(ultimo_mensaje_fecha),
         "updated_at": _fmt_fecha(updated_at),
         "updated_at_iso": _iso_utc(updated_at),
+        "channel": conv.get("channel") or "",
+        "colaborador_nombre": conv.get("colaborador_nombre") or "",
+        "colaborador_telefono": conv.get("colaborador_telefono") or "",
     }
 
 
@@ -2988,6 +3013,28 @@ def _get_comunicados_contactos(company_id):
             data = doc.to_dict() or {}
             return list(data.get("contactos") or [])
     return []
+
+
+def _resolve_whatsapp_contact(phone_raw, company_id, profile_name=""):
+    """Devuelve (nombre_display, telefono_limpio) para un número de WhatsApp.
+
+    Prioridad: 1) lista de contactos de la empresa, 2) ProfileName de WA, 3) teléfono limpio.
+    """
+    phone_clean = re.sub(r"(?i)^whatsapp:", "", phone_raw or "").strip()
+    digits_only = re.sub(r"[^\d]", "", phone_clean)
+
+    if company_id and digits_only:
+        contacts = _get_comunicados_contactos(company_id)
+        for c in contacts:
+            c_digits = re.sub(r"[^\d]", "", str(c.get("telefono") or ""))
+            if c_digits and (c_digits == digits_only or
+                             c_digits[-8:] == digits_only[-8:]):
+                return (c.get("nombre") or phone_clean), phone_clean
+
+    if profile_name:
+        return profile_name, phone_clean
+
+    return phone_clean, phone_clean
 
 
 def _add_comunicado_contacto(company_id, nombre, telefono, legajo=None):
@@ -3307,10 +3354,20 @@ def _process_chat_turn(mensaje_trim):
             }
         opciones = _construir_acciones_empresas(limite=8)
         nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
-        if nombres:
-            reply = f"No encontré esa empresa.\nMenú:\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+        # Si el mensaje es largo y claramente no es un nombre de empresa, dar mensaje más amigable
+        mensaje_norm_fb = chatbot.normalizar_texto(mensaje_trim)
+        parece_consulta = len(mensaje_trim.split()) >= 3 and not any(
+            chatbot.normalizar_texto(item.get("company_name") or item.get("company_id") or "") in mensaje_norm_fb
+            for item in _list_companies(include_inactive=False)
+        )
+        if parece_consulta:
+            intro = "Para ayudarte, primero necesito saber con qué empresa estás relacionado/a."
         else:
-            reply = "No encontré esa empresa. Elegí una de las opciones o escribí el nombre correcto."
+            intro = "No encontré esa empresa."
+        if nombres:
+            reply = intro + "\nMenú:\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+        else:
+            reply = intro + " Elegí una de las opciones o escribí el nombre correcto."
         return {
             "ok": True,
             "reply": reply,
@@ -3556,6 +3613,7 @@ def webhook_twilio_whatsapp():
             body = "📎 Envió " + str(len(media_urls)) + " archivo(s)"
     g.whatsapp_from = from_phone
     g.whatsapp_to = to_phone
+    g.whatsapp_profile_name = (request.form.get("ProfileName") or "").strip()
     g.whatsapp_session = WHATSAPP_SESSIONS.setdefault(from_phone, {})
     if not g.whatsapp_session.get("chat_context_step"):
         _load_whatsapp_chat_context(from_phone)
@@ -3590,6 +3648,7 @@ def webhook_twilio_whatsapp():
         from twilio.twiml.messaging_response import MessagingResponse
         resp = MessagingResponse()
         return str(resp), 200, {"Content-Type": "text/xml"}
+    _save_whatsapp_chat_context(from_phone)
     reply = (result.get("reply") or "").strip()
     if reply:
         try:
@@ -3597,7 +3656,6 @@ def webhook_twilio_whatsapp():
             send_one(from_phone, body=reply, phone_number_id=to_phone)
         except Exception as e:
             logger.warning("Webhook Twilio: no se pudo enviar respuesta por WhatsApp: %s", e)
-    _save_whatsapp_chat_context(from_phone)
     from twilio.twiml.messaging_response import MessagingResponse
     resp = MessagingResponse()
     return str(resp), 200, {"Content-Type": "text/xml"}
@@ -4820,6 +4878,9 @@ def rrhh_mensajes_api(conversation_id):
             "rrhh_agente": conv.get("rrhh_agente") or "",
             "rrhh_agente_id": conv.get("rrhh_agente_id") or "",
             "rrhh_asignacion_automatica": bool(conv.get("rrhh_asignacion_automatica")),
+            "channel": conv.get("channel") or "",
+            "colaborador_nombre": conv.get("colaborador_nombre") or "",
+            "colaborador_telefono": conv.get("colaborador_telefono") or "",
             "mensajes": _serialize_messages(mensajes),
         }
     )

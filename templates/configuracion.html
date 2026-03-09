@@ -176,6 +176,7 @@
             <button type="button" data-section-target="sucursales">Sucursales</button>
             <button type="button" data-section-target="areas">Áreas</button>
             <button type="button" data-section-target="knowledge">Base de conocimiento</button>
+            <button type="button" data-section-target="contactos">Contactos</button>
             {% endif %}
             {% if can_manage_users %}
             <button type="button" data-section-target="usuarios">Usuarios</button>
@@ -631,6 +632,58 @@
               </div>
             </div>
           </div>
+          {% endif %}
+
+          {% if can_manage_general %}
+          <section class="panel contactos-panel config-section" data-section-key="contactos">
+            <h2>Contactos de WhatsApp</h2>
+            <p class="subtle">Administrá la lista de contactos para comunicados. Podés importarlos con la plantilla CSV o agregarlos uno por uno.</p>
+
+            <div class="config-row" style="gap:1rem;margin-bottom:1.25rem;">
+              <label style="min-width:200px;">
+                Empresa
+                <select id="contactos-company-select"></select>
+              </label>
+            </div>
+
+            <div style="margin-bottom:1.5rem;">
+              <h3 style="font-size:1rem;margin-bottom:0.5rem;">Importar desde CSV</h3>
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem;">
+                <a href="/api/comunicados/plantilla" class="btn btn-secondary" download style="font-size:0.9rem;padding:0.4rem 0.9rem;">Descargar plantilla</a>
+                <input type="file" id="contactos-file-import" accept=".csv,.txt" />
+              </div>
+              <p class="subtle" style="margin-top:0.4rem;">Completá teléfono, nombre y legajo en Excel, guardá como CSV y subí el archivo.</p>
+            </div>
+
+            <div style="margin-bottom:1.5rem;">
+              <h3 style="font-size:1rem;margin-bottom:0.5rem;">Agregar uno por uno</h3>
+              <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;">
+                <input type="text" id="contactos-add-nombre" placeholder="Nombre" style="min-width:140px;padding:0.4rem;" />
+                <input type="text" id="contactos-add-telefono" placeholder="Teléfono ej. +54911..." style="min-width:160px;padding:0.4rem;" />
+                <input type="text" id="contactos-add-legajo" placeholder="Legajo (opcional)" style="min-width:110px;padding:0.4rem;" />
+                <button type="button" id="btn-contactos-agregar" class="btn btn-primary" style="font-size:0.9rem;padding:0.4rem 1rem;">Agregar</button>
+              </div>
+              <p id="contactos-add-status" class="subtle" style="margin-top:0.4rem;"></p>
+            </div>
+
+            <div>
+              <h3 style="font-size:1rem;margin-bottom:0.5rem;">Contactos guardados</h3>
+              <p id="contactos-list-status" class="subtle">Seleccioná una empresa.</p>
+              <div id="contactos-list-wrap" style="display:none;">
+                <table class="config-table" style="width:100%;margin-top:0.5rem;">
+                  <thead>
+                    <tr>
+                      <th>Nombre</th>
+                      <th>Teléfono</th>
+                      <th>Legajo</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="contactos-list-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
           {% endif %}
 
           {% if not (can_manage_general or can_manage_users or can_manage_roles) %}
@@ -2066,13 +2119,26 @@
         return [{ company_id: companyId, branch: "" }];
       }
 
-      function updateModalAreaDropdown() {
+      function updateModalAreaDropdown(selectAll) {
         if (!modalAreasPanel) return;
+        const currentSelected = getModalAreas();
         modalAreasPanel.innerHTML = "";
         const companyId = normalizeCompanyId(modalCompany?.value || "");
         const company = getCompanyById(companyId);
         const areas = getAreasForCompanyUnion(company);
-        const currentSelected = getModalAreas();
+
+        // "Todas las áreas" option at top
+        const todasLabel = document.createElement("label");
+        todasLabel.className = "branch-dropdown-option";
+        const todasCb = document.createElement("input");
+        todasCb.type = "checkbox";
+        todasCb.className = "modal-area-todas-cb";
+        todasCb.id = "modal-area-todas";
+        if (selectAll === true || (selectAll === undefined && currentSelected.length === 0)) todasCb.checked = true;
+        todasLabel.appendChild(document.createTextNode("Todas las áreas"));
+        todasLabel.appendChild(todasCb);
+        modalAreasPanel.appendChild(todasLabel);
+
         areas.forEach((areaName) => {
           const name = String(areaName).trim();
           if (!name) return;
@@ -2082,7 +2148,7 @@
           cb.type = "checkbox";
           cb.className = "modal-area-cb";
           cb.dataset.area = name;
-          if (currentSelected.includes(name)) cb.checked = true;
+          if (!todasCb.checked && currentSelected.includes(name)) cb.checked = true;
           labelEl.appendChild(document.createTextNode(name));
           labelEl.appendChild(cb);
           modalAreasPanel.appendChild(labelEl);
@@ -2092,6 +2158,8 @@
 
       function getModalAreas() {
         if (!modalAreasPanel) return [];
+        const todasCb = modalAreasPanel.querySelector(".modal-area-todas-cb");
+        if (todasCb?.checked) return [];
         const cbs = modalAreasPanel.querySelectorAll(".modal-area-cb:checked");
         return Array.from(cbs).map((cb) => String(cb.dataset.area || "").trim()).filter(Boolean);
       }
@@ -2099,6 +2167,8 @@
       function updateModalAreasTriggerLabel() {
         const labelEl = modalAreasTrigger?.querySelector(".branch-dropdown-trigger-text");
         if (!labelEl) return;
+        const todasCb = modalAreasPanel?.querySelector(".modal-area-todas-cb");
+        if (todasCb?.checked) { labelEl.textContent = "Todas las áreas"; return; }
         const list = getModalAreas();
         if (list.length === 0) labelEl.textContent = "Seleccionar áreas";
         else if (list.length === 1) labelEl.textContent = list[0];
@@ -2194,10 +2264,13 @@
           updateModalBranchesDropdown();
           updateModalAreaDropdown();
           const userAreas = (user.area || "").split(/\s*,\s*/).map((a) => a.trim()).filter(Boolean);
-          modalAreasPanel?.querySelectorAll(".modal-area-cb").forEach((cb) => {
-            const name = (cb.dataset.area || "").trim();
-            cb.checked = userAreas.some((a) => a.toLowerCase() === name.toLowerCase());
-          });
+          updateModalAreaDropdown(userAreas.length === 0);
+          if (userAreas.length > 0) {
+            modalAreasPanel?.querySelectorAll(".modal-area-cb").forEach((cb) => {
+              const name = (cb.dataset.area || "").trim();
+              cb.checked = userAreas.some((a) => a.toLowerCase() === name.toLowerCase());
+            });
+          }
           updateModalAreasTriggerLabel();
           modalBranchesPanel?.querySelectorAll(".modal-branch-cb").forEach((cb) => { cb.checked = false; });
           assignments.forEach((a) => {
@@ -3324,7 +3397,16 @@
           modalAreasPanel.setAttribute("aria-hidden", "true");
         });
         modalAreasPanel.addEventListener("change", function(e) {
-          if (e.target && e.target.classList.contains("modal-area-cb")) updateModalAreasTriggerLabel();
+          if (!e.target) return;
+          if (e.target.classList.contains("modal-area-todas-cb")) {
+            // When "Todas las áreas" is checked/unchecked, uncheck all individual areas
+            modalAreasPanel.querySelectorAll(".modal-area-cb").forEach((cb) => { cb.checked = false; });
+          } else if (e.target.classList.contains("modal-area-cb") && e.target.checked) {
+            // When an individual area is checked, uncheck "Todas las áreas"
+            const todasCb = modalAreasPanel.querySelector(".modal-area-todas-cb");
+            if (todasCb) todasCb.checked = false;
+          }
+          updateModalAreasTriggerLabel();
         });
       }
       if (modalRolesTrigger && modalRolesPanel) {
@@ -3593,6 +3675,174 @@
       }
 
       init();
+
+      // ── Sección Contactos ──────────────────────────────────────────────────
+      if (canManageGeneral) {
+        const contactosCompanySelect = document.getElementById("contactos-company-select");
+        const contactosFileImport = document.getElementById("contactos-file-import");
+        const contactosAddNombre = document.getElementById("contactos-add-nombre");
+        const contactosAddTelefono = document.getElementById("contactos-add-telefono");
+        const contactosAddLegajo = document.getElementById("contactos-add-legajo");
+        const btnContactosAgregar = document.getElementById("btn-contactos-agregar");
+        const contactosAddStatus = document.getElementById("contactos-add-status");
+        const contactosListStatus = document.getElementById("contactos-list-status");
+        const contactosListWrap = document.getElementById("contactos-list-wrap");
+        const contactosListBody = document.getElementById("contactos-list-body");
+
+        // Rellenar selector de empresa
+        if (contactosCompanySelect) {
+          fillCompanySelect(contactosCompanySelect, selectedCompanyId || "", false);
+          contactosCompanySelect.addEventListener("change", cargarContactos);
+        }
+
+        function getContactosCompanyId() {
+          return (contactosCompanySelect && contactosCompanySelect.value) ? contactosCompanySelect.value.trim() : "";
+        }
+
+        function setContactosStatus(msg, isError) {
+          if (contactosListStatus) { contactosListStatus.textContent = msg; contactosListStatus.style.color = isError ? "#c62828" : ""; }
+        }
+
+        async function cargarContactos() {
+          const cid = getContactosCompanyId();
+          if (!cid) { setContactosStatus("Seleccioná una empresa.", false); if (contactosListWrap) contactosListWrap.style.display = "none"; return; }
+          setContactosStatus("Cargando…", false);
+          try {
+            const r = await fetch("/api/comunicados/contactos?company_id=" + encodeURIComponent(cid));
+            const data = await r.json();
+            if (!data.ok) throw new Error(data.error || "Error");
+            const contactos = Array.isArray(data.contactos) ? data.contactos : [];
+            renderContactosList(contactos);
+          } catch (e) { setContactosStatus("Error al cargar contactos.", true); }
+        }
+
+        function renderContactosList(contactos) {
+          if (!contactosListBody) return;
+          contactosListBody.innerHTML = "";
+          if (contactos.length === 0) {
+            setContactosStatus("No hay contactos guardados. Agregá uno arriba.", false);
+            if (contactosListWrap) contactosListWrap.style.display = "none";
+            return;
+          }
+          setContactosStatus(contactos.length + " contacto(s).", false);
+          if (contactosListWrap) contactosListWrap.style.display = "";
+          contactos.forEach(function(c) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+              <td>${escapeHtml(c.nombre || "")}</td>
+              <td>${escapeHtml(c.telefono || "")}</td>
+              <td>${escapeHtml(c.legajo || "")}</td>
+              <td><button type="button" class="btn-link contacto-del-btn" data-tel="${escapeHtml(c.telefono || "")}">Eliminar</button></td>
+            `;
+            contactosListBody.appendChild(tr);
+          });
+          contactosListBody.querySelectorAll(".contacto-del-btn").forEach(function(btn) {
+            btn.addEventListener("click", async function() {
+              const tel = this.dataset.tel;
+              const cid = getContactosCompanyId();
+              if (!tel || !confirm("¿Eliminar el contacto " + tel + "?")) return;
+              try {
+                const r = await fetch("/api/comunicados/contactos", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ company_id: cid, telefono: tel }),
+                });
+                const data = await r.json();
+                if (data.ok) cargarContactos();
+                else alert(data.error || "No se pudo eliminar.");
+              } catch (e) { alert("Error al eliminar."); }
+            });
+          });
+        }
+
+        if (btnContactosAgregar) {
+          btnContactosAgregar.addEventListener("click", async function() {
+            const nombre = (contactosAddNombre && contactosAddNombre.value) ? contactosAddNombre.value.trim() : "";
+            const telefono = (contactosAddTelefono && contactosAddTelefono.value) ? contactosAddTelefono.value.trim() : "";
+            const legajo = (contactosAddLegajo && contactosAddLegajo.value) ? contactosAddLegajo.value.trim() : "";
+            const cid = getContactosCompanyId();
+            if (!cid) { if (contactosAddStatus) { contactosAddStatus.textContent = "Seleccioná una empresa."; contactosAddStatus.style.color = "#c62828"; } return; }
+            if (!telefono) { if (contactosAddStatus) { contactosAddStatus.textContent = "Escribí el teléfono."; contactosAddStatus.style.color = "#c62828"; } return; }
+            try {
+              const r = await fetch("/api/comunicados/contactos", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: cid, nombre: nombre || "Sin nombre", telefono, legajo }),
+              });
+              const data = await r.json();
+              if (data.ok) {
+                if (contactosAddNombre) contactosAddNombre.value = "";
+                if (contactosAddTelefono) contactosAddTelefono.value = "";
+                if (contactosAddLegajo) contactosAddLegajo.value = "";
+                if (contactosAddStatus) { contactosAddStatus.textContent = "Contacto agregado."; contactosAddStatus.style.color = ""; }
+                cargarContactos();
+              } else {
+                if (contactosAddStatus) { contactosAddStatus.textContent = data.error || "No se pudo guardar."; contactosAddStatus.style.color = "#c62828"; }
+              }
+            } catch (e) { if (contactosAddStatus) { contactosAddStatus.textContent = "Error al agregar."; contactosAddStatus.style.color = "#c62828"; } }
+          });
+        }
+
+        function parseCSVContactos(text) {
+          const lines = text.split(/\r?\n/).filter((l) => l.trim());
+          if (lines.length < 2) return [];
+          const header = lines[0].split(/[,;\t]/).map((h) => h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s/g, ""));
+          const telNames = ["telefono", "teléfono", "numero", "número", "phone", "celular", "whatsapp"];
+          const nomNames = ["nombre", "name", "contacto"];
+          const legNames = ["legajo", "leg", "id"];
+          let idxTel = -1, idxNom = -1, idxLeg = -1;
+          header.forEach((h, i) => {
+            if (telNames.includes(h) && idxTel === -1) idxTel = i;
+            if (nomNames.includes(h) && idxNom === -1) idxNom = i;
+            if (legNames.includes(h) && idxLeg === -1) idxLeg = i;
+          });
+          if (idxTel === -1) idxTel = 0;
+          return lines.slice(1).map((line) => {
+            const parts = line.split(/[,;\t]/);
+            const telefono = (parts[idxTel] !== undefined ? parts[idxTel].trim().replace(/^["']|["']$/g, "") : "").trim();
+            if (!telefono) return null;
+            const nombre = idxNom >= 0 && parts[idxNom] !== undefined ? parts[idxNom].trim().replace(/^["']|["']$/g, "") : "";
+            const legajo = idxLeg >= 0 && parts[idxLeg] !== undefined ? parts[idxLeg].trim().replace(/^["']|["']$/g, "") : "";
+            return { telefono, nombre: nombre || "Sin nombre", legajo };
+          }).filter(Boolean);
+        }
+
+        if (contactosFileImport) {
+          contactosFileImport.addEventListener("change", function() {
+            const file = this.files && this.files[0];
+            if (!file) return;
+            const cid = getContactosCompanyId();
+            if (!cid) { alert("Seleccioná una empresa primero."); this.value = ""; return; }
+            const reader = new FileReader();
+            reader.onload = async function() {
+              const contactos = parseCSVContactos(reader.result || "");
+              if (!contactos.length) { alert("No se encontraron filas con teléfono en el CSV."); return; }
+              let ok = 0, err = 0;
+              for (const c of contactos) {
+                try {
+                  const r = await fetch("/api/comunicados/contactos", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ company_id: cid, nombre: c.nombre, telefono: c.telefono, legajo: c.legajo }),
+                  });
+                  const data = await r.json();
+                  if (data.ok) ok++; else err++;
+                } catch (e) { err++; }
+              }
+              alert(`Importación: ${ok} agregado(s)${err ? ", " + err + " error(es)." : "."}`);
+              cargarContactos();
+            };
+            reader.readAsText(file, "UTF-8");
+            this.value = "";
+          });
+        }
+
+        // Cargar al entrar a la sección
+        document.querySelectorAll("[data-section-target='contactos']").forEach((btn) => {
+          btn.addEventListener("click", () => { setTimeout(cargarContactos, 50); });
+        });
+        if (contactosCompanySelect && contactosCompanySelect.value) cargarContactos();
+      }
     </script>
   </body>
 </html>

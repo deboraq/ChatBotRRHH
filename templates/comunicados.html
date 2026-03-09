@@ -172,30 +172,11 @@
         </div>
 
         <div class="comunicados-step">
-          <h2>Paso 1 – Quién recibe el mensaje (destinatarios)</h2>
-          <p class="step-desc">Primero cargá contactos (con la plantilla o uno por uno). Después elegí quiénes reciben este mensaje con «Seleccionar contactos» o pegando números en la lista final.</p>
+          <h2>Paso 1 – Destinatarios</h2>
+          <p class="step-desc">Elegí quiénes reciben este mensaje desde tus contactos guardados, o pegá números directamente en la lista. Para agregar o importar contactos, usá la sección <a href="/configuracion" style="color:#2563eb;">Configuración → Contactos</a>.</p>
 
           <div class="comunicados-paso1-block">
-            <h3 class="block-title">1. Cargar contactos</h3>
-            <p class="block-desc">Importá varios con la plantilla CSV o agregá uno por uno. Todo queda en «Mis contactos guardados».</p>
-            <p style="margin: 0 0 0.5rem 0; font-weight: 600; font-size: 0.9rem;">Plantilla (CSV)</p>
-            <div class="comunicados-dest-options">
-              <a href="/api/comunicados/plantilla" class="plantilla" download>Descargar plantilla</a>
-              <input type="file" id="file-import" accept=".csv,.txt" style="max-width: 220px;" />
-            </div>
-            <span class="hint">Completá teléfono, nombre y legajo en Excel, guardá como CSV y subí el archivo.</span>
-            <p style="margin: 1.25rem 0 0.5rem 0; font-weight: 600; font-size: 0.9rem;">Agregar uno por uno</p>
-            <div class="contactos-add">
-              <input type="text" id="contacto-nombre" class="nombre" placeholder="Nombre" />
-              <input type="text" id="contacto-telefono" class="telefono" placeholder="Teléfono ej. +54911..." />
-              <input type="text" id="contacto-legajo" class="legajo" placeholder="Legajo (opcional)" />
-              <button type="button" id="btn-agregar-contacto" class="btn-primary-small">Agregar contacto</button>
-            </div>
-          </div>
-
-          <div class="comunicados-paso1-block">
-            <h3 class="block-title">2. Elegir destinatarios</h3>
-            <p class="block-desc">Desde tus contactos guardados, elegí quiénes reciben este mensaje.</p>
+            <h3 class="block-title">1. Elegir desde contactos guardados</h3>
             <p class="hint" id="contactos-summary" style="margin-bottom: 0.75rem;">Cargando contactos…</p>
             <button type="button" id="btn-seleccionar-contactos" class="btn-seleccionar-contactos">Seleccionar contactos</button>
             <p class="hint" style="margin-top: 0.5rem;">Se abrirá una ventana para marcar contactos y sumarlos a la lista de abajo.</p>
@@ -215,6 +196,7 @@
                   <label for="modal-contactos-select-all" class="modal-select-all-label">Seleccionar todos</label>
                 </div>
                 <div class="contactos-list" id="modal-contactos-list"></div>
+                <p class="hint" style="margin-top:0.75rem;">¿No encontrás el contacto? <a href="/configuracion" style="color:#2563eb;">Agregalo en Configuración → Contactos</a>.</p>
               </div>
               <div class="comunicados-modal-actions">
                 <button type="button" class="btn-primary-small" id="modal-seleccionar-agregar">Agregar seleccionados a la lista</button>
@@ -224,8 +206,8 @@
           </div>
 
           <div class="comunicados-paso1-block">
-            <h3 class="block-title">3. Lista de destinatarios de este mensaje</h3>
-            <p class="block-desc">Acá van los teléfonos que recibirán el comunicado. Llenala con «Seleccionar contactos» o pegando números (uno por línea o separados por coma).</p>
+            <h3 class="block-title">2. Lista de destinatarios de este mensaje</h3>
+            <p class="block-desc">Acá van los teléfonos que recibirán el comunicado. Llenala con «Seleccionar contactos» o pegando números directamente (uno por línea o separados por coma).</p>
             <label>
               <textarea id="destinatarios" name="destinatarios" placeholder="Pegá números o usá «Seleccionar contactos» para agregar desde tus contactos guardados."></textarea>
               <span class="hint" id="destinatarios-count">0 destinatario(s).</span>
@@ -274,13 +256,8 @@
         var whatsappCanalEl = document.getElementById("whatsapp-canal");
         var availableCompanies = window.availableCompaniesForComunicados || [];
         var destinatariosEl = document.getElementById("destinatarios");
-        var fileImport = document.getElementById("file-import");
         var btnEnviar = document.getElementById("btn-enviar");
         var resultadoEl = document.getElementById("resultado");
-        var btnAgregarContacto = document.getElementById("btn-agregar-contacto");
-        var contactoNombre = document.getElementById("contacto-nombre");
-        var contactoTelefono = document.getElementById("contacto-telefono");
-        var contactoLegajo = document.getElementById("contacto-legajo");
         var destinatariosCountEl = document.getElementById("destinatarios-count");
 
         function updateDestinatariosCount() {
@@ -388,28 +365,6 @@
             row.appendChild(cb);
             row.appendChild(nombreSpan);
             row.appendChild(telefonoSpan);
-            var btnEliminar = document.createElement("button");
-            btnEliminar.type = "button";
-            btnEliminar.className = "contacto-eliminar";
-            btnEliminar.textContent = "Eliminar";
-            btnEliminar.setAttribute("aria-label", "Eliminar este contacto");
-            btnEliminar.dataset.telefono = (c.telefono || "").trim();
-            btnEliminar.addEventListener("click", function() {
-              var t = (this.dataset.telefono || "").trim();
-              if (!t || !confirm("¿Eliminar este contacto de la lista?")) return;
-              fetch("/api/comunicados/contactos", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ company_id: getCompanyId(), telefono: t })
-              })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                  if (data.ok) { loadContactos(); renderModalContactos(data.contactos || []); }
-                  else { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>" + (data.error || "No se pudo eliminar.") + "</p>"; }
-                })
-                .catch(function() { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>No se pudo eliminar.</p>"; });
-            });
-            row.appendChild(btnEliminar);
             modalContactosList.appendChild(row);
           });
           if (modalSelectAllCb) modalSelectAllCb.checked = false;
@@ -424,7 +379,7 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
               if (!data.ok || !Array.isArray(data.contactos) || data.contactos.length === 0) {
-                modalContactosList.innerHTML = "<p class=\"hint\">Sin contactos. Agregá uno arriba con nombre y teléfono.</p>";
+                modalContactosList.innerHTML = "<p class=\"hint\">Sin contactos guardados. <a href='/configuracion' style='color:#2563eb;'>Agregá en Configuración → Contactos</a>.</p>";
                 return;
               }
               renderModalContactos(data.contactos);
@@ -475,97 +430,14 @@
           fetch("/api/comunicados/contactos?company_id=" + encodeURIComponent(cid))
             .then(function(r) { return r.json(); })
             .then(function(data) {
-              if (!data.ok || !Array.isArray(data.contactos)) { contactosSummaryEl.textContent = "Sin contactos guardados. Agregá uno arriba."; return; }
+              if (!data.ok || !Array.isArray(data.contactos) || !data.contactos.length) { contactosSummaryEl.innerHTML = "Sin contactos guardados. <a href='/configuracion' style='color:#2563eb;'>Agregá en Configuración → Contactos</a>."; return; }
               var n = data.contactos.length;
-              contactosSummaryEl.textContent = n + " contacto(s) guardados. Abrí «Seleccionar contactos» para elegir destinatarios.";
+              contactosSummaryEl.textContent = n + " contacto(s) guardados.";
             })
             .catch(function() { contactosSummaryEl.textContent = "Error al cargar contactos."; });
         }
         companyEl.addEventListener("change", loadContactos);
         loadContactos();
-
-        btnAgregarContacto.addEventListener("click", function() {
-          var nombre = (contactoNombre && contactoNombre.value) ? contactoNombre.value.trim() : "";
-          var telefono = (contactoTelefono && contactoTelefono.value) ? contactoTelefono.value.trim() : "";
-          var legajo = (contactoLegajo && contactoLegajo.value) ? contactoLegajo.value.trim() : "";
-          if (!telefono) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>Escribí el teléfono.</p>"; return; }
-          var payload = { company_id: getCompanyId(), nombre: nombre || "Sin nombre", telefono: telefono };
-          if (legajo) payload.legajo = legajo;
-          fetch("/api/comunicados/contactos", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-              if (data.ok) { contactoNombre.value = ""; contactoTelefono.value = ""; if (contactoLegajo) contactoLegajo.value = ""; loadContactos(); resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result success"; resultadoEl.innerHTML = "<h3>Contacto agregado</h3><p>Ya está guardado. Usá «Seleccionar contactos» para sumarlo a destinatarios.</p>"; }
-              else { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>" + (data.error || "No se pudo guardar.") + "</p>"; }
-            })
-            .catch(function() { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>No se pudo agregar.</p>"; });
-        });
-
-        function parseCSVContactos(text) {
-          var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
-          if (lines.length < 2) return [];
-          var header = lines[0].split(/[,;\t]/).map(function(h) { return h.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s/g, ""); });
-          var idxTel = -1, idxNom = -1, idxLeg = -1;
-          var telNames = ["telefono", "teléfono", "numero", "número", "phone", "celular", "whatsapp"];
-          var nomNames = ["nombre", "name", "contacto"];
-          var legNames = ["legajo", "leg", "id"];
-          for (var i = 0; i < header.length; i++) {
-            var h = header[i];
-            if (telNames.indexOf(h) !== -1 && idxTel === -1) idxTel = i;
-            if (nomNames.indexOf(h) !== -1 && idxNom === -1) idxNom = i;
-            if (legNames.indexOf(h) !== -1 && idxLeg === -1) idxLeg = i;
-          }
-          if (idxTel === -1) idxTel = 0;
-          var rows = [];
-          for (var j = 1; j < lines.length; j++) {
-            var parts = lines[j].split(/[,;\t]/);
-            var telefono = (parts[idxTel] !== undefined ? parts[idxTel].trim().replace(/^["']|["']$/g, "") : "").trim();
-            if (!telefono) continue;
-            var nombre = idxNom >= 0 && parts[idxNom] !== undefined ? parts[idxNom].trim().replace(/^["']|["']$/g, "") : "";
-            var legajo = idxLeg >= 0 && parts[idxLeg] !== undefined ? parts[idxLeg].trim().replace(/^["']|["']$/g, "") : "";
-            rows.push({ telefono: telefono, nombre: nombre || "Sin nombre", legajo: legajo });
-          }
-          return rows;
-        }
-
-        fileImport.addEventListener("change", function() {
-          var file = this.files && this.files[0];
-          if (!file) return;
-          var cid = getCompanyId();
-          if (!cid) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Error</h3><p>Elegí una empresa.</p>"; this.value = ""; return; }
-          var reader = new FileReader();
-          reader.onload = function() {
-            var text = reader.result || "";
-            var contactos = parseCSVContactos(text);
-            if (contactos.length === 0) { resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error"; resultadoEl.innerHTML = "<h3>Importación</h3><p>No se encontraron filas con teléfono en el CSV. La plantilla debe tener columnas teléfono, nombre y legajo.</p>"; return; }
-            var agregados = 0;
-            var errores = 0;
-            function agregarSiguiente(idx) {
-              if (idx >= contactos.length) {
-                loadContactos();
-                resultadoEl.style.display = "block";
-                resultadoEl.className = errores === contactos.length ? "comunicados-result error" : "comunicados-result success";
-                resultadoEl.innerHTML = "<h3>Importación</h3><p>Se agregaron " + agregados + " contacto(s) a Mis contactos guardados. Usá «Seleccionar contactos» para elegir quiénes reciben el mensaje.</p>" + (errores > 0 ? "<p class=\"hint\">" + errores + " fila(s) no se pudieron guardar (teléfono duplicado o error).</p>" : "");
-                return;
-              }
-              var c = contactos[idx];
-              fetch("/api/comunicados/contactos", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ company_id: cid, nombre: c.nombre, telefono: c.telefono, legajo: c.legajo })
-              })
-                .then(function(r) { return r.json(); })
-                .then(function(data) { if (data.ok) agregados++; else errores++; agregarSiguiente(idx + 1); })
-                .catch(function() { errores++; agregarSiguiente(idx + 1); });
-            }
-            agregarSiguiente(0);
-          };
-          reader.readAsText(file, "UTF-8");
-          this.value = "";
-        });
 
         form.addEventListener("submit", function(e) {
           e.preventDefault();
