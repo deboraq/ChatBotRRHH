@@ -145,6 +145,7 @@ button.danger:hover {
   font-size: 0.83rem;
   color: var(--text-soft);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 input:not([type="checkbox"]),
@@ -498,6 +499,13 @@ textarea:focus {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+}
+.conv-head strong {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .conv-badges {
