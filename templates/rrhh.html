@@ -559,9 +559,12 @@
           const convLabel = conv.colaborador_nombre || conv.colaborador_telefono || conv.conversation_id;
           const isWA = conv.channel === "whatsapp";
           const waIcon = isWA ? '<span title="WhatsApp" style="color:#25d366;font-size:0.9em;">📱</span> ' : "";
+          const phoneTag = isWA && conv.colaborador_nombre && conv.colaborador_telefono
+            ? `<span style="font-size:0.72em;font-weight:normal;color:#8899bb;margin-left:5px;">${escapeHtml(conv.colaborador_telefono)}</span>`
+            : "";
           card.innerHTML = `
             <div class="conv-head">
-              <strong>${waIcon}${escapeHtml(convLabel)}</strong>
+              <strong>${waIcon}${escapeHtml(convLabel)}${phoneTag}</strong>
               <div class="conv-badges">
                 <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
                 ${isUnread ? '<span class="badge new-message">nuevo</span>' : ""}
@@ -1123,9 +1126,13 @@
         chatTitleEl.textContent = data.channel === "whatsapp"
           ? `📱 ${convLabel}`
           : `Conversación ${conversationId}`;
-        chatMetaEl.textContent = data.rrhh_asignacion_automatica && data.rrhh_agente
+        const agenteMeta = data.rrhh_asignacion_automatica && data.rrhh_agente
           ? `Estado: ${data.estado || "-"} | Asignado automáticamente a: ${data.rrhh_agente}`
           : `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
+        const telefonoMeta = (data.channel === "whatsapp" && data.colaborador_nombre && data.colaborador_telefono)
+          ? ` · 📞 ${data.colaborador_telefono}`
+          : "";
+        chatMetaEl.textContent = agenteMeta + telefonoMeta;
         if (reassignAgentEl && data.rrhh_agente_id) {
           reassignAgentEl.value = data.rrhh_agente_id;
         }
