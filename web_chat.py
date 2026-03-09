@@ -113,6 +113,23 @@ def _load_whatsapp_chat_context(phone):
             sess[key] = data[key]
 
 
+def _reset_whatsapp_chat_context(phone):
+    """Limpia la sesión WhatsApp (memoria + Firestore) para que el próximo mensaje empiece de cero."""
+    if not phone:
+        return
+    # Limpiar en-place para que g.whatsapp_session (misma referencia) quede vacía en este request
+    if phone in WHATSAPP_SESSIONS:
+        WHATSAPP_SESSIONS[phone].clear()
+        WHATSAPP_SESSIONS[phone]["__session_reset__"] = True
+    # Eliminar doc de Firestore inmediatamente (para instancias que no tienen la sesión en memoria)
+    norm = _normalize_phone_for_match(phone)
+    if norm and chatbot.db:
+        try:
+            chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).delete()
+        except Exception as e:
+            logger.warning("_reset_whatsapp_chat_context: error limpiando contexto para %s: %s", norm, e)
+
+
 def _save_whatsapp_chat_context(phone):
     """Guarda en Firestore el contexto de chat de la sesión WhatsApp actual."""
     if not chatbot.db or not phone:
@@ -122,6 +139,9 @@ def _save_whatsapp_chat_context(phone):
         return
     sess = getattr(g, "whatsapp_session", None)
     if not sess:
+        return
+    # Si la sesión fue reseteada en este turno, no guardar (el doc ya fue eliminado)
+    if sess.get("__session_reset__"):
         return
     payload = {
         "chat_context_step": sess.get("chat_context_step"),
@@ -1980,6 +2000,11 @@ def _close_handoff(conversation_id, quien):
         remitente="sistema",
         texto=f"La conversación fue cerrada por {quien}.",
     )
+    # Si era conversación de WhatsApp, resetear sesión para que el próximo mensaje empiece desde cero
+    if conv.get("channel") == "whatsapp":
+        wa_phone = conv.get("whatsapp_to_phone")
+        if wa_phone:
+            _reset_whatsapp_chat_context(wa_phone)
     return True
 
 
