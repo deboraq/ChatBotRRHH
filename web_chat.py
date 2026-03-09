@@ -3278,6 +3278,134 @@ def api_comunicados_enviar():
     return jsonify(resp)
 
 
+@flask_app.post("/api/comunicados/enviar-stream")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos para enviar comunicados.",
+)
+def api_comunicados_enviar_stream():
+    """Envía comunicado en lotes con progreso en tiempo real (Server-Sent Events)."""
+    import json as _json
+    from flask import stream_with_context, Response as FlaskResponse
+
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    destinatarios_raw = data.get("destinatarios")
+    if isinstance(destinatarios_raw, list):
+        phones = _normalize_phones_for_comunicado(destinatarios_raw)
+    elif isinstance(destinatarios_raw, str):
+        phones = _normalize_phones_for_comunicado([destinatarios_raw])
+    else:
+        phones = []
+    mensaje_raw = str(data.get("mensaje") or "").strip()
+    try:
+        mensaje = mensaje_raw.encode("utf-8", errors="replace").decode("utf-8")
+    except Exception:
+        mensaje = "".join(c for c in mensaje_raw if ord(c) < 0xD800 or ord(c) > 0xDFFF)
+    imagen_url = (data.get("imagen_url") or data.get("media_url") or "").strip()
+    media_urls = [imagen_url] if imagen_url else []
+
+    if not phones:
+        def _err():
+            yield 'data: ' + _json.dumps({"ok": False, "error": "No hay destinatarios."}) + "\n\n"
+        return FlaskResponse(stream_with_context(_err()), mimetype="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    if not mensaje and not media_urls:
+        def _err2():
+            yield 'data: ' + _json.dumps({"ok": False, "error": "Escribí el mensaje o agregá una imagen."}) + "\n\n"
+        return FlaskResponse(stream_with_context(_err2()), mimetype="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    phone_number_id = (data.get("whatsapp_phone") or "").strip()
+    if not phone_number_id and company_id:
+        company = _get_company(company_id, include_inactive=False)
+        if company:
+            nums = company.get("whatsapp_numbers") or []
+            label = (data.get("whatsapp_label") or "").strip().lower()
+            if label and nums:
+                for line in nums:
+                    if (str(line.get("label") or "")).strip().lower() == label:
+                        phone_number_id = (line.get("phone") or "").strip()
+                        break
+            if not phone_number_id and nums:
+                phone_number_id = (nums[0].get("phone") or "").strip()
+    if not phone_number_id:
+        phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    if not phone_number_id.startswith("whatsapp:"):
+        try:
+            from twilio_whatsapp import _format_to_whatsapp
+            phone_number_id = _format_to_whatsapp(phone_number_id) or phone_number_id
+        except Exception:
+            pass
+
+    def generate():
+        import json as _json2
+        try:
+            from twilio_whatsapp import send_one as twilio_send_one
+            import whatsapp_broadcast as wb
+
+            def _send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
+                try:
+                    result = twilio_send_one(phone, body=body, media_url=media_url[0] if isinstance(media_url, list) and media_url else (media_url or None), phone_number_id=phone_number_id)
+                    return bool(result)
+                except Exception as e:
+                    logger.warning("broadcast: error enviando a %s: %s", phone, e)
+                    return False
+
+            wb.set_send_function(_send_fn)
+
+            progress_events = []
+
+            def on_progress(sent, failed, total, batch_num, total_batches, waiting, wait_remaining):
+                progress_events.append({
+                    "ok": True, "done": False,
+                    "sent": sent, "failed": failed, "total": total,
+                    "batch": batch_num, "batches": total_batches,
+                    "waiting": waiting, "wait_remaining": wait_remaining,
+                })
+
+            import threading
+            result_holder = {}
+            def run():
+                result_holder["result"] = wb.broadcast_messages(
+                    phone_list=phones,
+                    body_text=mensaje or None,
+                    media_url=media_urls if media_urls else None,
+                    phone_number_id=phone_number_id,
+                    on_progress=on_progress,
+                )
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+
+            yield 'data: ' + _json2.dumps({"ok": True, "done": False, "started": True, "total": len(phones)}) + "\n\n"
+
+            while t.is_alive() or progress_events:
+                while progress_events:
+                    evt = progress_events.pop(0)
+                    yield 'data: ' + _json2.dumps(evt) + "\n\n"
+                if t.is_alive():
+                    import time as _time
+                    _time.sleep(0.1)
+
+            r = result_holder.get("result", {})
+            yield 'data: ' + _json2.dumps({
+                "ok": True, "done": True,
+                "sent": r.get("sent", 0), "failed": r.get("failed", 0),
+                "total": r.get("total", len(phones)),
+                "batches": r.get("batches_used", 0),
+            }) + "\n\n"
+
+        except Exception as e:
+            logger.exception("api_comunicados_enviar_stream: error: %s", e)
+            yield 'data: ' + _json2.dumps({"ok": False, "error": str(e)}) + "\n\n"
+
+    return FlaskResponse(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @flask_app.get("/estadisticas")
 @rrhh_auth_required
 def stats_page():
