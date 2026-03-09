@@ -22,10 +22,11 @@ except ImportError:
 COMPANY_NAME = str(os.getenv("CHATBOT_COMPANY_NAME", "Bacar")).strip() or "Bacar"
 HR_TEAM_NAME = str(os.getenv("CHATBOT_HR_TEAM_NAME", "Atención")).strip() or "Atención"
 HR_CONTACT = str(os.getenv("CHATBOT_HR_CONTACT", "interno 104")).strip() or "interno 104"
+BOT_NAME = str(os.getenv("CHATBOT_BOT_NAME", "Debo")).strip() or "Debo"
 
 
 def construir_mensaje_bienvenida():
-    return f"👋 ¡Hola! Soy el asistente de {HR_TEAM_NAME} de {COMPANY_NAME}. ¿En qué puedo ayudarte hoy?"
+    return f"👋 ¡Hola! Soy {BOT_NAME}, tu asistente de {COMPANY_NAME}. ¿En qué te puedo ayudar hoy? 😊"
 
 
 def construir_mensaje_contacto():
@@ -33,11 +34,11 @@ def construir_mensaje_contacto():
 
 
 def construir_mensaje_despedida():
-    return f"Gracias por comunicarte con {HR_TEAM_NAME} de {COMPANY_NAME}. ¡Buen día!"
+    return f"¡Hasta luego! Gracias por comunicarte con {HR_TEAM_NAME} de {COMPANY_NAME}. ¡Que tengas un excelente día! 😊"
 
 
-def actualizar_configuracion_empresa(company_name=None, hr_team_name=None, hr_contact=None):
-    global COMPANY_NAME, HR_TEAM_NAME, HR_CONTACT, MENSAJE_BIENVENIDA, MENSAJE_CONTACTO
+def actualizar_configuracion_empresa(company_name=None, hr_team_name=None, hr_contact=None, bot_name=None):
+    global COMPANY_NAME, HR_TEAM_NAME, HR_CONTACT, BOT_NAME, MENSAJE_BIENVENIDA, MENSAJE_CONTACTO
 
     if company_name is not None:
         COMPANY_NAME = str(company_name).strip() or COMPANY_NAME
@@ -45,6 +46,8 @@ def actualizar_configuracion_empresa(company_name=None, hr_team_name=None, hr_co
         HR_TEAM_NAME = str(hr_team_name).strip() or HR_TEAM_NAME
     if hr_contact is not None:
         HR_CONTACT = str(hr_contact).strip() or HR_CONTACT
+    if bot_name is not None:
+        BOT_NAME = str(bot_name).strip() or BOT_NAME
 
     MENSAJE_BIENVENIDA = construir_mensaje_bienvenida()
     MENSAJE_CONTACTO = construir_mensaje_contacto()

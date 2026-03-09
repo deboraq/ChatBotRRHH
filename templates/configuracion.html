@@ -112,14 +112,14 @@
       .knowledge-panel .knowledge-upload-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
       .knowledge-panel #knowledge-file { max-width: 100%; }
       .roles-guardar-hint { margin: 0.5rem 0 1rem 0; padding: 0.5rem 0; }
-      .roles-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .roles-panel.config-section { overflow: visible !important; }
+      .roles-table-wrap { overflow-x: scroll; overflow-y: visible; -webkit-overflow-scrolling: touch; width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 10px; background: var(--surface, #fff); }
       .roles-panel .roles-table { min-width: 720px; }
-      .roles-panel .role-save-wrap { margin-bottom: 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-      .roles-panel .role-save-label { font-weight: 700; font-size: 0.95rem; margin-right: 0.25rem; }
-      .roles-panel .role-save-btn { display: inline-block; margin-right: 0.5rem; background: #2563eb; color: #fff; border: 2px solid #2563eb; padding: 0.5rem 1.2rem; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 1rem; white-space: nowrap; }
-      .roles-panel .role-save-btn:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
-      .roles-panel .config-actions-cell--roles { min-width: 220px; vertical-align: top; white-space: nowrap; background: var(--panel-bg, #fafafa); }
-      html[data-theme="dark"] .roles-panel .config-actions-cell--roles { background: var(--panel-bg); }
+      .roles-panel .role-save-wrap { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; }
+      .roles-panel .role-save-label { font-size: 0.8rem; color: #64748b; }
+      .roles-panel .role-save-btn { display: inline-block; background: #2563eb; color: #fff; border: none; padding: 0.3rem 0.85rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.82rem; white-space: nowrap; }
+      .roles-panel .role-save-btn:hover { background: #1d4ed8; color: #fff; }
+      .roles-panel .config-actions-cell--roles { min-width: 140px; vertical-align: top; white-space: nowrap; }
       .roles-panel .role-save-inline { margin-top: 0.6rem; }
       .roles-panel .role-save-inline .role-save-btn { margin-right: 0; }
       .areas-panel .areas-table td { vertical-align: top !important; }
@@ -262,20 +262,20 @@
                   ID empresa (opcional)
                   <input id="modal-company-id" type="text" placeholder="ej: bacar_norte" />
                 </label>
-                <label class="field">
+                <label class="field" style="grid-column: 1 / -1;">
                   Carpeta Drive (ID) (opcional)
                   <input id="modal-company-drive-folder-id" type="text" placeholder="ej: 16PNA3gAgvtoamLgdhkLn3BQ8i_erJFmy" />
-                  <span class="subtle" style="display:block; margin-top:0.25rem;">Para sincronizar base de conocimiento desde Google Drive. Ver docs/CONECTAR_DRIVE_API.md</span>
+                  <span class="subtle" style="display:block; margin-top:0.25rem;">Para sincronizar base de conocimiento desde Google Drive.</span>
                 </label>
                 <div class="field whatsapp-numbers-block">
                   <p class="field-label" style="font-weight:600; margin:0 0 0.5rem 0;">Números de WhatsApp (por área/canal)</p>
-                  <p class="subtle" style="margin:0 0 0.5rem 0; font-size:0.9rem;">Uno por línea: etiqueta (ej. RRHH, Tesorería) y teléfono. El número que recibe el mensaje identifica la empresa y, si coincide con un área, se asigna automáticamente.</p>
+                  <p class="subtle" style="margin:0 0 0.5rem 0; font-size:0.9rem;">Etiqueta opcional (ej. RRHH) y número. El número entrante identifica la empresa automáticamente.</p>
                   <div id="modal-company-whatsapp-list" class="whatsapp-numbers-list"></div>
                   <button type="button" id="modal-company-whatsapp-add" class="btn ghost" style="margin-top:0.5rem;">+ Agregar número</button>
                 </div>
                 <div class="config-modal-actions">
                   <button type="button" class="btn ghost config-modal-cancel">Cancelar</button>
-                  <button type="submit">Agregar empresa</button>
+                  <button type="submit" id="company-form-submit-btn">Agregar empresa</button>
                 </div>
               </form>
             </div>
@@ -502,30 +502,6 @@
                   <input id="modal-phone" type="text" placeholder="Teléfono (opcional)" />
                 </label>
                 <label class="field">
-                  Áreas
-                  <span id="modal-areas-wrap" class="branch-dropdown-wrap modal-branches-select-like">
-                    <button type="button" id="modal-areas-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
-                      <span class="branch-dropdown-trigger-text">Seleccionar áreas</span>
-                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
-                    </button>
-                    <div id="modal-areas-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
-                  </span>
-                </label>
-                <label class="field" id="modal-password-wrap">
-                  Contraseña inicial
-                  <input id="modal-password" type="password" placeholder="Mínimo 6 caracteres" />
-                </label>
-                <label class="field">
-                  Rol
-                  <span id="modal-roles-wrap" class="branch-dropdown-wrap modal-branches-select-like">
-                    <button type="button" id="modal-roles-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
-                      <span class="branch-dropdown-trigger-text">Seleccionar roles</span>
-                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
-                    </button>
-                    <div id="modal-roles-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
-                  </span>
-                </label>
-                <label class="field">
                   Empresa asignada
                   <select id="modal-company"></select>
                 </label>
@@ -537,6 +513,30 @@
                       <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
                     </button>
                     <div id="modal-branches-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
+                  </span>
+                </label>
+                <label class="field">
+                  Áreas
+                  <span id="modal-areas-wrap" class="branch-dropdown-wrap modal-branches-select-like">
+                    <button type="button" id="modal-areas-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
+                      <span class="branch-dropdown-trigger-text">Seleccionar áreas</span>
+                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
+                    </button>
+                    <div id="modal-areas-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
+                  </span>
+                </label>
+                <label class="field" id="modal-password-wrap">
+                  <span id="modal-password-label">Contraseña inicial</span>
+                  <input id="modal-password" type="password" placeholder="Mínimo 6 caracteres" />
+                </label>
+                <label class="field">
+                  Rol
+                  <span id="modal-roles-wrap" class="branch-dropdown-wrap modal-branches-select-like">
+                    <button type="button" id="modal-roles-trigger" class="branch-dropdown-trigger modal-branches-trigger" aria-expanded="false" aria-haspopup="listbox">
+                      <span class="branch-dropdown-trigger-text">Seleccionar roles</span>
+                      <span class="branch-dropdown-chevron" aria-hidden="true">▼</span>
+                    </button>
+                    <div id="modal-roles-panel" class="branch-dropdown-panel" role="listbox" aria-hidden="true"></div>
                   </span>
                 </label>
                 <div class="config-modal-actions">
@@ -724,6 +724,7 @@
       const modalAreasPanel = document.getElementById("modal-areas-panel");
       const modalPasswordWrap = document.getElementById("modal-password-wrap");
       const modalPassword = document.getElementById("modal-password");
+      const modalPasswordLabel = document.getElementById("modal-password-label");
       const modalRolesWrap = document.getElementById("modal-roles-wrap");
       const modalRolesTrigger = document.getElementById("modal-roles-trigger");
       const modalRolesPanel = document.getElementById("modal-roles-panel");
@@ -791,6 +792,7 @@
       const companyFormModal = document.getElementById("company-form-modal");
       const companyFormModalForm = document.getElementById("company-form-modal-form");
       const companyFormModalTitle = document.getElementById("company-form-modal-title");
+      const companyFormSubmitBtn = document.getElementById("company-form-submit-btn");
       const modalCompanyEditId = document.getElementById("modal-company-edit-id");
       const modalCompanyName = document.getElementById("modal-company-name");
       const modalCompanyId = document.getElementById("modal-company-id");
@@ -2233,6 +2235,8 @@
           userFormModalTitle.textContent = "Agregar usuario";
           modalSubmitBtn.textContent = "Crear usuario";
           modalPassword.required = true;
+          modalPassword.placeholder = "Mínimo 6 caracteres";
+          if (modalPasswordLabel) modalPasswordLabel.textContent = "Contraseña inicial";
           fillCompanySelect(modalCompany, selectedCompanyId || "", true);
           updateModalBranchesDropdown();
           updateModalAreaDropdown();
@@ -2243,7 +2247,10 @@
         } else {
           userFormModalTitle.textContent = "Modificar usuario";
           modalSubmitBtn.textContent = "Guardar";
-          if (modalPasswordWrap) modalPasswordWrap.style.display = "none";
+          if (modalPasswordWrap) modalPasswordWrap.style.display = "";
+          modalPassword.required = false;
+          modalPassword.placeholder = "Dejar vacío para no cambiar";
+          if (modalPasswordLabel) modalPasswordLabel.textContent = "Nueva contraseña (opcional)";
           modalUsernameEdit.value = user.username || "";
           modalUsername.value = user.username || "";
           modalUsername.disabled = true;
@@ -2322,7 +2329,7 @@
           const editUsername = (modalUsernameEdit?.value || username).trim();
           if (!editUsername) throw new Error("Usuario no indicado.");
           showToast("Guardando…");
-          await guardarCambiosUsuario(editUsername, display_name, role, assignments, email, phone, area);
+          await guardarCambiosUsuario(editUsername, display_name, role, assignments, email, phone, area, password || null);
         }
         closeUserModal();
         await cargarUsuarios();
@@ -2403,13 +2410,10 @@
           tdAction.className = "config-actions-cell config-actions-cell--roles";
           const saveWrap = document.createElement("div");
           saveWrap.className = "role-save-wrap";
-          const saveLabel = document.createElement("span");
-          saveLabel.className = "role-save-label";
-          saveLabel.textContent = "Guardar cambios:";
-          saveWrap.appendChild(saveLabel);
           const btnSave = document.createElement("button");
           btnSave.type = "button";
-          btnSave.className = "btn btn-primary role-save-btn";
+          btnSave.className = "role-update-btn";
+          btnSave.style.cssText = "background:#2563eb;color:#fff;border-color:#2563eb;";
           btnSave.textContent = "Guardar";
           btnSave.title = "Guardar cambios de nombre y permisos de este rol";
           saveWrap.appendChild(btnSave);
@@ -2747,6 +2751,7 @@
         if (modalCompanyWebsite) modalCompanyWebsite.value = "";
         if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = "";
         if (companyFormModalTitle) companyFormModalTitle.textContent = "Agregar empresa";
+        if (companyFormSubmitBtn) companyFormSubmitBtn.textContent = "Agregar empresa";
         if (modalCompanyId) {
           modalCompanyId.disabled = false;
           modalCompanyId.placeholder = "ej: bacar_norte";
@@ -2766,6 +2771,7 @@
           if (modalCompanyWebsite) modalCompanyWebsite.value = company.company_website || "";
           if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = company.drive_folder_id || "";
           if (companyFormModalTitle) companyFormModalTitle.textContent = "Modificar empresa";
+          if (companyFormSubmitBtn) companyFormSubmitBtn.textContent = "Guardar";
           renderWhatsappNumbersList(company.whatsapp_numbers || []);
         } else {
           renderWhatsappNumbersList([]);
@@ -2773,20 +2779,69 @@
         companyFormModal.hidden = false;
       }
 
-      function renderWhatsappNumbersList(items) {
+      function _getCompanyAllAreas(company) {
+        if (!company) return [];
+        const byBranch = company.areas_by_branch;
+        if (byBranch && typeof byBranch === "object" && Object.keys(byBranch).length) {
+          const seen = new Set();
+          const out = [];
+          for (const v of Object.values(byBranch)) {
+            for (const a of (v || [])) {
+              const k = String(a).trim().toLowerCase();
+              if (k && !seen.has(k)) { seen.add(k); out.push(String(a).trim()); }
+            }
+          }
+          return out;
+        }
+        return (company.areas || []).map(a => String(a).trim()).filter(Boolean);
+      }
+
+      function renderWhatsappNumbersList(items, company) {
         if (!modalCompanyWhatsappList) return;
+        if (!company) {
+          const editId = modalCompanyEditId?.value;
+          company = editId ? companies.find(c => c.company_id === editId) : null;
+        }
+        const areas = _getCompanyAllAreas(company);
         modalCompanyWhatsappList.innerHTML = "";
         (items.length ? items : [{ label: "", phone: "" }]).forEach((item) => {
           const row = document.createElement("div");
           row.className = "whatsapp-number-row";
           row.style.cssText = "display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem; flex-wrap:wrap;";
-          const labelInput = document.createElement("input");
-          labelInput.type = "text";
-          labelInput.placeholder = "ej. RRHH, Tesorería";
-          labelInput.value = item.label || "";
-          labelInput.style.cssText = "flex:1; min-width:120px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
+          let labelEl;
+          if (areas.length) {
+            labelEl = document.createElement("select");
+            labelEl.dataset.role = "label";
+            labelEl.style.cssText = "flex:1; min-width:120px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
+            const optPrincipal = document.createElement("option");
+            optPrincipal.value = "Principal";
+            optPrincipal.textContent = "Principal";
+            labelEl.appendChild(optPrincipal);
+            areas.forEach(a => {
+              const opt = document.createElement("option");
+              opt.value = a;
+              opt.textContent = a;
+              labelEl.appendChild(opt);
+            });
+            const currentLabel = item.label || "";
+            if (currentLabel && !areas.includes(currentLabel) && currentLabel !== "Principal") {
+              const opt = document.createElement("option");
+              opt.value = currentLabel;
+              opt.textContent = currentLabel;
+              labelEl.appendChild(opt);
+            }
+            labelEl.value = currentLabel || "Principal";
+          } else {
+            labelEl = document.createElement("input");
+            labelEl.type = "text";
+            labelEl.dataset.role = "label";
+            labelEl.placeholder = "ej. RRHH, Tesorería";
+            labelEl.value = item.label || "";
+            labelEl.style.cssText = "flex:1; min-width:120px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
+          }
           const phoneInput = document.createElement("input");
           phoneInput.type = "text";
+          phoneInput.dataset.role = "phone";
           phoneInput.placeholder = "+54 9 11 1234-5678";
           phoneInput.value = item.phone || "";
           phoneInput.style.cssText = "flex:1; min-width:140px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
@@ -2795,7 +2850,7 @@
           btnRemove.textContent = "Quitar";
           btnRemove.className = "btn ghost";
           btnRemove.addEventListener("click", () => { row.remove(); });
-          row.appendChild(labelInput);
+          row.appendChild(labelEl);
           row.appendChild(phoneInput);
           row.appendChild(btnRemove);
           modalCompanyWhatsappList.appendChild(row);
@@ -2807,9 +2862,8 @@
         const rows = modalCompanyWhatsappList.querySelectorAll(".whatsapp-number-row");
         const out = [];
         rows.forEach((row) => {
-          const inputs = row.querySelectorAll("input");
-          const label = (inputs[0]?.value || "").trim();
-          const phone = (inputs[1]?.value || "").trim();
+          const label = (row.querySelector("[data-role='label']")?.value || "").trim();
+          const phone = (row.querySelector("[data-role='phone']")?.value || "").trim();
           if (phone) out.push({ label: label || "Principal", phone });
         });
         return out;
@@ -3023,13 +3077,16 @@
         assignments,
         email,
         phone,
-        area
+        area,
+        password
       ) {
         if (!canManageUsers) return;
+        const payload = { display_name, role, assignments, email, phone, area };
+        if (password) payload.password = password;
         const response = await fetch(`/api/rrhh/usuarios/${encodeURIComponent(username)}/perfil`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ display_name, role, assignments, email, phone, area }),
+          body: JSON.stringify(payload),
         });
         if (response.status === 401) {
           window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`;

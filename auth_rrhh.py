@@ -912,6 +912,7 @@ def update_user_profile(
     email=None,
     phone=None,
     area=None,
+    password=None,
     updated_by="",
     path=None,
 ):
@@ -968,6 +969,12 @@ def update_user_profile(
 
     if area is not None:
         updated_entry["area"] = _normalize_text(area, max_len=120)
+
+    if password is not None:
+        password_raw = str(password).strip()
+        if len(password_raw) < 6:
+            return False, None, "La contraseña debe tener al menos 6 caracteres."
+        updated_entry["password_hash"] = generate_password_hash(password_raw)
 
     updated_entry["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     updated_by_clean = str(updated_by or "").strip()

@@ -1097,6 +1097,13 @@ input.readonly {
 
 .config-modal-box--wide .config-modal-form .field {
   min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.config-modal-box--wide .config-modal-form .whatsapp-numbers-block {
+  grid-column: 1 / -1;
+  overflow: visible;
 }
 
 .config-modal-box--wide .config-modal-actions {
@@ -1975,7 +1982,8 @@ input.readonly {
 /* Modo oscuro: tablas Empresas y Sucursales (mismo aspecto que Áreas, Usuarios, Roles) */
 :root[data-theme="dark"] .companies-table-wrap,
 :root[data-theme="dark"] .branches-table-wrap,
-:root[data-theme="dark"] .areas-table-wrap {
+:root[data-theme="dark"] .areas-table-wrap,
+:root[data-theme="dark"] .roles-table-wrap {
   background: #101a2a;
   border-color: #334155;
 }
@@ -1998,6 +2006,7 @@ input.readonly {
 :root[data-theme="dark"] .roles-panel .roles-table td {
   color: #ffffff !important;
 }
+
 
 :root[data-theme="dark"] .branches-panel .branches-table .branch-company-id {
   background: #1e293b;
