@@ -8,6 +8,7 @@ except ImportError:
     pass
 
 import logging
+import re
 import smtplib
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -196,19 +197,22 @@ def _clear_chat_context():
 
 
 def _parse_menu_number(mensaje):
-    """Si el mensaje es un número de menú (ej. '1', '1.', '2)', 'Sucursal 1'), devuelve el índice 1-based o None."""
+    """Si el mensaje es un número de menú (ej. '1', '1.', '2)', 'opción 2'), devuelve el índice 1-based o None.
+    Solo reconoce el número si el mensaje es básicamente solo un número (con puntuación opcional o
+    prefijo corto tipo 'opción'/'sucursal'), para evitar extraer dígitos de nombres como 'test 3'."""
     s = (mensaje or "").strip()
     if not s:
         return None
+    # Caso exacto: solo dígito(s), opcionalmente con "." o ")" al final
     s_clean = s.rstrip(".)")
     if s_clean.isdigit():
         n = int(s_clean)
         return n if n >= 1 else None
-    import re
-    m = re.search(r"\b([1-9]\d*)\b", s)
-    if m:
-        n = int(m.group(1))
-        return n if n >= 1 else None
+    # Caso: prefijo genérico + número (ej. "opción 2", "nro 4") — solo prefijos conocidos
+    _PREFIJOS_MENU = {"opcion", "opción", "numero", "número", "nro", "item", "ítem"}
+    m = re.match(r'^(\w+)\s+([1-9]\d*)[.)]*$', s.strip().lower())
+    if m and m.group(1) in _PREFIJOS_MENU:
+        return int(m.group(2))
     return None
 
 
@@ -688,7 +692,10 @@ def _normalize_company_entry(entry):
         "permitir_hablar_con_humano": permitir_humano,
         "temas_habilitados": temas_habilitados,
         "whatsapp_numbers": whatsapp_numbers,
+        "drive_folder_id": str(entry.get("drive_folder_id") or "").strip()[:128] or None,
     }
+    if out.get("drive_folder_id") is None:
+        out.pop("drive_folder_id", None)
 
 
 def _default_company_entry():
@@ -711,6 +718,7 @@ def _default_company_entry():
         "permitir_hablar_con_humano": True,
         "temas_habilitados": [],
         "whatsapp_numbers": [],
+        "drive_folder_id": None,
     }
 
 
@@ -776,6 +784,11 @@ def _merge_company_entries(current, candidate):
         base["whatsapp_numbers"] = _normalize_whatsapp_numbers(extra["whatsapp_numbers"])
     else:
         base.setdefault("whatsapp_numbers", [])
+    if "drive_folder_id" in extra:
+        v = str(extra.get("drive_folder_id") or "").strip()[:128] or None
+        base["drive_folder_id"] = v
+    else:
+        base.setdefault("drive_folder_id", base.get("drive_folder_id"))
     return base
 
 
@@ -1297,8 +1310,29 @@ def _heartbeat_current_agent(source="rrhh_panel"):
             current.get("role"), auth_rrhh.PERM_CONVERSATIONS_MANAGE
         ):
             return None
-        return _upsert_active_agent(current, source=source)
+        agent = _upsert_active_agent(current, source=source)
+        _auto_assign_pending_handoffs(agent)
+        return agent
     return None
+
+
+def _auto_assign_pending_handoffs(agent):
+    """Al conectarse un agente, asignarle handoffs pendientes sin asignar de su empresa."""
+    if not agent:
+        return
+    agent_company = _normalize_company_id(agent.get("company_id"))
+    pending = _list_handoffs(include_closed=False, company_id=agent_company or None)
+    now = _utc_now()
+    for conv in pending:
+        if str(conv.get("estado") or "").strip().lower() != HANDOFF_STATUS_PENDING:
+            continue
+        if str(conv.get("rrhh_agente_id") or "").strip():
+            continue  # ya tiene agente
+        conv_id = conv.get("conversation_id")
+        if not conv_id:
+            continue
+        _take_handoff(conv_id, agent, auto_taken=True)
+        _upsert_handoff(conv_id, {"updated_at": now}, merge=True)
 
 
 def _open_handoff_load_by_agent(company_id=None):
@@ -1323,7 +1357,14 @@ def _agent_areas_set(agent):
 
 
 def _select_auto_agent(company_id=None, branch=None, area=None):
+    # 1. Búsqueda exacta: empresa + sucursal
     active_agents = _list_active_agents(company_id=company_id, branch=branch or None)
+    # 2. Si no hay, relajar sucursal
+    if not active_agents and branch:
+        active_agents = _list_active_agents(company_id=company_id, branch=None)
+    # 3. Si no hay, cualquier agente activo (sin filtro de empresa)
+    if not active_agents:
+        active_agents = _list_active_agents(company_id=None, branch=None)
     if not active_agents:
         return None
     area_norm = str(area or "").strip().lower() if area else None
@@ -2165,6 +2206,7 @@ def armar_respuesta_no_entendida(consulta, temas_map):
 
 def limpiar_estado_conversacion():
     _sess().pop("pending_feedback_topic", None)
+    _sess().pop("pending_derivacion", None)
 
 
 def _payload(
@@ -2187,6 +2229,83 @@ def _firebase_project_id():
     if chatbot.db is None:
         return "modo_local_sin_firestore"
     return str(getattr(chatbot.db, "project", "desconocido"))
+
+
+_RESUMEN_IGNORAR = {
+    "si", "sí", "no", "ok", "dale", "bueno", "gracias", "menu", "menú",
+    "hola", "h", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+    "quiero hablar con alguien", "hablar con un agente", "hablar con alguien",
+}
+
+def _generar_resumen_conversacion(chat_session_id):
+    """Genera un resumen interpretativo de los temas consultados para mostrárselo al agente."""
+    turnos = []
+    try:
+        if chatbot.db:
+            docs = (
+                chatbot.db.collection("chat_historial")
+                .where("conversation_id", "==", str(chat_session_id or ""))
+                .get()
+            )
+            all_turnos = [doc.to_dict() or {} for doc in docs]
+            all_turnos.sort(key=lambda x: _as_utc_naive(x.get("fecha")) or datetime.min)
+            turnos = all_turnos
+        else:
+            turnos = sorted(
+                [h for h in IN_MEMORY_CHAT_HISTORY
+                 if str(h.get("conversation_id") or "") == str(chat_session_id or "")],
+                key=lambda x: _as_utc_naive(x.get("fecha")) or datetime.min,
+            )
+    except Exception:
+        turnos = []
+
+    if not turnos:
+        return "Sin historial previo disponible."
+
+    # Extraer consultas reales del colaborador (ignorar respuestas cortas/triviales)
+    consultas = []
+    ultimo_bot_respondio = False
+    ultimo_bot_texto = ""
+    for t in turnos:
+        remitente = str(t.get("remitente") or "").strip().lower()
+        texto = str(t.get("texto") or "").strip()
+        if not texto:
+            continue
+        if remitente == "colaborador":
+            norm = chatbot.normalizar_texto(texto)
+            if norm not in _RESUMEN_IGNORAR and len(texto) > 3:
+                consultas.append(texto)
+            ultimo_bot_respondio = False
+        elif remitente in ("bot", "asistente"):
+            ultimo_bot_respondio = True
+            ultimo_bot_texto = texto
+
+    if not consultas:
+        return "El colaborador solicitó hablar con un agente sin realizar consultas previas."
+
+    # Deduplicar manteniendo orden
+    vistas = set()
+    consultas_unicas = []
+    for c in consultas:
+        norm = chatbot.normalizar_texto(c)
+        if norm not in vistas:
+            vistas.add(norm)
+            consultas_unicas.append(c)
+
+    # Tomar solo las últimas 5 consultas relevantes
+    consultas_unicas = consultas_unicas[-5:]
+
+    partes = ["📋 Resumen de la consulta:"]
+    partes.append(f"Temas consultados ({len(consultas_unicas)}): " + " | ".join(f'"{c}"' for c in consultas_unicas))
+
+    # Última respuesta del bot
+    if ultimo_bot_respondio and ultimo_bot_texto:
+        bot_corto = ultimo_bot_texto[:150] + "..." if len(ultimo_bot_texto) > 150 else ultimo_bot_texto
+        partes.append(f"Última respuesta del bot: {bot_corto}")
+    else:
+        partes.append("El bot no pudo responder la última consulta.")
+
+    return "\n".join(partes)
 
 
 def _iniciar_handoff_rrhh(mensaje_usuario):
@@ -2241,10 +2360,12 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             handoff_payload["whatsapp_to_phone"] = g.whatsapp_from
             handoff_payload["whatsapp_from_number"] = g.whatsapp_to
         _upsert_handoff(conversation_id, handoff_payload, merge=False)
+        # Resumen de la conversación previa para el agente
+        resumen = _generar_resumen_conversacion(chat_session_id)
         _add_handoff_message(
             conversation_id,
             remitente="sistema",
-            texto="El colaborador solicitó hablar con un agente.",
+            texto=resumen,
             visible_to_colaborador=False,
         )
         if assigned_agent:
@@ -2274,6 +2395,20 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map, permit
     tipo, texto_norm = chatbot.clasificar_input_feedback(texto_usuario)
 
     if tipo == "feedback":
+        # Si el tema es del knowledge base y el usuario dijo "no" → ofrecer derivación
+        if texto_norm == "no" and tema_pendiente == "knowledge_answer":
+            chatbot.registrar_feedback(tema_pendiente, texto_norm, company_id=company_id)
+            limpiar_estado_conversacion()
+            _sess()["pending_derivacion"] = True
+            return _payload(
+                "Entendido. ¿Querés que te derive con un agente de RRHH para que te ayuden mejor?",
+                await_feedback=False,
+                quick_actions=[
+                    {"label": "Sí, derivame", "value": "si"},
+                    {"label": "No, gracias", "value": "no"},
+                    {"label": "Nueva consulta", "value": "nueva consulta"},
+                ],
+            )
         guardado = chatbot.registrar_feedback(tema_pendiente, texto_norm, company_id=company_id)
         limpiar_estado_conversacion()
         if guardado:
@@ -2354,18 +2489,13 @@ def responder_chat(mensaje_usuario):
                 quick_actions=_acciones_menu(6),
             )
 
-        # Si es un saludo, asumimos que quiere volver al bot (no derivar a agente).
-        if chatbot.es_saludo(mensaje_norm) or mensaje_norm == "menu":
+        # Solo "menu" cierra el handoff y vuelve al bot; saludos y consultas van al agente.
+        if mensaje_norm == "menu":
             _close_handoff(handoff_id, "colaborador")
             _clear_handoff_session()
-            if mensaje_norm == "menu":
-                return _payload(
-                    construir_menu_texto(temas_map, permitir_hablar_con_humano=permitir),
-                    quick_actions=construir_acciones_menu(temas_map, permitir_hablar_con_humano=permitir),
-                )
             return _payload(
-                chatbot.MENSAJE_BIENVENIDA,
-                quick_actions=_acciones_menu(6),
+                construir_menu_texto(temas_map, permitir_hablar_con_humano=permitir),
+                quick_actions=construir_acciones_menu(temas_map, permitir_hablar_con_humano=permitir),
             )
 
         if mensaje_norm in HANDOFF_POLL_COMMANDS:
@@ -2415,6 +2545,38 @@ def responder_chat(mensaje_usuario):
             quick_actions=construir_acciones_handoff(),
         )
 
+    # Estado: el bot ofreció derivación y espera confirmación del usuario
+    if _sess().get("pending_derivacion"):
+        _sess().pop("pending_derivacion", None)
+        msg_norm = chatbot.normalizar_texto(mensaje_usuario)
+        if msg_norm in {"si", "sí", "dale", "ok", "bueno", "yes", "quiero", "derivame"}:
+            if not permitir:
+                return _payload(
+                    "La derivación a un agente está desactivada para esta empresa. "
+                    "Podés seguir consultando el menú.",
+                    quick_actions=_acciones_menu(6),
+                )
+            conversation_id = _iniciar_handoff_rrhh(mensaje_usuario)
+            conv = _fetch_handoff(conversation_id) or {}
+            assigned = str(conv.get("rrhh_agente") or "").strip()
+            if assigned:
+                respuesta = (
+                    "👩‍💼 Perfecto, te derivé con el equipo de atención.\n"
+                    f"Te asigné con {assigned}. Podés seguir escribiendo por este chat."
+                )
+            else:
+                respuesta = (
+                    "👩‍💼 Perfecto, derivé tu consulta al equipo de atención.\n"
+                    "Te van a responder por este mismo chat."
+                )
+            return _payload(respuesta, handoff_active=True, quick_actions=construir_acciones_handoff())
+        elif msg_norm in {"no", "no gracias", "no, gracias"}:
+            return _payload(
+                "Entendido. Si necesitás algo más, estoy por acá.",
+                quick_actions=_acciones_menu(6),
+            )
+        # Cualquier otra cosa = nueva consulta, cae al flujo normal sin responder "Entendido"
+
     tema_pendiente = _sess().get("pending_feedback_topic")
     if tema_pendiente:
         payload = procesar_feedback_pendiente(mensaje_usuario, tema_pendiente, temas_map, permitir_hablar_con_humano=permitir, company_id=company_id)
@@ -2455,8 +2617,27 @@ def responder_chat(mensaje_usuario):
             quick_actions=construir_acciones_menu(temas_map, permitir_hablar_con_humano=permitir),
         )
 
+    if chatbot.es_saludo(mensaje_norm):
+        company_obj = _current_company()
+        c_name = (company_obj or {}).get("company_name") or "tu empresa"
+        return _payload(
+            f"👋 ¡Hola! ¿Cómo estás? Soy el asistente virtual de {c_name}. ¿En qué te puedo ayudar hoy?",
+            quick_actions=_acciones_menu(6),
+        )
+
     respuesta, tema_id = chatbot.obtener_respuesta(mensaje_usuario, temas_map, company_id=company_id)
     if respuesta:
+        if tema_id == "knowledge_derivacion":
+            _sess()["pending_derivacion"] = True
+            return _payload(
+                respuesta,
+                await_feedback=False,
+                quick_actions=[
+                    {"label": "Sí, derivame", "value": "si"},
+                    {"label": "No, gracias", "value": "no"},
+                    {"label": "Nueva consulta", "value": "nueva consulta"},
+                ],
+            )
         requiere_feedback = tema_id not in chatbot.TEMAS_SIN_FEEDBACK
         if requiere_feedback:
             _sess()["pending_feedback_topic"] = tema_id
@@ -2602,9 +2783,14 @@ def chat_page():
         quick_actions_iniciales = _construir_acciones_empresas(limite=8)
         nombres_empresas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
         if nombres_empresas:
-            bienvenida = f"👋 ¡Hola! ¿De qué empresa me hablás?\nMenú:\n" + "\n".join(nombres_empresas) + "\n\nEscribí el número o el nombre."
+            bienvenida = (
+                f"👋 ¡Hola! Bienvenido/a al asistente virtual de {hr_display}.\n"
+                f"Para orientarte mejor, ¿con qué empresa estás relacionado/a?\n\n"
+                + "\n".join(nombres_empresas)
+                + "\n\nEscribí el número o el nombre."
+            )
         else:
-            bienvenida = "👋 ¡Hola! ¿De qué empresa me hablás? Elegí una opción o escribí el nombre."
+            bienvenida = f"👋 ¡Hola! Bienvenido/a. ¿Con qué empresa estás relacionado/a? Escribí el nombre."
     elif step == CHAT_CONTEXT_STEP_BRANCH:
         ctx_company_id = session.get("chat_context_company_id") or company_id
         company_for_branch = _get_company(ctx_company_id, include_inactive=False)
@@ -2612,9 +2798,13 @@ def chat_page():
         quick_actions_iniciales = _construir_acciones_sucursales(ctx_company_id, limite=8)
         nombres_sucursales = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
         if nombres_sucursales:
-            bienvenida = f"¿De qué sucursal me hablás? (empresa: {area_name_company})\nMenú:\n" + "\n".join(nombres_sucursales) + "\n\nEscribí el número o el nombre."
+            bienvenida = (
+                f"¡Perfecto, {area_name_company}! ¿Y de qué sucursal sos?\n\n"
+                + "\n".join(nombres_sucursales)
+                + "\n\nEscribí el número o el nombre."
+            )
         else:
-            bienvenida = f"¿De qué sucursal me hablás? (empresa: {area_name_company})"
+            bienvenida = f"¡Perfecto, {area_name_company}! ¿Y de qué sucursal sos?"
     elif step == CHAT_CONTEXT_STEP_AREA:
         ctx_company_id = session.get("chat_context_company_id") or company_id
         ctx_branch = session.get("chat_context_branch") or ""
@@ -2622,11 +2812,15 @@ def chat_page():
         area_name_company = (company_for_area or {}).get("company_name") or ctx_company_id or "Empresa"
         quick_actions_iniciales = _construir_acciones_areas(ctx_company_id, limite=8, branch=ctx_branch or None)
         nombres_areas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
-        suf = f" (sucursal: {ctx_branch})" if ctx_branch else ""
+        suf = f" de {ctx_branch}" if ctx_branch else ""
         if nombres_areas:
-            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company}{suf})\nMenú:\n" + "\n".join(nombres_areas) + "\n\nEscribí el número o el nombre."
+            bienvenida = (
+                f"Entendido{suf}. ¿Y a qué área pertenecés?\n\n"
+                + "\n".join(nombres_areas)
+                + "\n\nEscribí el número o el nombre."
+            )
         else:
-            bienvenida = f"¿De qué área me hablás? (empresa: {area_name_company}{suf})"
+            bienvenida = f"Entendido{suf}. ¿A qué área pertenecés?"
     else:
         permitir = (company or {}).get("permitir_hablar_con_humano", True)
         temas_habilitados = (company or {}).get("temas_habilitados") or []
@@ -2635,13 +2829,18 @@ def chat_page():
         branch_ctx = session.get("chat_context_branch") or ""
         partes = []
         if branch_ctx:
-            partes.append(f"sucursal: {branch_ctx}")
+            partes.append(branch_ctx)
         if area_ctx:
-            partes.append(f"área: {area_ctx}")
-        if partes:
-            bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name} ({', '.join(partes)}). ¿En qué puedo ayudarte hoy?"
+            partes.append(area_ctx)
+        ctx_str = f" ({', '.join(partes)})" if partes else ""
+        if hr_display and hr_display.lower() != company_name.lower() and hr_display.lower() != "atención":
+            _label = f"de {hr_display} de {company_name}"
         else:
-            bienvenida = f"👋 ¡Hola! Soy el asistente de {hr_display} de {company_name}. ¿En qué puedo ayudarte hoy?"
+            _label = f"de {company_name}"
+        bienvenida = (
+            f"👋 ¡Hola! Soy el asistente {_label}{ctx_str}.\n"
+            f"Estoy acá para ayudarte. ¿Sobre qué tema querés consultar?"
+        )
         quick_actions_iniciales = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir)
 
     return render_template(
@@ -3024,14 +3223,41 @@ def preferencias_page():
     return render_template("preferencias.html")
 
 
+def _strip_leading_articles(text):
+    """Elimina artículos iniciales comunes para mejorar el matching (ej: 'la central' → 'central')."""
+    return re.sub(r'^(el |la |los |las |de |del |un |una )', '', text.strip(), flags=re.IGNORECASE).strip()
+
+
 def _process_chat_turn(mensaje_trim):
     """Procesa un mensaje del chat y devuelve el dict de respuesta (reply, quick_actions, etc.). Usado por /api/chat y por el webhook de WhatsApp."""
     _apply_company_branding(_read_general_settings())
     mensaje = mensaje_trim
+
+    # Handoff activo: validar que el handoff realmente exista y no esté cerrado
+    _handoff_id = _get_handoff_session_id()
+    if _handoff_id:
+        _handoff_doc = _fetch_handoff(_handoff_id)
+        _handoff_estado = str((_handoff_doc or {}).get("estado") or "").strip().lower()
+        if not _handoff_doc or _handoff_estado == HANDOFF_STATUS_CLOSED:
+            # Handoff cerrado o no existe — limpiar sesión y seguir flujo normal
+            _clear_handoff_session()
+            limpiar_estado_conversacion()
+        else:
+            result = responder_chat(mensaje_trim)
+            return result if "ok" in result else {"ok": True, **result}
+
     step = _chat_context_step()
 
     if step == CHAT_CONTEXT_STEP_COMPANY:
         mensaje_norm = chatbot.normalizar_texto(mensaje_trim)
+        # Saludo durante el paso de empresa — responder amigablemente y volver a preguntar
+        if chatbot.es_saludo(mensaje_norm):
+            opciones = _construir_acciones_empresas(limite=8)
+            nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
+            reply = "👋 ¡Hola! ¿Con qué empresa estás relacionado/a?"
+            if nombres:
+                reply += "\n\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+            return {"ok": True, "reply": reply, "await_feedback": False, "end_session": False, "quick_actions": opciones, "handoff_active": False}
         if chatbot.solicita_contacto_rrhh(mensaje_norm):
             opciones = _construir_acciones_empresas(limite=8)
             nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
@@ -3053,15 +3279,15 @@ def _process_chat_turn(mensaje_trim):
             branches = _get_branches_for_company(company_for_next)
             areas = _get_all_areas_for_company(company_for_next)
             if branches:
-                reply = f"Perfecto, {company.get('company_name') or cid}. ¿De qué sucursal me hablás?"
+                reply = f"¡Perfecto, {company.get('company_name') or cid}! ¿Y de qué sucursal sos?"
                 quick_actions = _construir_acciones_sucursales(cid, limite=8)
             elif areas:
-                reply = f"Perfecto, {company.get('company_name') or cid}. ¿De qué área me hablás?"
+                reply = f"¡Perfecto, {company.get('company_name') or cid}! ¿Y a qué área pertenecés?"
                 quick_actions = _construir_acciones_areas(cid, limite=8)
             else:
                 _set_chat_context_area("")
                 _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
-                reply = "Listo. ¿Sobre qué tema querés consultar? Escribí el número o el nombre del menú."
+                reply = "¡Todo listo! ¿En qué puedo ayudarte hoy? Escribí tu consulta o elegí una opción."
                 company = _current_company()
                 temas_map = construir_temas_map(
                     company_id=cid,
@@ -3104,14 +3330,14 @@ def _process_chat_turn(mensaje_trim):
             if nombres_b:
                 reply_b += "\n\nMenú:\n" + "\n".join(nombres_b) + "\n\nEscribí el número o el nombre."
             return {"ok": True, "reply": reply_b, "await_feedback": False, "end_session": False, "quick_actions": opciones_b, "handoff_active": False}
-        branch = _resolve_message_to_branch(mensaje_trim, ctx_cid)
+        branch = _resolve_message_to_branch(mensaje_trim, ctx_cid) or _resolve_message_to_branch(_strip_leading_articles(mensaje_trim), ctx_cid)
         if branch:
             _set_chat_context_branch(branch)
             company = _set_company_session(ctx_cid)
             company_for_area = _get_company(ctx_cid, include_inactive=False)
             areas = _get_areas_for_branch(company_for_area, branch)
             if areas:
-                reply = f"Perfecto. ¿De qué área me hablás?"
+                reply = f"¡Genial, {branch}! ¿Y a qué área pertenecés?"
                 quick_actions = _construir_acciones_areas(ctx_cid, limite=8, branch=branch)
             else:
                 _set_chat_context_area("")
@@ -3121,10 +3347,14 @@ def _process_chat_turn(mensaje_trim):
                 hr_display = (settings.get("hr_team_name") or "Atención").strip() or "Atención"
                 if hr_display.upper() == "RRHH":
                     hr_display = "Atención"
+                if hr_display and hr_display.lower() != company_name.lower() and hr_display.lower() != "atención":
+                    asistente_label = f"de {hr_display} de {company_name}"
+                else:
+                    asistente_label = f"de {company_name}"
                 reply = (
-                    "👋 Listo (sucursal: {}). Soy el asistente de {} de {}.\n"
-                    "¿Sobre qué tema querés consultar? Escribí el número o el nombre del menú."
-                ).format(branch, hr_display, company_name)
+                    f"👋 ¡Hola! Soy el asistente {asistente_label} (sucursal: {branch}).\n"
+                    "Estoy acá para ayudarte. ¿Sobre qué tema querés consultar?"
+                )
                 permitir = (company or {}).get("permitir_hablar_con_humano", True)
                 temas_map = construir_temas_map(
                     company_id=ctx_cid,
@@ -3158,14 +3388,16 @@ def _process_chat_turn(mensaje_trim):
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         ctx_branch = _sess().get("chat_context_branch") or None
         mensaje_norm_a = chatbot.normalizar_texto(mensaje_trim)
-        if chatbot.solicita_contacto_rrhh(mensaje_norm_a):
+        # Intentar resolver el área primero (puede ser "rrhh", "ventas", etc.)
+        area = _resolve_message_to_area(mensaje_trim, ctx_cid, branch=ctx_branch) or _resolve_message_to_area(_strip_leading_articles(mensaje_trim), ctx_cid, branch=ctx_branch)
+        # Solo interceptar "hablar con agente" si el mensaje NO resuelve a un área válida
+        if not area and chatbot.solicita_contacto_rrhh(mensaje_norm_a):
             opciones_a = _construir_acciones_areas(ctx_cid, limite=8, branch=ctx_branch)
             nombres_a = [a.get("label") or a.get("value") for a in opciones_a if a.get("label") or a.get("value")]
             reply_a = "Para hablar con un agente primero elegí tu área en el menú."
             if nombres_a:
                 reply_a += "\n\nMenú:\n" + "\n".join(nombres_a) + "\n\nEscribí el número o el nombre."
             return {"ok": True, "reply": reply_a, "await_feedback": False, "end_session": False, "quick_actions": opciones_a, "handoff_active": False}
-        area = _resolve_message_to_area(mensaje_trim, ctx_cid, branch=ctx_branch)
         if area:
             _set_chat_context_area(area)
             company = _set_company_session(ctx_cid)
@@ -3177,10 +3409,14 @@ def _process_chat_turn(mensaje_trim):
             hr_display = (settings.get("hr_team_name") or "Atención").strip() or "Atención"
             if hr_display.upper() == "RRHH":
                 hr_display = "Atención"
+            if hr_display and hr_display.lower() != company_name.lower() and hr_display.lower() != "atención":
+                asistente_label = f"de {hr_display} de {company_name}"
+            else:
+                asistente_label = f"de {company_name}"
             reply = (
-                "👋 Listo (área: {}). Soy el asistente de {} de {}.\n"
-                "¿Sobre qué tema querés consultar? Escribí el número o el nombre del menú."
-            ).format(area, hr_display, company_name)
+                f"👋 ¡Hola! Soy el asistente {asistente_label} (área: {area}).\n"
+                "Estoy acá para ayudarte. ¿Sobre qué tema querés consultar?"
+            )
             return {
                 "ok": True,
                 "reply": reply,
@@ -3849,6 +4085,7 @@ def configuracion_editar_empresa_api(company_id):
         "whatsapp_numbers": _normalize_whatsapp_numbers(
             data.get("whatsapp_numbers") if "whatsapp_numbers" in data else (current.get("whatsapp_numbers") or [])
         ),
+        "drive_folder_id": str(data.get("drive_folder_id", current.get("drive_folder_id") or "") or "").strip()[:128] or None,
     }
     th = data.get("temas_habilitados")
     if isinstance(th, list):
@@ -3892,6 +4129,273 @@ def configuracion_seleccionar_empresa_api():
     settings = _read_general_settings()
     _apply_company_branding(settings)
     return jsonify({"ok": True, "company": selected, "settings": settings})
+
+
+@flask_app.get("/api/configuracion/knowledge")
+@rrhh_auth_required
+def configuracion_knowledge_get():
+    """Devuelve la base de conocimiento (cantidad y opcionalmente entradas) de una empresa."""
+    if not _can_manage_configuration():
+        return _forbidden_json_error("Sin permiso.")
+    company_id = _normalize_company_id(request.args.get("company_id") or "")
+    if not company_id:
+        return jsonify({"ok": False, "error": "Falta company_id."}), 400
+    entries = chatbot.obtener_knowledge_empresa(company_id)
+    return jsonify({"ok": True, "count": len(entries), "entries": entries})
+
+
+def _extract_text_document_ai(pdf_bytes):
+    """Extrae texto de un PDF con Document AI. Devuelve (texto, None) o (None, mensaje_error)."""
+    project_id = os.getenv("DOCUMENT_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT") or ""
+    location = os.getenv("DOCUMENT_AI_LOCATION") or "us"
+    processor_id = os.getenv("DOCUMENT_AI_PROCESSOR_ID") or ""
+    if not project_id or not processor_id:
+        return None, "Faltan DOCUMENT_AI_PROJECT_ID y DOCUMENT_AI_PROCESSOR_ID en .env (ver docs/CONECTAR_DOCUMENT_AI.md)."
+    try:
+        from google.cloud import documentai_v1 as documentai
+    except ImportError:
+        return None, "Instalá el cliente: pip install google-cloud-documentai"
+    try:
+        client = documentai.DocumentProcessorServiceClient()
+        name = f"projects/{project_id}/locations/{location}/processors/{processor_id}"
+        raw_doc = documentai.RawDocument(content=pdf_bytes, mime_type="application/pdf")
+        request = documentai.ProcessRequest(name=name, raw_document=raw_doc)
+        result = client.process_document(request=request)
+        text = (result.document.text or "").strip()
+        return text if text else None, None if text else "Document AI no devolvió texto."
+    except Exception as e:
+        return None, f"Document AI: {str(e)[:200]}"
+
+
+def _parse_pdf_text_to_entries(text):
+    """Convierte texto extraído de un PDF en lista de {pregunta, respuesta}. Acepta: 'Pregunta: ... Respuesta: ...' o líneas alternadas."""
+    if not (text or "").strip():
+        return []
+    import re
+    entries = []
+    text = text.strip()
+    # Patrón "Pregunta:" / "Respuesta:" (o P: / R:)
+    blocks = re.split(r"\s*(?:Pregunta|P):\s*", text, flags=re.I)
+    for block in blocks:
+        if not block.strip():
+            continue
+        parts = re.split(r"\s*(?:Respuesta|R):\s*", block, maxsplit=1, flags=re.I)
+        if len(parts) >= 2:
+            p, r = parts[0].strip(), parts[1].strip()
+            if p or r:
+                entries.append({"pregunta": p[:500], "respuesta": r[:8000]})
+    if entries:
+        return entries
+    # Fallback: líneas en pares (impar = pregunta, par = respuesta)
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for i in range(0, len(lines) - 1, 2):
+        p, r = lines[i], lines[i + 1]
+        if p or r:
+            entries.append({"pregunta": p[:500], "respuesta": r[:8000]})
+    if len(lines) % 2 and lines:
+        entries.append({"pregunta": lines[-1][:500], "respuesta": ""})
+    return entries
+
+
+def _parse_knowledge_file(file_storage):
+    """Parsea CSV, Excel o PDF (pregunta, respuesta) y devuelve lista de dicts."""
+    if not file_storage or not file_storage.filename:
+        return [], "No se envió ningún archivo."
+    raw = file_storage.read()
+    if not raw:
+        return [], "El archivo está vacío."
+    filename = (file_storage.filename or "").lower()
+    entries = []
+    if filename.endswith(".csv"):
+        import csv
+        import io
+        for enc in ("utf-8-sig", "utf-8", "latin-1"):
+            try:
+                text = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            return [], "No se pudo decodificar el archivo (usá UTF-8 o Latin-1)."
+        reader = csv.DictReader(io.StringIO(text), delimiter=",")
+        for row in reader:
+            p = (row.get("pregunta") or row.get("Pregunta") or "").strip()
+            r = (row.get("respuesta") or row.get("Respuesta") or "").strip()
+            if p or r:
+                entries.append({"pregunta": p, "respuesta": r})
+        if not entries and reader.fieldnames:
+            return [], "El CSV no tiene columnas 'pregunta' y 'respuesta' (o Pregunta/Respuesta)."
+    elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+        try:
+            import openpyxl
+        except ImportError:
+            return [], "Para subir Excel instalá: pip install openpyxl"
+        try:
+            from io import BytesIO
+            wb = openpyxl.load_workbook(BytesIO(raw), read_only=True)
+            sh = wb.active
+            headers = [str(c.value or "").strip().lower() for c in sh[1]]
+            ip = ipr = -1
+            for i, h in enumerate(headers):
+                if "pregunta" in (h or ""):
+                    ip = i
+                if "respuesta" in (h or ""):
+                    ipr = i
+            if ip < 0 or ipr < 0:
+                wb.close()
+                return [], "La hoja debe tener columnas 'Pregunta' y 'Respuesta'."
+            for row in sh.iter_rows(min_row=2):
+                cells = [row[i].value if i < len(row) else None for i in range(max(ip, ipr) + 1)]
+                p = str(cells[ip] or "").strip()
+                r = str(cells[ipr] or "").strip()
+                if p or r:
+                    entries.append({"pregunta": p, "respuesta": r})
+            wb.close()
+        except Exception as e:
+            return [], f"Error al leer Excel: {e}"
+    elif filename.endswith(".pdf"):
+        text, err = _extract_text_document_ai(raw)
+        if err:
+            return [], err
+        entries = _parse_pdf_text_to_entries(text or "")
+        if not entries:
+            return [], "No se encontraron pares Pregunta/Respuesta en el PDF. Usá formato 'Pregunta: ... Respuesta: ...' o líneas alternadas."
+    else:
+        return [], "Formato no soportado. Usá CSV (.csv), Excel (.xlsx) o PDF (.pdf)."
+    return entries, None
+
+
+@flask_app.post("/api/configuracion/knowledge/upload")
+@rrhh_auth_required
+def configuracion_knowledge_upload():
+    """Sube un archivo CSV, Excel o PDF (Pregunta/Respuesta) y guarda la base de conocimiento. En PDF se usa Document AI para extraer texto."""
+    if not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso para gestionar base de conocimiento.")
+    company_id = _normalize_company_id(request.form.get("company_id") or "")
+    if not company_id:
+        return jsonify({"ok": False, "error": "Falta company_id."}), 400
+    if not _get_company(company_id, include_inactive=True):
+        return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
+    entries, err = _parse_knowledge_file(request.files.get("file"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    if not entries:
+        return jsonify({"ok": False, "error": "No se encontraron filas con pregunta o respuesta."}), 400
+    if not chatbot.guardar_company_knowledge(company_id, entries):
+        return jsonify({"ok": False, "error": "No se pudo guardar (revisá Firestore)."}), 500
+    return jsonify({"ok": True, "count": len(entries), "message": f"Se cargaron {len(entries)} preguntas/respuestas."})
+
+
+@flask_app.get("/api/configuracion/knowledge/plantilla")
+@rrhh_auth_required
+def configuracion_knowledge_plantilla():
+    """Descarga una plantilla CSV de ejemplo para base de conocimiento."""
+    from flask import Response
+    csv_content = "\ufeffpregunta,respuesta\n"
+    csv_content += "¿Cuántos días de vacaciones tengo?,Según antigüedad: hasta 5 años 14 días, hasta 10 años 21 días.\n"
+    csv_content += "¿Dónde obtengo mi recibo?,En la intranet, sección Mi Legajo, el cuarto día hábil de cada mes.\n"
+    return Response(csv_content, mimetype="text/csv", headers={
+        "Content-Disposition": "attachment; filename=base_conocimiento_empresa.csv",
+    })
+
+
+def _sync_knowledge_from_drive(company_id, folder_id):
+    """
+    Lista archivos en la carpeta de Drive, extrae texto (Docs export, PDF con Document AI),
+    parsea Pregunta/Respuesta y guarda en company_knowledge. Devuelve (total_entries, error).
+    """
+    if not folder_id or not str(folder_id).strip():
+        return 0, "Falta el ID de la carpeta de Drive. Configuralo en la empresa o pasalo en la solicitud."
+    folder_id = str(folder_id).strip()
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseDownload
+    except ImportError:
+        return 0, "Instalá: pip install google-api-python-client google-auth"
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if not creds_path or not os.path.isfile(creds_path):
+        return 0, "GOOGLE_APPLICATION_CREDENTIALS no apunta a un archivo. Ver docs/CONECTAR_DRIVE_API.md."
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            creds_path,
+            scopes=["https://www.googleapis.com/auth/drive.readonly"],
+        )
+        drive = build("drive", "v3", credentials=creds, cache_discovery=False)
+    except Exception as e:
+        return 0, f"Error al conectar con Drive: {str(e)[:200]}"
+    # Listar archivos en la carpeta (no recursivo por simplicidad)
+    try:
+        q = f"'{folder_id}' in parents and trashed = false"
+        files_list = drive.files().list(
+            q=q,
+            pageSize=50,
+            fields="files(id, name, mimeType)",
+            orderBy="name",
+        ).execute()
+        files = files_list.get("files") or []
+    except Exception as e:
+        return 0, f"Error al listar carpeta: {str(e)[:200]}. ¿Compartiste la carpeta con el email de la cuenta de servicio?"
+    all_entries = []
+    for f in files:
+        file_id = f.get("id")
+        name = (f.get("name") or "").lower()
+        mime = (f.get("mimeType") or "").lower()
+        text = None
+        if "document" in mime or name.endswith(".gdoc"):
+            try:
+                content = drive.files().export(fileId=file_id, mimeType="text/plain").execute()
+                text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
+            except Exception as e:
+                continue  # omitir este archivo
+        elif "pdf" in mime or name.endswith(".pdf"):
+            try:
+                from io import BytesIO
+                request = drive.files().get_media(fileId=file_id)
+                buf = BytesIO()
+                downloader = MediaIoBaseDownload(buf, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                raw = buf.getvalue()
+                text, err = _extract_text_document_ai(raw)
+                if err or not text:
+                    continue
+            except Exception:
+                continue
+        else:
+            continue
+        if text:
+            all_entries.extend(_parse_pdf_text_to_entries(text))
+    if not all_entries:
+        return 0, "No se extrajeron preguntas/respuestas de los archivos. Revisá formato (Pregunta: ... Respuesta: ...) y que la carpeta esté compartida con la cuenta de servicio."
+    if not chatbot.guardar_company_knowledge(company_id, all_entries):
+        return 0, "No se pudo guardar en Firestore."
+    return len(all_entries), None
+
+
+@flask_app.post("/api/configuracion/knowledge/sync-from-drive")
+@rrhh_auth_required
+def configuracion_knowledge_sync_from_drive():
+    """Sincroniza la base de conocimiento desde una carpeta de Google Drive (Docs y PDF)."""
+    if not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso para gestionar base de conocimiento.")
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    if not company_id:
+        return jsonify({"ok": False, "error": "Falta company_id."}), 400
+    if not _get_company(company_id, include_inactive=True):
+        return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
+    folder_id = str(data.get("folder_id") or "").strip()
+    if not folder_id:
+        company = _get_company(company_id, include_inactive=True)
+        folder_id = (company.get("drive_folder_id") or "").strip()
+    if not folder_id:
+        return jsonify({"ok": False, "error": "Indicá folder_id en el cuerpo o configurá 'Carpeta Drive' en la empresa."}), 400
+    count, err = _sync_knowledge_from_drive(company_id, folder_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True, "count": count, "message": f"Se sincronizaron {count} preguntas/respuestas desde Drive."})
 
 
 @flask_app.post("/api/configuracion/conversaciones/autocierre/ejecutar")

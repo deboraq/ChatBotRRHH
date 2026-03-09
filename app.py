@@ -300,6 +300,127 @@ def _normalize_company_id(value):
     return str(value).strip().lower()
 
 
+# Base de conocimiento por empresa (pregunta/respuesta desde archivo subido)
+COMPANY_KNOWLEDGE_COLLECTION = "company_knowledge"
+
+
+KNOWLEDGE_MATCH_THRESHOLD = 65  # mínimo de similitud (0-100) para usar respuesta de la base
+KNOWLEDGE_PARTIAL_THRESHOLD = 55  # umbral para respuesta parcial + oferta de derivación
+
+# Mapeo de temas a áreas de derivación
+AREAS_POR_TEMA = {
+    "vacaciones": "RRHH",
+    "fraccionamiento": "RRHH",
+    "licencia": "RRHH",
+    "licencia examen": "RRHH",
+    "casamiento": "RRHH",
+    "nacimiento": "RRHH",
+    "adelanto": "RRHH",
+    "recibo": "Liquidaciones",
+    "aguinaldo": "Liquidaciones",
+    "art": "Seguridad e Higiene",
+    "obra social": "Beneficios",
+    "uniforme": "Suministros",
+    "capacitacion": "Capacitación",
+}
+
+
+def obtener_knowledge_empresa(company_id=None):
+    """Devuelve la lista de {pregunta, respuesta} para la empresa (desde Firestore)."""
+    if not db:
+        return []
+    cid = _normalize_company_id(company_id)
+    if not cid:
+        return []
+    try:
+        doc = db.collection(COMPANY_KNOWLEDGE_COLLECTION).document(cid).get()
+        if not doc.exists:
+            return []
+        data = doc.to_dict() or {}
+        entries = data.get("entries") or []
+        return [{"pregunta": str(e.get("pregunta") or "").strip(), "respuesta": str(e.get("respuesta") or "").strip()} for e in entries if isinstance(e, dict) and (e.get("pregunta") or e.get("respuesta"))]
+    except Exception as exc:
+        print(f"⚠️ Error al leer base de conocimiento: {exc}")
+        return []
+
+
+def buscar_en_knowledge(entrada_norm, entries):
+    """
+    Busca la mejor respuesta en la base de conocimiento de la empresa.
+    Devuelve (respuesta, score) siempre con el mejor resultado encontrado.
+    Score 0 significa que no hubo ningún match.
+    Prioridad: coincidencia exacta en pregunta, luego contiene_frase, luego fuzzy.
+    """
+    if not entrada_norm or not entries:
+        return None, 0
+    # Exact match
+    for e in entries:
+        p = normalizar_texto(e.get("pregunta") or "")
+        if p and entrada_norm == p:
+            return (e.get("respuesta") or "").strip(), 100
+    # La pregunta del usuario contiene alguna pregunta de la base (o al revés)
+    for e in entries:
+        p = normalizar_texto(e.get("pregunta") or "")
+        if not p:
+            continue
+        if contiene_frase(entrada_norm, p) or contiene_frase(p, entrada_norm):
+            return (e.get("respuesta") or "").strip(), 90
+        if len(entrada_norm) >= 3 and (p in entrada_norm or entrada_norm in p):
+            return (e.get("respuesta") or "").strip(), 85
+    # Fuzzy sobre las preguntas — requiere al menos una palabra clave en común
+    preguntas_norm = [normalizar_texto(e.get("pregunta") or "") for e in entries if (e.get("pregunta") or "").strip()]
+    if not preguntas_norm:
+        return None, 0
+    match = fuzzy_extract_one(entrada_norm, preguntas_norm)
+    if match and match[1] > 0:
+        # Verificar que haya al menos una palabra significativa en común (>= 4 letras)
+        palabras_usuario = {w for w in entrada_norm.split() if len(w) >= 4}
+        palabras_match = {w for w in match[0].split() if len(w) >= 4}
+        if palabras_usuario & palabras_match:
+            idx = preguntas_norm.index(match[0])
+            return (entries[idx].get("respuesta") or "").strip(), match[1]
+    return None, 0
+
+
+def _detectar_intencion(entrada_norm):
+    """Detecta si el usuario pregunta por fecha/cuándo, cantidad, proceso, etc."""
+    if any(contiene_frase(entrada_norm, p) for p in ["cuando", "que fecha", "en que mes", "que dia", "que momento"]):
+        return "fecha"
+    if any(contiene_frase(entrada_norm, p) for p in ["cuanto", "cuantos", "dias", "cantidad", "cuantas"]):
+        return "cantidad"
+    if any(contiene_frase(entrada_norm, p) for p in ["como", "de que manera", "de que forma", "pasos"]):
+        return "proceso"
+    return "general"
+
+
+def _mensaje_derivacion(tema=None):
+    """Genera mensaje de oferta de derivación al área correspondiente."""
+    area = AREAS_POR_TEMA.get(normalizar_texto(tema or ""), "RRHH") if tema else "RRHH"
+    return f"Si necesitás más ayuda o querés gestionar esto personalmente, puedo derivarte con el área de **{area}**. ¿Lo hacemos?"
+
+
+def guardar_knowledge_empresa(company_id, entries):
+    """Guarda la base de conocimiento (lista de {pregunta, respuesta}) para la empresa."""
+    if not db:
+        return False
+    cid = _normalize_company_id(company_id)
+    if not cid:
+        return False
+    try:
+        payload = {
+            "entries": [{"pregunta": str(e.get("pregunta") or "").strip(), "respuesta": str(e.get("respuesta") or "").strip()} for e in entries if isinstance(e, dict)],
+            "updated_at": datetime.now(),
+        }
+        db.collection(COMPANY_KNOWLEDGE_COLLECTION).document(cid).set(payload, merge=True)
+        return True
+    except Exception as exc:
+        print(f"⚠️ Error al guardar base de conocimiento: {exc}")
+        return False
+
+
+guardar_company_knowledge = guardar_knowledge_empresa  # alias para compatibilidad
+
+
 def obtener_temas_desde_firestore(company_id=None):
     """
     Obtiene la lista de temas (FAQs) disponibles.
@@ -590,7 +711,8 @@ def manejar_feedback_interactivo(tema_id, texto_feedback):
 def obtener_respuesta(entrada, temas_map, company_id=None):
     """
     Devuelve (respuesta, tema_id) según la entrada del usuario.
-    company_id se usa para buscar FAQs en la colección 'faqs' por empresa.
+    Si la empresa tiene base de conocimiento (archivo subido), se busca ahí primero.
+    Luego se usa company_id para FAQs en 'faqs' y temas_map.
     """
     entrada_norm = normalizar_texto(entrada)
     if not entrada_norm:
@@ -602,12 +724,7 @@ def obtener_respuesta(entrada, temas_map, company_id=None):
     tema_elegido = detectar_tema(entrada_norm, temas_map)
     saludo_detectado = es_saludo(entrada_norm)
 
-    if saludo_detectado and tema_elegido and normalizar_texto(tema_elegido) not in {"hola", "ayuda"}:
-        respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
-        if respuesta:
-            return f"👋 ¡Hola! Sobre tu consulta de {tema_elegido}:\n{respuesta}", tema_elegido
-
-    if saludo_detectado:
+    if saludo_detectado and not tema_elegido:
         return MENSAJE_BIENVENIDA, "saludo"
 
     if tema_elegido:
@@ -616,9 +733,48 @@ def obtener_respuesta(entrada, temas_map, company_id=None):
             return MENSAJE_AYUDA, "ayuda"
         if tema_norm == "hola":
             return MENSAJE_BIENVENIDA, "saludo"
+
+    # Base de conocimiento por empresa — si existe, es la única fuente de respuestas
+    if company_id:
+        entries = obtener_knowledge_empresa(company_id)
+        if entries:
+            resp, score = buscar_en_knowledge(entrada_norm, entries)
+            intencion = _detectar_intencion(entrada_norm)
+
+            if resp and score >= KNOWLEDGE_MATCH_THRESHOLD:
+                # Respuesta buena encontrada — pedir feedback primero
+                if intencion == "fecha" and score < 95:
+                    return (
+                        f"{resp}\n\n📅 Para coordinar *cuándo* gestionar esto, podés hablar con un agente de RRHH."
+                    ), "knowledge_answer"
+                return resp, "knowledge_answer"
+
+            if resp and score >= KNOWLEDGE_PARTIAL_THRESHOLD:
+                # Match parcial — dar lo que hay, pedir feedback (si dice "no" se ofrecerá derivación)
+                return (
+                    f"Esto es lo más cercano que encontré en nuestra base de datos:\n\n{resp}"
+                ), "knowledge_answer"
+
+            # La empresa tiene knowledge base pero no hubo match — igual pedir feedback
+            if tema_elegido:
+                area = AREAS_POR_TEMA.get(normalizar_texto(tema_elegido), "RRHH")
+                return (
+                    f"No encontré información específica sobre \"{tema_elegido}\" en la base de datos de tu empresa."
+                ), "knowledge_answer"
+            return (
+                "No encontré información sobre eso en nuestra base de datos."
+            ), "knowledge_answer"
+
+    # Sin knowledge base — usar FAQs tradicionales
+    if saludo_detectado and tema_elegido and normalizar_texto(tema_elegido) not in {"hola", "ayuda"}:
+        respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
+        if respuesta:
+            return f"👋 ¡Hola! Sobre tu consulta de {tema_elegido}:\n{respuesta}", tema_elegido
+
+    if tema_elegido:
+        tema_norm = normalizar_texto(tema_elegido)
         if tema_norm == "vacaciones" and consulta_sobre_dias_vacaciones(entrada_norm):
             return RESPUESTA_DIAS_VACACIONES, tema_elegido
-
         respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
         if respuesta:
             return respuesta, tema_elegido

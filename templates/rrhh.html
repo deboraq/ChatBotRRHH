@@ -37,10 +37,6 @@
             {% if auth_enabled %}readonly{% endif %}
           />
         </label>
-        <label class="checkbox">
-          <input id="include-closed" type="checkbox" />
-          Mostrar conversaciones cerradas
-        </label>
         {% if available_companies and available_companies|length > 1 %}
         <label class="field compact-field">
           Empresa visible
@@ -74,8 +70,20 @@
             <div id="rrhh-area-panel" class="rrhh-area-panel" role="group" aria-label="Áreas" hidden></div>
           </div>
         </div>
-        <span id="active-agents-status" class="subtle"></span>
+        <label class="field compact-field" id="rrhh-agent-filter-wrap">
+          Filtrar por agente
+          <select id="rrhh-agent-filter">
+            <option value="">Todos los agentes</option>
+          </select>
+        </label>
       </section>
+      <div style="display:flex; align-items:center; gap:16px; padding:2px 4px 6px; font-size:0.83rem; color:var(--text-soft);">
+        <label class="checkbox">
+          <input id="include-closed" type="checkbox" />
+          Mostrar conversaciones cerradas
+        </label>
+        <span id="active-agents-status"></span>
+      </div>
 
       <section class="rrhh-layout">
         <aside class="panel queue-panel">
@@ -232,6 +240,14 @@
       let selectedBranchNames = [];
       let companyAreas = [];
       let selectedAreaNames = [];
+      let selectedAgentFilter = "";
+      const agentFilterEl = document.getElementById("rrhh-agent-filter");
+      if (agentFilterEl) {
+        agentFilterEl.addEventListener("change", () => {
+          selectedAgentFilter = agentFilterEl.value;
+          renderConversations();
+        });
+      }
       const authEnabled = {{ auth_enabled|tojson }};
       const currentAgentName = {{ (rrhh_user.display_name if rrhh_user else "Agente")|tojson }};
       const rrhhUsername = {{ (rrhh_user.username if rrhh_user else "")|tojson }};
@@ -478,8 +494,39 @@
         if (activeAgentsStatusEl) {
           activeAgentsStatusEl.textContent = `${activeAgents.length} agente(s) activo(s)`;
         }
-        if (!reassignAgentEl) return;
 
+        // Actualizar filtro por agente (agentes activos + agentes que tienen conversaciones)
+        if (agentFilterEl) {
+          const prev = agentFilterEl.value;
+          agentFilterEl.innerHTML = '<option value="">Todos los agentes</option>';
+          // Agentes activos
+          const seen = new Set();
+          activeAgents.forEach((agent) => {
+            if (agent.agent_id) seen.add(agent.agent_id);
+            const opt = document.createElement("option");
+            opt.value = agent.agent_id;
+            opt.textContent = agent.display_name || agent.agent_id;
+            agentFilterEl.appendChild(opt);
+          });
+          // Agentes con conversaciones asignadas (pueden no estar activos ahora)
+          conversations.forEach((c) => {
+            if (c.rrhh_agente_id && !seen.has(c.rrhh_agente_id)) {
+              seen.add(c.rrhh_agente_id);
+              const opt = document.createElement("option");
+              opt.value = c.rrhh_agente_id;
+              opt.textContent = (c.rrhh_agente || c.rrhh_agente_id) + " (offline)";
+              agentFilterEl.appendChild(opt);
+            }
+          });
+          if (prev && Array.from(agentFilterEl.options).some((o) => o.value === prev)) {
+            agentFilterEl.value = prev;
+          } else {
+            agentFilterEl.value = "";
+            selectedAgentFilter = "";
+          }
+        }
+
+        if (!reassignAgentEl) return;
         reassignAgentEl.innerHTML = "";
         const placeholder = document.createElement("option");
         placeholder.value = "";
@@ -496,12 +543,15 @@
 
       function renderConversations() {
         conversationListEl.innerHTML = "";
-        if (!conversations.length) {
+        const filtered = selectedAgentFilter
+          ? conversations.filter((c) => (c.rrhh_agente_id || "").toLowerCase() === selectedAgentFilter.toLowerCase())
+          : conversations;
+        if (!filtered.length) {
           conversationListEl.innerHTML = "<p class='subtle'>No hay conversaciones para mostrar.</p>";
           return;
         }
 
-        conversations.forEach((conv) => {
+        filtered.forEach((conv) => {
           const isUnread = unreadConversationIds.has(conv.conversation_id);
           const card = document.createElement("button");
           card.type = "button";

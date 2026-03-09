@@ -102,6 +102,47 @@
   max-width: 100%;
 }
 
+/* Base de conocimiento por empresa: barra y subida sin superposición */
+.knowledge-panel {
+  display: block;
+  overflow: visible;
+}
+.knowledge-panel .knowledge-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+  min-height: 2.5rem;
+}
+.knowledge-panel .knowledge-toolbar label {
+  margin: 0;
+}
+.knowledge-panel .knowledge-company-select {
+  min-width: 200px;
+  max-width: 100%;
+  display: inline-block;
+}
+.knowledge-panel .knowledge-upload-wrap {
+  margin-top: 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  clear: both;
+}
+.knowledge-panel .knowledge-upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.knowledge-panel #knowledge-status {
+  display: block;
+  margin-top: 8px;
+}
+
 /* Estilo unificado: encabezados de tabla y texto marcado (mismo tipo, color, tamaño y formato) */
 .config-section .config-table thead th,
 .companies-panel .danger-note.subtle {
