@@ -105,6 +105,12 @@
       .areas-company-select { min-width: 220px; padding: 6px 10px; }
       .roles-toolbar .roles-company-label { margin-right: 0.5rem; font-weight: 500; }
       .roles-toolbar .roles-company-select { min-width: 200px; padding: 6px 10px; margin-right: 1rem; }
+      .knowledge-panel .knowledge-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+      .knowledge-panel .knowledge-toolbar label { margin: 0; font-weight: 500; }
+      .knowledge-panel .knowledge-company-select { min-width: 220px; padding: 6px 10px; }
+      .knowledge-panel .knowledge-upload-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 0.5rem; }
+      .knowledge-panel .knowledge-upload-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+      .knowledge-panel #knowledge-file { max-width: 100%; }
       .roles-guardar-hint { margin: 0.5rem 0 1rem 0; padding: 0.5rem 0; }
       .roles-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       .roles-panel .roles-table { min-width: 720px; }
@@ -169,6 +175,7 @@
             <button type="button" data-section-target="empresas">Empresas</button>
             <button type="button" data-section-target="sucursales">Sucursales</button>
             <button type="button" data-section-target="areas">Áreas</button>
+            <button type="button" data-section-target="knowledge">Base de conocimiento</button>
             {% endif %}
             {% if can_manage_users %}
             <button type="button" data-section-target="usuarios">Usuarios</button>
@@ -253,6 +260,11 @@
                 <label class="field">
                   ID empresa (opcional)
                   <input id="modal-company-id" type="text" placeholder="ej: bacar_norte" />
+                </label>
+                <label class="field">
+                  Carpeta Drive (ID) (opcional)
+                  <input id="modal-company-drive-folder-id" type="text" placeholder="ej: 16PNA3gAgvtoamLgdhkLn3BQ8i_erJFmy" />
+                  <span class="subtle" style="display:block; margin-top:0.25rem;">Para sincronizar base de conocimiento desde Google Drive. Ver docs/CONECTAR_DRIVE_API.md</span>
                 </label>
                 <div class="field whatsapp-numbers-block">
                   <p class="field-label" style="font-weight:600; margin:0 0 0.5rem 0;">Números de WhatsApp (por área/canal)</p>
@@ -397,6 +409,34 @@
               </form>
             </div>
           </div>
+          {% endif %}
+
+          {% if can_manage_general %}
+          <section class="panel knowledge-panel config-section" data-section-key="knowledge">
+            <h2>Base de conocimiento por empresa</h2>
+            <p class="subtle">Subí un archivo CSV, Excel o PDF con <strong>Pregunta</strong> y <strong>Respuesta</strong>. En PDF se usa Document AI para extraer el texto (formato "Pregunta: ... Respuesta: ..." o líneas alternadas). El chatbot prioriza esta base sobre los temas del menú.</p>
+            <div class="knowledge-toolbar">
+              <label for="knowledge-company-select">Empresa</label>
+              <select id="knowledge-company-select" class="knowledge-company-select" aria-label="Empresa para base de conocimiento">
+                <option value="">Seleccionar empresa</option>
+              </select>
+              <span id="knowledge-count" class="subtle"></span>
+            </div>
+            <div class="knowledge-drive-wrap knowledge-toolbar" style="margin-top:0.5rem;">
+              <label for="knowledge-drive-folder-id">Carpeta Drive (ID)</label>
+              <input type="text" id="knowledge-drive-folder-id" placeholder="ID de carpeta (o configurá en la empresa)" style="min-width:280px; padding:6px 10px;" />
+              <button type="button" id="knowledge-sync-drive-btn" class="btn btn-primary">Sincronizar desde Drive</button>
+            </div>
+            <div class="knowledge-upload-wrap">
+              <a href="/api/configuracion/knowledge/plantilla" download class="btn ghost">Descargar plantilla CSV</a>
+              <form id="knowledge-upload-form" class="knowledge-upload-form">
+                <input type="hidden" id="knowledge-company-id" name="company_id" value="" />
+                <input type="file" id="knowledge-file" name="file" accept=".csv,.xlsx,.xls,.pdf" />
+                <button type="submit" id="knowledge-upload-btn" class="btn btn-primary">Subir y reemplazar base</button>
+              </form>
+            </div>
+            <p id="knowledge-status" class="subtle"></p>
+          </section>
           {% endif %}
 
           {% if can_manage_users %}
@@ -707,6 +747,7 @@
       const modalCompanyAddress = document.getElementById("modal-company-address");
       const modalCompanyPhone = document.getElementById("modal-company-phone");
       const modalCompanyWebsite = document.getElementById("modal-company-website");
+      const modalCompanyDriveFolderId = document.getElementById("modal-company-drive-folder-id");
       const modalCompanyWhatsappList = document.getElementById("modal-company-whatsapp-list");
       const modalCompanyWhatsappAdd = document.getElementById("modal-company-whatsapp-add");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
@@ -810,6 +851,20 @@
         }
         if (found && key === "usuarios") {
           cargarUsuarios().catch(function() {});
+        }
+        if (found && key === "knowledge") {
+          if (!companies || companies.length === 0) {
+            cargarEmpresas().then(function() {
+              fillKnowledgeCompanySelect();
+              refreshKnowledgeCountForSelected();
+            }).catch(function() {
+              fillKnowledgeCompanySelect();
+              refreshKnowledgeCountForSelected();
+            });
+          } else {
+            fillKnowledgeCompanySelect();
+            refreshKnowledgeCountForSelected();
+          }
         }
         return found;
       }
@@ -2442,7 +2497,72 @@
       function refreshCompanySelectors() {
         if (companySelectorEl) fillCompanySelect(companySelectorEl, selectedCompanyId);
         if (modalCompany) fillCompanySelect(modalCompany, selectedCompanyId || "", true);
+        fillKnowledgeCompanySelect();
         renderCompanySummary();
+      }
+
+      function fillKnowledgeCompanySelect() {
+        const sel = document.getElementById("knowledge-company-select");
+        if (!sel) return;
+        const currentValue = (sel.value || "").trim();
+        const list = companies || [];
+        sel.innerHTML = "";
+        const optPlaceholder = document.createElement("option");
+        optPlaceholder.value = "";
+        optPlaceholder.textContent = list.length === 0 ? "Cargando empresas..." : "Seleccionar empresa";
+        sel.appendChild(optPlaceholder);
+        list.forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.company_id || "";
+          opt.textContent = (c.company_name || c.company_id || "").trim() || c.company_id;
+          if (normalizeCompanyId(c.company_id) === normalizeCompanyId(currentValue)) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        const valueToSet = currentValue || (selectedCompanyId && list.some((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(selectedCompanyId)) ? selectedCompanyId : "");
+        if (valueToSet) sel.value = valueToSet;
+        const hid = document.getElementById("knowledge-company-id");
+        if (hid) hid.value = sel.value || "";
+        if (!sel.dataset.listenerAttached) {
+          sel.dataset.listenerAttached = "1";
+          sel.addEventListener("change", () => {
+            const companyId = (sel.value || "").trim();
+            if (document.getElementById("knowledge-company-id")) document.getElementById("knowledge-company-id").value = companyId;
+            const folderInput = document.getElementById("knowledge-drive-folder-id");
+            if (folderInput) {
+              const co = (companies || []).find((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(companyId));
+              folderInput.value = (co?.drive_folder_id || "").trim();
+            }
+            if (companyId) {
+              fetch(`/api/configuracion/knowledge?company_id=${encodeURIComponent(companyId)}`)
+                .then((r) => r.json())
+                .then((d) => {
+                  const countEl = document.getElementById("knowledge-count");
+                  if (countEl) countEl.textContent = d.ok ? `${d.count} entrada(s)` : "";
+                })
+                .catch(() => {});
+            } else {
+              const countEl = document.getElementById("knowledge-count");
+              if (countEl) countEl.textContent = "";
+            }
+          });
+        }
+      }
+
+      function refreshKnowledgeCountForSelected() {
+        const sel = document.getElementById("knowledge-company-select");
+        const companyId = (sel?.value || "").trim();
+        if (!companyId) {
+          const countEl = document.getElementById("knowledge-count");
+          if (countEl) countEl.textContent = "";
+          return;
+        }
+        fetch(`/api/configuracion/knowledge?company_id=${encodeURIComponent(companyId)}`)
+          .then((r) => r.json())
+          .then((d) => {
+            const countEl = document.getElementById("knowledge-count");
+            if (countEl) countEl.textContent = d.ok ? `${d.count} entrada(s)` : "";
+          })
+          .catch(() => {});
       }
 
       /** Al cargar usuarios, no sobrescribir areas_by_branch ni branches de empresas que ya tenemos en memoria (evita perder cambios al cambiar de solapa). */
@@ -2478,6 +2598,7 @@
         }
         refreshCompanySelectors();
         renderCompanies(companies);
+        fillKnowledgeCompanySelect();
       }
 
       async function cargarConfiguracionGeneral() {
@@ -2551,6 +2672,7 @@
         if (modalCompanyAddress) modalCompanyAddress.value = "";
         if (modalCompanyPhone) modalCompanyPhone.value = "";
         if (modalCompanyWebsite) modalCompanyWebsite.value = "";
+        if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = "";
         if (companyFormModalTitle) companyFormModalTitle.textContent = "Agregar empresa";
         if (modalCompanyId) {
           modalCompanyId.disabled = false;
@@ -2569,6 +2691,7 @@
           if (modalCompanyAddress) modalCompanyAddress.value = company.company_address || "";
           if (modalCompanyPhone) modalCompanyPhone.value = company.company_phone || "";
           if (modalCompanyWebsite) modalCompanyWebsite.value = company.company_website || "";
+          if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = company.drive_folder_id || "";
           if (companyFormModalTitle) companyFormModalTitle.textContent = "Modificar empresa";
           renderWhatsappNumbersList(company.whatsapp_numbers || []);
         } else {
@@ -2637,6 +2760,7 @@
           company_address: (modalCompanyAddress?.value || "").trim(),
           company_phone: (modalCompanyPhone?.value || "").trim(),
           company_website: (modalCompanyWebsite?.value || "").trim(),
+          drive_folder_id: (modalCompanyDriveFolderId?.value || "").trim() || null,
           branches: currentCompany && Array.isArray(currentCompany.branches) ? currentCompany.branches : [],
           whatsapp_numbers: getModalWhatsappNumbers(),
         };
@@ -3379,14 +3503,85 @@
         });
       }
 
+      function setupKnowledgeHandlers() {
+        const uploadForm = document.getElementById("knowledge-upload-form");
+        if (uploadForm && !uploadForm.dataset.listenerAttached) {
+          uploadForm.dataset.listenerAttached = "1";
+          uploadForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const companyId = (document.getElementById("knowledge-company-id")?.value || "").trim();
+            const fileInput = document.getElementById("knowledge-file");
+            const statusEl = document.getElementById("knowledge-status");
+            if (!companyId) { if (statusEl) statusEl.textContent = "Seleccioná una empresa."; return; }
+            if (!fileInput?.files?.length) { if (statusEl) statusEl.textContent = "Seleccioná un archivo."; return; }
+            const btn = document.getElementById("knowledge-upload-btn");
+            if (btn) btn.disabled = true;
+            if (statusEl) statusEl.textContent = "Subiendo...";
+            try {
+              const fd = new FormData(uploadForm);
+              fd.set("company_id", companyId);
+              const r = await fetch("/api/configuracion/knowledge/upload", { method: "POST", body: fd });
+              if (r.status === 401) { window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`; return; }
+              const d = await r.json();
+              if (!d.ok) throw new Error(d.error || "Error al subir.");
+              if (statusEl) statusEl.textContent = `Guardadas ${d.count} entradas.`;
+              showToast(`Base de conocimiento actualizada (${d.count} entradas)`);
+              refreshKnowledgeCountForSelected();
+              fileInput.value = "";
+            } catch (err) {
+              if (statusEl) statusEl.textContent = `Error: ${getErrorMessage(err)}`;
+              showToast(getErrorMessage(err), true);
+            } finally {
+              if (btn) btn.disabled = false;
+            }
+          });
+        }
+
+        const syncBtn = document.getElementById("knowledge-sync-drive-btn");
+        if (syncBtn && !syncBtn.dataset.listenerAttached) {
+          syncBtn.dataset.listenerAttached = "1";
+          syncBtn.addEventListener("click", async () => {
+            const companyId = (document.getElementById("knowledge-company-select")?.value || "").trim();
+            const folderId = (document.getElementById("knowledge-drive-folder-id")?.value || "").trim();
+            const statusEl = document.getElementById("knowledge-status");
+            if (!companyId) { if (statusEl) statusEl.textContent = "Seleccioná una empresa."; return; }
+            syncBtn.disabled = true;
+            if (statusEl) statusEl.textContent = "Sincronizando desde Drive...";
+            try {
+              const body = { company_id: companyId };
+              if (folderId) body.folder_id = folderId;
+              const r = await fetch("/api/configuracion/knowledge/sync-from-drive", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+              if (r.status === 401) { window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`; return; }
+              const d = await r.json();
+              if (!d.ok) throw new Error(d.error || "Error al sincronizar.");
+              if (statusEl) statusEl.textContent = d.message || `Sincronizadas ${d.count} entradas.`;
+              showToast(d.message || `Drive sincronizado (${d.count} entradas)`);
+              refreshKnowledgeCountForSelected();
+            } catch (err) {
+              if (statusEl) statusEl.textContent = `Error: ${getErrorMessage(err)}`;
+              showToast(getErrorMessage(err), true);
+            } finally {
+              syncBtn.disabled = false;
+            }
+          });
+        }
+      }
+
       async function init() {
         applyTheme(getInitialTheme());
         setupSectionNavigation();
         setupBranchesDropdownToggle();
+        setupKnowledgeHandlers();
         if (canManageGeneral) {
           try {
             await cargarEmpresas();
             await cargarConfiguracionGeneral();
+            fillKnowledgeCompanySelect();
+            refreshKnowledgeCountForSelected();
           } catch (error) {
             setGeneralStatus(`Error cargando configuración: ${getErrorMessage(error)}`, true);
           }

@@ -2,3 +2,5 @@ Flask>=3.0,<4
 gunicorn>=25.1,<26
 # Opcional: para cargar variables desde .env (ej. SMTP)
 python-dotenv>=1.0,<2
+# Sincronización base de conocimiento desde Google Drive
+google-api-python-client>=2.100,<3
