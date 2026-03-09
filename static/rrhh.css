@@ -224,7 +224,6 @@ textarea:focus {
   cursor: pointer;
   text-align: left;
   position: relative;
-  width: 100%;
   box-sizing: border-box;
 }
 
@@ -321,7 +320,6 @@ textarea:focus {
   cursor: pointer;
   text-align: left;
   position: relative;
-  width: 100%;
   box-sizing: border-box;
 }
 
