@@ -203,9 +203,9 @@ textarea:focus {
 
 #rrhh-branch-filter-wrap .rrhh-branch-label {
   display: block;
-  margin-bottom: 4px;
-  font-size: 0.85rem;
+  font-size: 0.83rem;
   color: var(--text-soft);
+  font-weight: 600;
 }
 
 .rrhh-branch-dropdown-wrap {
@@ -299,9 +299,9 @@ textarea:focus {
 
 #rrhh-area-filter-wrap .rrhh-area-label {
   display: block;
-  margin-bottom: 4px;
-  font-size: 0.85rem;
+  font-size: 0.83rem;
   color: var(--text-soft);
+  font-weight: 600;
 }
 
 .rrhh-area-dropdown-wrap {
