@@ -556,9 +556,12 @@
           const card = document.createElement("button");
           card.type = "button";
           card.className = `conv-card ${conv.conversation_id === currentConversationId ? "selected" : ""} ${isUnread ? "has-unread" : ""}`;
+          const convLabel = conv.colaborador_nombre || conv.colaborador_telefono || conv.conversation_id;
+          const isWA = conv.channel === "whatsapp";
+          const waIcon = isWA ? '<span title="WhatsApp" style="color:#25d366;font-size:0.9em;">📱</span> ' : "";
           card.innerHTML = `
             <div class="conv-head">
-              <strong>${escapeHtml(conv.conversation_id)}</strong>
+              <strong>${waIcon}${escapeHtml(convLabel)}</strong>
               <div class="conv-badges">
                 <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
                 ${isUnread ? '<span class="badge new-message">nuevo</span>' : ""}
@@ -1116,7 +1119,10 @@
         recalculateUnreadConversations({ notify: false });
         renderQueueStatus();
         renderConversations();
-        chatTitleEl.textContent = `Conversación ${conversationId}`;
+        const convLabel = data.colaborador_nombre || data.colaborador_telefono || conversationId;
+        chatTitleEl.textContent = data.channel === "whatsapp"
+          ? `📱 ${convLabel}`
+          : `Conversación ${conversationId}`;
         chatMetaEl.textContent = data.rrhh_asignacion_automatica && data.rrhh_agente
           ? `Estado: ${data.estado || "-"} | Asignado automáticamente a: ${data.rrhh_agente}`
           : `Estado: ${data.estado || "-"} | Agente: ${data.rrhh_agente || "sin asignar"}`;
