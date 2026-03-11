@@ -320,7 +320,7 @@
           const tr = document.createElement("tr");
           tr.innerHTML = `
             <td>${escapeHtml(row.fecha)}</td>
-            <td><code>${escapeHtml(row.conversation_id)}</code></td>
+            <td><code>${escapeHtml(row.conversation_id)}</code>${row.colaborador_nombre ? `<br><span style="font-size:0.78rem;color:#64748b">${escapeHtml(row.colaborador_nombre)}</span>` : ""}</td>
             <td>${escapeHtml(row.canal)}</td>
             <td>${escapeHtml(row.remitente)}</td>
             <td>${escapeHtml(row.agente || "-")}</td>

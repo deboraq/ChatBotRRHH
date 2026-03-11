@@ -4154,6 +4154,7 @@ def historial_api():
 
     raw_items = _list_chat_history(limit=1500)
     handoff_ids = set()
+    handoff_names = {}  # conv_id → colaborador_nombre
     if company_id:
         handoffs = _list_handoffs(
             include_closed=True,
@@ -4166,6 +4167,17 @@ def historial_api():
             hid = str(h.get("id") or h.get("conversation_id") or "").strip()
             if hid:
                 handoff_ids.add(hid)
+                nombre = str(h.get("colaborador_nombre") or "").strip()
+                if nombre:
+                    handoff_names[hid] = nombre
+    else:
+        # Sin filtro de empresa: cargar todos los handoffs para obtener nombres
+        all_handoffs = _all_handoff_records_for_stats()
+        for h in all_handoffs:
+            hid = str(h.get("id") or h.get("conversation_id") or "").strip()
+            nombre = str(h.get("colaborador_nombre") or "").strip()
+            if hid and nombre:
+                handoff_names[hid] = nombre
 
     items = []
     for item in raw_items:
@@ -4176,6 +4188,9 @@ def historial_api():
             if item_company != company_id and conv_id not in handoff_ids:
                 continue
         serialized = _serialize_history_item(item)
+        conv_id_s = serialized["conversation_id"]
+        if conv_id_s in handoff_names:
+            serialized["colaborador_nombre"] = handoff_names[conv_id_s]
         if remitente and serialized["remitente"].lower() != remitente:
             continue
         if canal and serialized["canal"].lower() != canal:
