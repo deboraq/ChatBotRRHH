@@ -1864,13 +1864,20 @@ def _add_handoff_message(
         },
         merge=True,
     )
+    try:
+        _hist_company_id = _normalize_company_id(_sess().get("company_id"))
+    except Exception:
+        _hist_company_id = ""
     _add_chat_history(
         conversation_id=conversation_id,
         remitente=remitente,
         texto=payload["texto"],
         canal="rrhh",
         agente=payload["agente"],
-        metadata={"visible_to_colaborador": payload["visible_to_colaborador"]},
+        metadata={
+            "visible_to_colaborador": payload["visible_to_colaborador"],
+            "company_id": _hist_company_id or None,
+        },
     )
     # Enviar por WhatsApp al colaborador si la conversación es por WA: mensajes del agente y cierre de conversación
     if payload["visible_to_colaborador"] and remitente in ("rrhh", "sistema"):
