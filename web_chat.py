@@ -4195,8 +4195,11 @@ def historial_api():
             continue
         if canal and serialized["canal"].lower() != canal:
             continue
-        if conversation_id and serialized["conversation_id"] != conversation_id:
-            continue
+        if conversation_id:
+            conv_match = serialized["conversation_id"] == conversation_id
+            nombre_match = conversation_id.lower() in (serialized.get("colaborador_nombre") or "").lower()
+            if not conv_match and not nombre_match:
+                continue
         if q and q not in serialized["texto"].lower():
             continue
         items.append(serialized)
