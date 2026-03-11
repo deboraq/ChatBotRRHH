@@ -33,6 +33,8 @@ flask_app = Flask(__name__)
 flask_app.config["SECRET_KEY"] = os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-secret")
 # Firebase Hosting preserves the "__session" cookie across rewrites to Cloud Run.
 flask_app.config["SESSION_COOKIE_NAME"] = os.getenv("CHATBOT_SESSION_COOKIE_NAME", "__session")
+# Timeout de inactividad: 8 horas (en segundos)
+RRHH_SESSION_TIMEOUT_SECONDS = int(os.getenv("CHATBOT_SESSION_TIMEOUT", 8 * 3600))
 SERVER_BOOT_AT = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 BOOTSTRAP_COMPANY_NAME = (
@@ -1179,6 +1181,14 @@ def _current_rrhh_user():
     username = str(session.get("rrhh_user") or "").strip()
     if not username:
         return None
+    # Verificar timeout de inactividad
+    last_active = session.get("rrhh_last_active")
+    if last_active:
+        elapsed = datetime.now(timezone.utc).timestamp() - last_active
+        if elapsed > RRHH_SESSION_TIMEOUT_SECONDS:
+            _clear_rrhh_user()
+            return None
+    session["rrhh_last_active"] = datetime.now(timezone.utc).timestamp()
     current = {
         "username": username,
         "display_name": str(session.get("rrhh_display_name") or username),
@@ -1208,6 +1218,7 @@ def _set_rrhh_user(user_payload):
     session["rrhh_role"] = str(user_payload.get("role") or "rrhh").strip()
     session["rrhh_assignments"] = list(user_payload.get("assignments") or [])
     session["rrhh_area"] = str(user_payload.get("area") or "").strip()
+    session["rrhh_last_active"] = datetime.now(timezone.utc).timestamp()
 
 
 def _clear_rrhh_user():
@@ -1216,6 +1227,7 @@ def _clear_rrhh_user():
     session.pop("rrhh_role", None)
     session.pop("rrhh_assignments", None)
     session.pop("rrhh_area", None)
+    session.pop("rrhh_last_active", None)
 
 
 def _rrhh_agent_name(default="Agente"):
