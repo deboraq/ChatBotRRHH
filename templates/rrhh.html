@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Panel de atención - Conversaciones</title>
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Panel" />
     <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
   </head>
   <body>
@@ -23,6 +26,7 @@
             <button type="submit">Cerrar sesión</button>
           </form>
           {% endif %}
+          <button id="btn-notif" type="button" title="Activar notificaciones" aria-label="Activar notificaciones">🔔</button>
           <button id="btn-refresh" type="button">Actualizar</button>
         </div>
       </header>
@@ -87,7 +91,10 @@
 
       <section class="rrhh-layout">
         <aside class="panel queue-panel">
-          <h2>Conversaciones</h2>
+          <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.5rem;">
+            <h2 style="margin:0;">Conversaciones</h2>
+            <button id="btn-nueva-conversacion" type="button" class="btn btn-primary">Enviar mensaje a...</button>
+          </div>
           <div id="queue-status" class="subtle"></div>
           <div id="conversation-list" class="conversation-list"></div>
         </aside>
@@ -102,6 +109,7 @@
               <button id="btn-tomar" type="button">Tomar conversación</button>
               <select id="reassign-agent"></select>
               <button id="btn-reasignar" type="button" class="ghost">Reasignar</button>
+              <button id="btn-reabrir" type="button" class="ghost" style="display:none;">Reabrir conversación</button>
               <button id="btn-cerrar" type="button" class="danger">Cerrar conversación</button>
             </div>
           </div>
@@ -140,6 +148,39 @@
           </form>
         </section>
       </section>
+
+      <div id="modal-nueva-conversacion" class="config-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-nueva-conversacion-title" hidden>
+        <div class="config-modal">
+          <h3 id="modal-nueva-conversacion-title">Enviar mensaje a una persona</h3>
+          <button type="button" class="config-modal-close" aria-label="Cerrar" id="modal-nueva-conversacion-cerrar">&times;</button>
+          <p class="subtle" style="margin:0 0 1rem 0;">El mensaje se envía por WhatsApp sin que esa persona te haya escrito antes. Se crea una conversación en el panel.</p>
+          <form id="form-nueva-conversacion">
+            <label class="field">
+              Elegir contacto (conversaciones previas)
+              <select id="iniciar-contacto-select" class="field-select" aria-label="Elegir contacto o escribir número nuevo">
+                <option value="">— Escribir número nuevo —</option>
+              </select>
+            </label>
+            <label class="field">
+              Teléfono (WhatsApp)
+              <input id="iniciar-phone" type="text" placeholder="+54 9 11 1234-5678" required />
+            </label>
+            <label class="field">
+              Nombre (opcional)
+              <input id="iniciar-nombre" type="text" placeholder="Nombre del contacto" />
+            </label>
+            <label class="field">
+              Mensaje
+              <textarea id="iniciar-mensaje" rows="4" placeholder="Escribí el mensaje a enviar..." required></textarea>
+            </label>
+            <div class="config-modal-actions">
+              <button type="button" class="btn ghost" id="iniciar-cancelar">Cancelar</button>
+              <button type="submit" class="btn btn-primary">Enviar por WhatsApp</button>
+            </div>
+          </form>
+          <p id="iniciar-status" class="subtle" style="margin-top:0.5rem;"></p>
+        </div>
+      </div>
 
       {% if auth_enabled and can_manage_roles %}
       <section class="panel roles-panel">
@@ -181,6 +222,7 @@
 
     <script>
       const refreshBtn = document.getElementById("btn-refresh");
+      const notifBtn = document.getElementById("btn-notif");
       const includeClosedEl = document.getElementById("include-closed");
       const conversationListEl = document.getElementById("conversation-list");
       const queueStatusEl = document.getElementById("queue-status");
@@ -225,7 +267,9 @@
       const btnTomar = document.getElementById("btn-tomar");
       const btnReasignar = document.getElementById("btn-reasignar");
       const reassignAgentEl = document.getElementById("reassign-agent");
+      const btnReabrir = document.getElementById("btn-reabrir");
       const btnCerrar = document.getElementById("btn-cerrar");
+      const btnNuevaConversacion = document.getElementById("btn-nueva-conversacion");
       const themeToggleBtn = document.getElementById("theme-toggle");
       const agentNameEl = document.getElementById("agent-name");
       const activeAgentsStatusEl = document.getElementById("active-agents-status");
@@ -458,20 +502,37 @@
         window.location.reload();
       }
 
-      function notifyNewMessages(newConversationsCount) {
-        if (!newConversationsCount) return;
-        if (document.hidden) {
+      function notifyNewMessages(newConvs) {
+        if (!newConvs || !newConvs.length) return;
+        try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (_) {}
+        if (Notification.permission !== "granted") return;
+        const count = newConvs.length;
+        const conv = newConvs[0];
+        const nombre = conv?.colaborador_nombre || conv?.colaborador_telefono || "Nuevo mensaje";
+        const empresa = conv?.company_name ? ` · ${conv.company_name}` : "";
+        const body = count > 1
+          ? `${count} conversaciones con mensajes nuevos`
+          : (conv?.ultima_consulta || "Nuevo mensaje");
+        const title = `Panel de atención${empresa}`;
+        const opts = {
+          body: `${nombre}: ${body}`,
+          tag: `rrhh-${conv?.conversation_id || "msg"}-${Date.now()}`,
+          data: { url: "/rrhh" },
+        };
+        // Preferir service worker showNotification (más confiable que new Notification())
+        if (_swReg) {
+          _swReg.showNotification(title, opts).catch(() => {});
+        } else {
           try {
-            if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
-          } catch (error) {
-            // Ignora vibración no soportada.
-          }
+            const notif = new Notification(title, opts);
+            notif.onclick = () => { window.focus(); notif.close(); };
+          } catch (_) {}
         }
       }
 
       function recalculateUnreadConversations({ notify } = { notify: false }) {
         const nextUnread = new Set();
-        let newConversationsCount = 0;
+        const newConvs = [];
         conversations.forEach((conv) => {
           const convId = String(conv?.conversation_id || "").trim();
           if (!convId) return;
@@ -482,12 +543,12 @@
           const previousIso = String(notifiedConversationMap[convId] || "");
           if (parseIsoMillis(currentIso) > parseIsoMillis(previousIso)) {
             notifiedConversationMap[convId] = currentIso;
-            newConversationsCount += 1;
+            newConvs.push(conv);
           }
         });
         unreadConversationIds = nextUnread;
         updateUnreadTitle();
-        notifyNewMessages(newConversationsCount);
+        notifyNewMessages(newConvs);
       }
 
       function renderActiveAgents() {
@@ -642,6 +703,10 @@
         }
         if (btnCerrar) {
           btnCerrar.disabled = !hasConversation || isClosed;
+        }
+        if (btnReabrir) {
+          btnReabrir.style.display = hasConversation && isClosed ? "" : "none";
+          btnReabrir.disabled = !hasConversation || !isClosed;
         }
 
         const canReply = hasConversation && !isClosed && !isSendingReply;
@@ -1186,14 +1251,27 @@ const agente = agentNameEl.value.trim() || "Agente";
 
       async function cerrarConversacion() {
         if (!currentConversationId) return;
-const agente = agentNameEl.value.trim() || "Agente";
-    const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/cerrar`, {
+        const agente = agentNameEl.value.trim() || "Agente";
+        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/cerrar`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ agente }),
         });
         const data = await response.json();
         if (!data.ok) throw new Error(data.error || "No se pudo cerrar la conversación");
+        await refrescarTodo(true);
+      }
+
+      async function reabrirConversacion() {
+        if (!currentConversationId) return;
+        const agente = agentNameEl.value.trim() || "Agente";
+        const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/reabrir`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agente }),
+        });
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "No se pudo reabrir la conversación");
         await refrescarTodo(true);
       }
 
@@ -1382,12 +1460,123 @@ const agente = agentNameEl.value.trim() || "Agente";
           queueStatusEl.textContent = `Error al cerrar: ${error.message}`;
         }
       });
+      if (btnReabrir) {
+        btnReabrir.addEventListener("click", async () => {
+          try {
+            await reabrirConversacion();
+            await safeRefresh(true);
+          } catch (error) {
+            queueStatusEl.textContent = `Error al reabrir: ${error.message}`;
+          }
+        });
+      }
+
+      const modalNuevaConv = document.getElementById("modal-nueva-conversacion");
+      const formNuevaConv = document.getElementById("form-nueva-conversacion");
+      const iniciarStatusEl = document.getElementById("iniciar-status");
+      const iniciarContactoSelect = document.getElementById("iniciar-contacto-select");
+      const iniciarPhoneEl = document.getElementById("iniciar-phone");
+      const iniciarNombreEl = document.getElementById("iniciar-nombre");
+
+      async function cargarContactosModal() {
+        if (!iniciarContactoSelect) return;
+        const sel = iniciarContactoSelect;
+        const currentVal = (sel.value || "").trim();
+        sel.innerHTML = "<option value=\"\">— Escribir número nuevo —</option>";
+        try {
+          const r = await fetch("/api/rrhh/contactos");
+          const d = await r.json();
+          if (d.ok && Array.isArray(d.contactos)) {
+            d.contactos.forEach((c) => {
+              const opt = document.createElement("option");
+              opt.value = (c.phone || "").trim();
+              opt.dataset.nombre = (c.nombre || "").trim();
+              opt.textContent = (c.nombre || c.phone || "").trim() ? `${(c.nombre || "").trim()} · ${(c.phone || "").trim()}` : (c.phone || "");
+              sel.appendChild(opt);
+            });
+          }
+          if (currentVal) sel.value = currentVal;
+        } catch (e) {
+          // ignorar
+        }
+      }
+      if (iniciarContactoSelect) {
+        iniciarContactoSelect.addEventListener("change", () => {
+          const opt = iniciarContactoSelect.options[iniciarContactoSelect.selectedIndex];
+          if (opt && opt.value) {
+            if (iniciarPhoneEl) iniciarPhoneEl.value = (opt.value || "").trim();
+            if (iniciarNombreEl) iniciarNombreEl.value = (opt.dataset.nombre || "").trim();
+          }
+        });
+      }
+
+      function abrirModalNuevaConversacion() {
+        if (modalNuevaConv) {
+          modalNuevaConv.hidden = false;
+          modalNuevaConv.removeAttribute("hidden");
+          cargarContactosModal();
+          if (iniciarPhoneEl) iniciarPhoneEl.focus();
+        }
+      }
+      function cerrarModalNuevaConversacion() {
+        if (modalNuevaConv) {
+          modalNuevaConv.hidden = true;
+          modalNuevaConv.setAttribute("hidden", "");
+        }
+        if (iniciarStatusEl) iniciarStatusEl.textContent = "";
+        if (iniciarContactoSelect) iniciarContactoSelect.value = "";
+      }
+      if (btnNuevaConversacion) {
+        btnNuevaConversacion.addEventListener("click", abrirModalNuevaConversacion);
+      }
+      document.getElementById("modal-nueva-conversacion-cerrar")?.addEventListener("click", cerrarModalNuevaConversacion);
+      document.getElementById("iniciar-cancelar")?.addEventListener("click", cerrarModalNuevaConversacion);
+      if (formNuevaConv) {
+        formNuevaConv.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const phone = (document.getElementById("iniciar-phone")?.value || "").trim();
+          const nombre = (document.getElementById("iniciar-nombre")?.value || "").trim();
+          const mensaje = (document.getElementById("iniciar-mensaje")?.value || "").trim();
+          if (!phone || !mensaje) {
+            if (iniciarStatusEl) iniciarStatusEl.textContent = "Completá teléfono y mensaje.";
+            return;
+          }
+          if (iniciarStatusEl) iniciarStatusEl.textContent = "Enviando...";
+          try {
+            const response = await fetch("/api/rrhh/conversaciones/iniciar", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ phone, nombre, mensaje }),
+            });
+            const data = await response.json();
+            if (!data.ok) {
+              if (iniciarStatusEl) iniciarStatusEl.textContent = data.error || "Error al enviar.";
+              return;
+            }
+            cerrarModalNuevaConversacion();
+            formNuevaConv.reset();
+            await refrescarTodo(false);
+            if (data.conversation_id) {
+              await seleccionarConversacion(data.conversation_id);
+            }
+            if (queueStatusEl) queueStatusEl.textContent = data.existente ? "Mensaje enviado a conversación existente." : "Conversación creada y mensaje enviado.";
+          } catch (err) {
+            if (iniciarStatusEl) iniciarStatusEl.textContent = "Error: " + (err.message || "No se pudo enviar.");
+          }
+        });
+      }
 
       if (replyFileEl) {
         replyFileEl.addEventListener("change", () => {
           if (replyFileNameEl) {
             replyFileNameEl.textContent = replyFileEl.files.length ? replyFileEl.files[0].name : "";
           }
+        });
+      }
+
+      if (replyInput) {
+        replyInput.addEventListener("focus", () => {
+          setTimeout(() => replyInput.scrollIntoView({ block: "nearest", behavior: "smooth" }), 350);
         });
       }
 
@@ -1437,8 +1626,107 @@ const agente = agentNameEl.value.trim() || "Agente";
         themeToggleBtn.addEventListener("click", toggleTheme);
       }
 
+      // ── Web Push ─────────────────────────────────────────────────────────────
+      let _swReg = null;
+
+      function _urlB64ToUint8(b64) {
+        const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+        const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+        return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+      }
+
+      async function _registerSW() {
+        if (!("serviceWorker" in navigator)) return;
+        try {
+          _swReg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        } catch (e) {
+          console.warn("SW registration failed:", e);
+        }
+      }
+
+      async function _ensurePushSub(vapidPublicKey) {
+        if (!_swReg || !("PushManager" in window)) return null;
+        let sub = await _swReg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await _swReg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: _urlB64ToUint8(vapidPublicKey),
+          });
+        }
+        return sub;
+      }
+
+      async function _savePushSub(sub) {
+        try {
+          await fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(sub.toJSON()),
+          });
+        } catch (e) {
+          console.warn("Save push subscription error:", e);
+        }
+      }
+
+      async function _activatePush() {
+        try {
+          const resp = await fetch("/api/push/vapid-key");
+          const data = await resp.json();
+          if (data.ok) {
+            const sub = await _ensurePushSub(data.public_key);
+            if (sub) await _savePushSub(sub);
+          }
+        } catch (e) {
+          console.warn("Push activation error:", e);
+        }
+      }
+
+      function setupNotifBtn() {
+        if (!notifBtn) return;
+        const hasPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+        const hasNotif = "Notification" in window;
+        if (!hasPush && !hasNotif) {
+          // Navegador sin soporte (ej. Chrome en iPhone) — tappable con instrucciones
+          notifBtn.textContent = "🔔";
+          notifBtn.title = "Cómo activar notificaciones en iPhone";
+          notifBtn.addEventListener("click", () => {
+            alert("Para recibir notificaciones en iPhone:\n\n1. Abrí este sitio en Safari (no Chrome)\n2. Tocá el botón Compartir ⬆\n3. Seleccioná «Agregar a pantalla de inicio»\n4. Abrí la app desde el ícono en tu pantalla de inicio\n5. Tocá la campana 🔔 para activar las notificaciones");
+          });
+          return;
+        }
+        function sync() {
+          const p = Notification.permission;
+          notifBtn.dataset.state = p;
+          notifBtn.textContent = p === "granted" ? "🔔" : p === "denied" ? "🔕" : "🔔";
+          notifBtn.title =
+            p === "granted"
+              ? "Notificaciones activas"
+              : p === "denied"
+              ? "Notificaciones bloqueadas — habilitarlas en configuración del navegador"
+              : "Activar notificaciones push";
+          notifBtn.classList.toggle("notif-active", p === "granted");
+          notifBtn.classList.toggle("notif-denied", p === "denied");
+        }
+        sync();
+        notifBtn.addEventListener("click", async () => {
+          if (Notification.permission === "denied") return;
+          if (Notification.permission === "granted") {
+            try { new Notification("Panel de atención", { body: "Las notificaciones ya están activas.", tag: "rrhh-test" }); } catch (_) {}
+            return;
+          }
+          const result = await Notification.requestPermission();
+          sync();
+          if (result !== "granted") return;
+          if (hasPush) await _activatePush();
+          try { new Notification("Panel de atención", { body: "Notificaciones activadas. Te avisaremos cuando lleguen mensajes.", tag: "rrhh-test" }); } catch (_) {}
+        });
+      }
+
       async function init() {
         applyTheme(getInitialTheme());
+        await _registerSW();
+        setupNotifBtn();
+        if (Notification.permission === "granted" && _swReg) await _activatePush();
         seenConversationMap = loadSeenConversationMap();
         if (authEnabled) {
           agentNameEl.value = currentAgentName;

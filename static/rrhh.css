@@ -76,6 +76,19 @@ body {
   margin: 0;
 }
 
+#btn-notif {
+  font-size: 1.1rem;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #fff;
+  line-height: 1;
+  transition: background 0.15s;
+}
+#btn-notif:hover { background: rgba(255,255,255,0.12); }
+#btn-notif.notif-active { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.5); }
+#btn-notif.notif-denied { opacity: 0.5; cursor: default; }
+
 .btn,
 button {
   border: none;
@@ -1183,6 +1196,11 @@ code {
 
   .reply-form {
     grid-template-columns: 1fr;
+  }
+
+  .messages {
+    min-height: 120px;
+    max-height: 38vh;
   }
 }
 

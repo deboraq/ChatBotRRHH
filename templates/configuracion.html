@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <title>Configuración - Asistente</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}?v=32" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='configuracion.css') }}?v=35" />
     <style>
       /* Correcciones forzadas: sucursales y columna Emp./Suc. */
       #new-user-branches-label {
@@ -55,7 +55,7 @@
       }
       .branches-panel .branches-table td:nth-child(3) {
         min-width: 200px !important;
-        vertical-align: top !important;
+        vertical-align: middle !important;
       }
       .branches-panel .branches-table .config-actions-cell {
         gap: 12px !important;
@@ -79,7 +79,7 @@
         word-wrap: break-word !important;
       }
       .branches-panel .branches-table td:nth-child(3) {
-        vertical-align: top !important;
+        vertical-align: middle !important;
         text-align: left !important;
         white-space: nowrap !important;
       }
@@ -113,13 +113,13 @@
       .knowledge-panel #knowledge-file { max-width: 100%; }
       .roles-guardar-hint { margin: 0.5rem 0 1rem 0; padding: 0.5rem 0; }
       .roles-panel.config-section { overflow: visible !important; }
-      .roles-table-wrap { overflow-x: scroll; overflow-y: visible; -webkit-overflow-scrolling: touch; width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 10px; background: var(--surface, #fff); }
+      .roles-table-wrap { overflow-x: auto; overflow-y: scroll; max-height: 70vh; -webkit-overflow-scrolling: touch; width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 10px; background: var(--surface, #fff); }
       .roles-panel .roles-table { min-width: 720px; }
-      .roles-panel .role-save-wrap { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-start; }
+      .roles-panel .role-save-wrap { display: flex; flex-direction: row; gap: 6px; align-items: center; }
       .roles-panel .role-save-label { font-size: 0.8rem; color: #64748b; }
       .roles-panel .role-save-btn { display: inline-block; background: #2563eb; color: #fff; border: none; padding: 0.3rem 0.85rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.82rem; white-space: nowrap; }
       .roles-panel .role-save-btn:hover { background: #1d4ed8; color: #fff; }
-      .roles-panel .config-actions-cell--roles { min-width: 140px; vertical-align: top; white-space: nowrap; }
+      .roles-panel .config-actions-cell--roles { min-width: 140px; vertical-align: middle; white-space: nowrap; }
       .roles-panel .role-save-inline { margin-top: 0.6rem; }
       .roles-panel .role-save-inline .role-save-btn { margin-right: 0; }
       .areas-panel .areas-table td { vertical-align: top !important; }
@@ -134,15 +134,6 @@
       }
       .areas-panel .areas-table .config-actions-cell {
         text-align: left !important;
-      }
-      .areas-panel .areas-guardar-btn {
-        background: #2563eb !important;
-        color: #fff !important;
-        border-color: #2563eb !important;
-      }
-      .areas-panel .areas-guardar-btn:hover {
-        background: #1d4ed8 !important;
-        color: #fff !important;
       }
     </style>
   </head>
@@ -565,7 +556,7 @@
               <button type="button" id="btn-add-role" class="btn btn-primary">Agregar</button>
             </div>
             <p id="roles-status" class="subtle"></p>
-            <p class="subtle roles-guardar-hint">Marcá o desmarcá los permisos que quieras y hacé clic en <strong>Guardar</strong> en esa fila para aplicar los cambios.</p>
+            <p class="subtle roles-guardar-hint">Marcá o desmarcá los permisos que quieras y hacé clic en <strong>Guardar permisos y nombre</strong> para aplicar los cambios.</p>
             <div class="roles-table-wrap">
               <table class="roles-table config-table">
                 <thead>
@@ -574,7 +565,7 @@
                     <th>Nombre</th>
                     <th>Permisos</th>
                     <th>Empresas</th>
-                    <th>Guardar / Acción</th>
+                    <th>Acción</th>
                   </tr>
                 </thead>
                 <tbody id="roles-body"></tbody>
@@ -652,7 +643,7 @@
                 <a href="/api/comunicados/plantilla" class="btn btn-secondary" download style="font-size:0.9rem;padding:0.4rem 0.9rem;">Descargar plantilla</a>
                 <input type="file" id="contactos-file-import" accept=".csv,.txt" />
               </div>
-              <p class="subtle" style="margin-top:0.4rem;">Completá teléfono, nombre y legajo en Excel, guardá como CSV y subí el archivo.</p>
+              <p class="subtle" style="margin-top:0.4rem;">Descargá la plantilla, completá los datos en Excel y subí el archivo CSV.</p>
             </div>
 
             <div style="margin-bottom:1.5rem;">
@@ -667,12 +658,16 @@
             </div>
 
             <div>
-              <h3 style="font-size:1rem;margin-bottom:0.5rem;">Contactos guardados</h3>
+              <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                <h3 style="font-size:1rem;margin:0;">Contactos guardados</h3>
+                <button type="button" id="btn-contactos-bulk-del" class="role-update-btn danger" style="display:none;">Eliminar seleccionados (0)</button>
+              </div>
               <p id="contactos-list-status" class="subtle">Seleccioná una empresa.</p>
               <div id="contactos-list-wrap" style="display:none;">
                 <table class="config-table" style="width:100%;margin-top:0.5rem;">
                   <thead>
                     <tr>
+                      <th style="width:2rem;"><input type="checkbox" id="contactos-check-all" title="Seleccionar todos" /></th>
                       <th>Nombre</th>
                       <th>Teléfono</th>
                       <th>Legajo</th>
@@ -823,6 +818,8 @@
       let permissionsCatalog = [];
       let companies = {{ companies|tojson if companies is defined else [] }};
       let selectedCompanyId = {{ selected_company_id|tojson if selected_company_id is defined else "null" }};
+      const _templateSettings = {{ general_settings|tojson if general_settings is defined else "null" }};
+      let _usersData = null;
 
       function escapeHtml(value) {
         return String(value)
@@ -893,7 +890,13 @@
         }
         if (found && key === "roles") {
           fillRolesCompanySelect();
-          cargarRoles().catch(function() {});
+          if (rolesListWithCompanies.length === 0) {
+            cargarRoles().catch(function() {});
+          } else {
+            const _cid = (rolesCompanySelectEl?.value || "").trim();
+            const _filtered = _cid ? rolesListWithCompanies.filter((r) => roleAppliesToCompany(r, _cid)) : rolesListWithCompanies;
+            renderRoles(_filtered);
+          }
         }
         if (found && key === "empresas") {
           renderCompanies(companies);
@@ -905,7 +908,11 @@
           renderAreas();
         }
         if (found && key === "usuarios") {
-          cargarUsuarios().catch(function() {});
+          if (_usersData === null) {
+            cargarUsuarios().catch(function() {});
+          } else {
+            renderUsers(_usersData);
+          }
         }
         if (found && key === "knowledge") {
           if (!companies || companies.length === 0) {
@@ -1230,6 +1237,7 @@
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
           btnDelete.className = "role-update-btn danger";
+          btnDelete.style.marginLeft = "6px";
           btnDelete.textContent = "Eliminar";
           btnDelete.addEventListener("click", async () => {
             try {
@@ -1721,6 +1729,7 @@
         const btnAdd = document.createElement("button");
         btnAdd.type = "button";
         btnAdd.className = "role-update-btn";
+        btnAdd.style.marginLeft = "6px";
         btnAdd.textContent = "Agregar área";
         btnAdd.addEventListener("click", () => openAreaModal(company, ""));
         tdAction.appendChild(btnAdd);
@@ -2030,6 +2039,7 @@
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
           btnDelete.className = "role-update-btn danger";
+          btnDelete.style.marginLeft = "6px";
           btnDelete.textContent = "Eliminar";
           btnDelete.addEventListener("click", async () => {
             try {
@@ -2396,33 +2406,20 @@
 
           const tdEmpresas = document.createElement("td");
           tdEmpresas.className = "config-actions-cell";
-          const empresasText = document.createElement("span");
-          empresasText.textContent = roleCompaniesLabel(role);
-          tdEmpresas.appendChild(empresasText);
           const btnEmpresas = document.createElement("button");
           btnEmpresas.type = "button";
           btnEmpresas.className = "role-update-btn";
           btnEmpresas.textContent = "Seleccionar empresas";
+          btnEmpresas.title = roleCompaniesLabel(role);
           btnEmpresas.addEventListener("click", () => openRoleCompaniesModal(role));
           tdEmpresas.appendChild(btnEmpresas);
 
           const tdAction = document.createElement("td");
           tdAction.className = "config-actions-cell config-actions-cell--roles";
-          const saveWrap = document.createElement("div");
-          saveWrap.className = "role-save-wrap";
-          const btnSave = document.createElement("button");
-          btnSave.type = "button";
-          btnSave.className = "role-update-btn";
-          btnSave.style.cssText = "background:#2563eb;color:#fff;border-color:#2563eb;";
-          btnSave.textContent = "Guardar";
-          btnSave.title = "Guardar cambios de nombre y permisos de este rol";
-          saveWrap.appendChild(btnSave);
-          tdAction.appendChild(saveWrap);
-          btnSave.addEventListener("click", doSaveRole);
           const btnDelete = document.createElement("button");
           btnDelete.type = "button";
           btnDelete.className = "role-update-btn danger";
-          btnDelete.textContent = "Eliminar rol";
+          btnDelete.textContent = "Eliminar";
           btnDelete.addEventListener("click", async () => {
             try {
               await eliminarRol(role.name);
@@ -3066,7 +3063,8 @@
             ? `Fuente: archivo local · ${userCount} usuario(s)`
             : `${userCount} usuario(s)`;
         }
-        renderUsers(data.users || []);
+        _usersData = data.users || [];
+        renderUsers(_usersData);
         setUsersStatus(userCount ? `${userCount} usuario(s) cargado(s).` : "Sin usuarios en archivo.");
       }
 
@@ -3712,23 +3710,23 @@
 
       async function init() {
         applyTheme(getInitialTheme());
+        // Usar datos ya embebidos en el template — cero API calls para la carga inicial
+        if (canManageGeneral && Array.isArray(companies) && companies.length > 0) {
+          refreshCompanySelectors();
+          renderCompanies(companies);
+          if (_templateSettings) {
+            syncGeneralInputs(_templateSettings);
+          }
+        }
+        // Página interactiva de inmediato
         setupSectionNavigation();
         setupBranchesDropdownToggle();
         setupKnowledgeHandlers();
-        if (canManageGeneral) {
-          try {
-            await cargarEmpresas();
-            await cargarConfiguracionGeneral();
-            fillKnowledgeCompanySelect();
-            refreshKnowledgeCountForSelected();
-          } catch (error) {
-            setGeneralStatus(`Error cargando configuración: ${getErrorMessage(error)}`, true);
-          }
-        }
-        const loads = [];
-        if (canManageUsers) loads.push(cargarUsuarios().catch((e) => { setUsersStatus(`Error: ${getErrorMessage(e)}`, true); }));
-        if (canManageRoles) loads.push(cargarRoles().catch((e) => { setRolesStatus(`Error: ${getErrorMessage(e)}`, true); }));
-        if (loads.length) await Promise.all(loads);
+        fillKnowledgeCompanySelect();
+        refreshKnowledgeCountForSelected();
+        // Cargar usuarios y roles en paralelo en segundo plano
+        if (canManageUsers) cargarUsuarios().catch((e) => { setUsersStatus(`Error: ${getErrorMessage(e)}`, true); });
+        if (canManageRoles) cargarRoles().catch((e) => { setRolesStatus(`Error: ${getErrorMessage(e)}`, true); });
       }
 
       init();
@@ -3745,6 +3743,8 @@
         const contactosListStatus = document.getElementById("contactos-list-status");
         const contactosListWrap = document.getElementById("contactos-list-wrap");
         const contactosListBody = document.getElementById("contactos-list-body");
+        const btnContactosBulkDel = document.getElementById("btn-contactos-bulk-del");
+        const contactosCheckAll = document.getElementById("contactos-check-all");
 
         // Rellenar selector de empresa
         if (contactosCompanySelect) {
@@ -3773,9 +3773,27 @@
           } catch (e) { setContactosStatus("Error al cargar contactos.", true); }
         }
 
+        function updateBulkDeleteBtn() {
+          if (!contactosListBody || !btnContactosBulkDel) return;
+          const checked = contactosListBody.querySelectorAll(".contacto-row-check:checked");
+          if (checked.length > 0) {
+            btnContactosBulkDel.style.display = "";
+            btnContactosBulkDel.textContent = `Eliminar seleccionados (${checked.length})`;
+          } else {
+            btnContactosBulkDel.style.display = "none";
+          }
+          if (contactosCheckAll) {
+            const all = contactosListBody.querySelectorAll(".contacto-row-check");
+            contactosCheckAll.checked = all.length > 0 && checked.length === all.length;
+            contactosCheckAll.indeterminate = checked.length > 0 && checked.length < all.length;
+          }
+        }
+
         function renderContactosList(contactos) {
           if (!contactosListBody) return;
           contactosListBody.innerHTML = "";
+          if (contactosCheckAll) { contactosCheckAll.checked = false; contactosCheckAll.indeterminate = false; }
+          if (btnContactosBulkDel) btnContactosBulkDel.style.display = "none";
           if (contactos.length === 0) {
             setContactosStatus("No hay contactos guardados. Agregá uno arriba.", false);
             if (contactosListWrap) contactosListWrap.style.display = "none";
@@ -3785,13 +3803,59 @@
           if (contactosListWrap) contactosListWrap.style.display = "";
           contactos.forEach(function(c) {
             const tr = document.createElement("tr");
+            const telEsc = escapeHtml(c.telefono || "");
+            const nomEsc = escapeHtml(c.nombre || "");
+            const legEsc = escapeHtml(c.legajo || "");
+            tr.dataset.tel = c.telefono || "";
+            tr.dataset.nombre = c.nombre || "";
+            tr.dataset.legajo = c.legajo || "";
             tr.innerHTML = `
-              <td>${escapeHtml(c.nombre || "")}</td>
-              <td>${escapeHtml(c.telefono || "")}</td>
-              <td>${escapeHtml(c.legajo || "")}</td>
-              <td><button type="button" class="btn-link contacto-del-btn" data-tel="${escapeHtml(c.telefono || "")}">Eliminar</button></td>
+              <td><input type="checkbox" class="contacto-row-check" data-tel="${telEsc}" /></td>
+              <td class="contacto-cell-nombre">${nomEsc}</td>
+              <td>${telEsc}</td>
+              <td class="contacto-cell-legajo">${legEsc}</td>
+              <td style="white-space:nowrap;">
+                <button type="button" class="role-update-btn contacto-edit-btn" data-tel="${telEsc}">Editar</button>
+                <button type="button" class="role-update-btn danger contacto-del-btn" data-tel="${telEsc}" style="margin-left:6px;">Eliminar</button>
+              </td>
             `;
             contactosListBody.appendChild(tr);
+          });
+          contactosListBody.querySelectorAll(".contacto-row-check").forEach(function(cb) {
+            cb.addEventListener("change", updateBulkDeleteBtn);
+          });
+          contactosListBody.querySelectorAll(".contacto-edit-btn").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+              const tr = btn.closest("tr");
+              const tel = tr.dataset.tel;
+              const nombre = tr.dataset.nombre;
+              const legajo = tr.dataset.legajo;
+              const cellNom = tr.querySelector(".contacto-cell-nombre");
+              const cellLeg = tr.querySelector(".contacto-cell-legajo");
+              const cellAcc = btn.parentElement;
+              cellNom.innerHTML = `<input type="text" class="contacto-edit-nombre" value="${escapeHtml(nombre)}" style="width:100%;min-width:100px;padding:0.25rem;" />`;
+              cellLeg.innerHTML = `<input type="text" class="contacto-edit-legajo" value="${escapeHtml(legajo)}" style="width:100%;min-width:70px;padding:0.25rem;" />`;
+              cellAcc.innerHTML = `
+                <button type="button" class="role-update-btn contacto-save-btn">Guardar</button>
+                <button type="button" class="role-update-btn contacto-cancel-btn" style="margin-left:6px;">Cancelar</button>
+              `;
+              cellAcc.querySelector(".contacto-cancel-btn").addEventListener("click", cargarContactos);
+              cellAcc.querySelector(".contacto-save-btn").addEventListener("click", async function() {
+                const nuevoNombre = cellNom.querySelector(".contacto-edit-nombre").value.trim() || "Sin nombre";
+                const nuevoLegajo = cellLeg.querySelector(".contacto-edit-legajo").value.trim();
+                const cid = getContactosCompanyId();
+                try {
+                  const r = await fetch("/api/comunicados/contactos", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ company_id: cid, nombre: nuevoNombre, telefono: tel, legajo: nuevoLegajo, upsert: true }),
+                  });
+                  const data = await r.json();
+                  if (data.ok) cargarContactos();
+                  else alert(data.error || "No se pudo guardar.");
+                } catch (e) { alert("Error al guardar."); }
+              });
+            });
           });
           contactosListBody.querySelectorAll(".contacto-del-btn").forEach(function(btn) {
             btn.addEventListener("click", async function() {
@@ -3812,6 +3876,36 @@
           });
         }
 
+        if (contactosCheckAll) {
+          contactosCheckAll.addEventListener("change", function() {
+            if (!contactosListBody) return;
+            contactosListBody.querySelectorAll(".contacto-row-check").forEach(function(cb) {
+              cb.checked = contactosCheckAll.checked;
+            });
+            updateBulkDeleteBtn();
+          });
+        }
+
+        if (btnContactosBulkDel) {
+          btnContactosBulkDel.addEventListener("click", async function() {
+            const cid = getContactosCompanyId();
+            const checked = contactosListBody ? Array.from(contactosListBody.querySelectorAll(".contacto-row-check:checked")) : [];
+            if (!checked.length) return;
+            const telefonos = checked.map(cb => cb.dataset.tel);
+            if (!confirm(`¿Eliminar ${telefonos.length} contacto(s) seleccionado(s)?`)) return;
+            try {
+              const r = await fetch("/api/comunicados/contactos/bulk", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: cid, telefonos }),
+              });
+              const data = await r.json();
+              if (data.ok) { cargarContactos(); }
+              else alert(data.error || "No se pudo eliminar.");
+            } catch (e) { alert("Error al eliminar."); }
+          });
+        }
+
         if (btnContactosAgregar) {
           btnContactosAgregar.addEventListener("click", async function() {
             const nombre = (contactosAddNombre && contactosAddNombre.value) ? contactosAddNombre.value.trim() : "";
@@ -3824,7 +3918,7 @@
               const r = await fetch("/api/comunicados/contactos", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ company_id: cid, nombre: nombre || "Sin nombre", telefono, legajo }),
+                body: JSON.stringify({ company_id: cid, nombre: nombre || "Sin nombre", telefono, legajo, upsert: false }),
               });
               const data = await r.json();
               if (data.ok) {
@@ -3856,7 +3950,7 @@
           if (idxTel === -1) idxTel = 0;
           return lines.slice(1).map((line) => {
             const parts = line.split(/[,;\t]/);
-            const telefono = (parts[idxTel] !== undefined ? parts[idxTel].trim().replace(/^["']|["']$/g, "") : "").trim();
+            const telefono = (parts[idxTel] !== undefined ? parts[idxTel].trim().replace(/^=["']|["']$/g, "").replace(/^["']|["']$/g, "") : "").trim();
             if (!telefono) return null;
             const nombre = idxNom >= 0 && parts[idxNom] !== undefined ? parts[idxNom].trim().replace(/^["']|["']$/g, "") : "";
             const legajo = idxLeg >= 0 && parts[idxLeg] !== undefined ? parts[idxLeg].trim().replace(/^["']|["']$/g, "") : "";
@@ -3875,18 +3969,23 @@
               const contactos = parseCSVContactos(reader.result || "");
               if (!contactos.length) { alert("No se encontraron filas con teléfono en el CSV."); return; }
               let ok = 0, err = 0;
+              let updated = 0;
               for (const c of contactos) {
                 try {
                   const r = await fetch("/api/comunicados/contactos", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ company_id: cid, nombre: c.nombre, telefono: c.telefono, legajo: c.legajo }),
+                    body: JSON.stringify({ company_id: cid, nombre: c.nombre, telefono: c.telefono, legajo: c.legajo, upsert: true }),
                   });
                   const data = await r.json();
-                  if (data.ok) ok++; else err++;
+                  if (data.ok) { if (data.result === "updated") updated++; else ok++; } else err++;
                 } catch (e) { err++; }
               }
-              alert(`Importación: ${ok} agregado(s)${err ? ", " + err + " error(es)." : "."}`);
+              const parts = [];
+              if (ok) parts.push(`${ok} agregado(s)`);
+              if (updated) parts.push(`${updated} actualizado(s)`);
+              if (err) parts.push(`${err} error(es)`);
+              alert(`Importación: ${parts.join(", ")}.`);
               cargarContactos();
             };
             reader.readAsText(file, "UTF-8");

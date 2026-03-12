@@ -3,6 +3,7 @@ import os
 import re
 import hashlib
 import secrets
+import time as _time_mod
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
@@ -299,6 +300,39 @@ def _normalize_role_entry(entry):
     }
 
 
+# ── Firestore persistence ──────────────────────────────────────────────────────
+# Set via set_firestore_db() from web_chat.py after app init.
+_fs_db = None
+_FS_COLLECTION = "rrhh_config"
+_FS_USERS_DOC = "users"
+_FS_ROLES_DOC = "roles"
+
+_AUTH_CACHE: dict = {}
+_AUTH_CACHE_TTL = 30  # seconds
+
+
+def _auth_cache_get(key):
+    entry = _AUTH_CACHE.get(key)
+    if entry and (_time_mod.time() - entry["ts"]) < _AUTH_CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _auth_cache_set(key, data):
+    _AUTH_CACHE[key] = {"data": data, "ts": _time_mod.time()}
+
+
+def _auth_cache_del(*keys):
+    for k in keys:
+        _AUTH_CACHE.pop(k, None)
+
+
+def set_firestore_db(db):
+    """Inyecta la instancia de Firestore para persistencia de usuarios y roles."""
+    global _fs_db
+    _fs_db = db
+
+
 def _read_json(path):
     if not path or not os.path.exists(path):
         return None
@@ -324,43 +358,93 @@ def _write_json(path, payload):
 
 
 def _load_users_raw_entries(path):
+    cached = _auth_cache_get("users_raw")
+    if cached is not None:
+        return cached
+    # Firestore tiene prioridad sobre archivo local
+    if _fs_db:
+        try:
+            doc = _fs_db.collection(_FS_COLLECTION).document(_FS_USERS_DOC).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                entries = data.get("users", [])
+                if isinstance(entries, list):
+                    result = [item for item in entries if isinstance(item, dict)]
+                    _auth_cache_set("users_raw", result)
+                    return result
+        except Exception:
+            pass
     data = _read_json(path)
     if data is None:
-        return []
-
-    if isinstance(data, dict):
+        result = []
+    elif isinstance(data, dict):
         entries = data.get("users", [])
+        result = [item for item in entries if isinstance(entries, list) and isinstance(item, dict)]
     elif isinstance(data, list):
-        entries = data
+        result = [item for item in data if isinstance(item, dict)]
     else:
-        entries = []
-    if not isinstance(entries, list):
-        return []
-    return [item for item in entries if isinstance(item, dict)]
+        result = []
+    _auth_cache_set("users_raw", result)
+    return result
 
 
 def _load_roles_raw_entries(path):
+    cached = _auth_cache_get("roles_raw")
+    if cached is not None:
+        return cached
+    # Firestore tiene prioridad sobre archivo local
+    if _fs_db:
+        try:
+            doc = _fs_db.collection(_FS_COLLECTION).document(_FS_ROLES_DOC).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                entries = data.get("roles", [])
+                if isinstance(entries, list):
+                    result = [item for item in entries if isinstance(item, dict)]
+                    _auth_cache_set("roles_raw", result)
+                    return result
+        except Exception:
+            pass
     data = _read_json(path)
     if data is None:
-        return []
-
-    if isinstance(data, dict):
+        result = []
+    elif isinstance(data, dict):
         entries = data.get("roles", [])
+        result = [item for item in entries if isinstance(entries, list) and isinstance(item, dict)]
     elif isinstance(data, list):
-        entries = data
+        result = [item for item in data if isinstance(item, dict)]
     else:
-        entries = []
-    if not isinstance(entries, list):
-        return []
-    return [item for item in entries if isinstance(item, dict)]
+        result = []
+    _auth_cache_set("roles_raw", result)
+    return result
 
 
 def _write_users_raw_entries(path, entries):
-    return _write_json(path, {"users": entries})
+    payload = {"users": entries}
+    fs_ok = False
+    if _fs_db:
+        try:
+            _fs_db.collection(_FS_COLLECTION).document(_FS_USERS_DOC).set(payload)
+            fs_ok = True
+        except Exception:
+            pass
+    _auth_cache_del("users_raw")
+    local_ok = _write_json(path, payload)
+    return fs_ok or local_ok
 
 
 def _write_roles_raw_entries(path, entries):
-    return _write_json(path, {"roles": entries})
+    payload = {"roles": entries}
+    fs_ok = False
+    if _fs_db:
+        try:
+            _fs_db.collection(_FS_COLLECTION).document(_FS_ROLES_DOC).set(payload)
+            fs_ok = True
+        except Exception:
+            pass
+    _auth_cache_del("roles_raw")
+    local_ok = _write_json(path, payload)
+    return fs_ok or local_ok
 
 
 def _load_users_from_file(path):
