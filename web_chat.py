@@ -21,12 +21,152 @@ import app as chatbot
 import auth_rrhh
 import stats_service
 
+# Conectar Firestore a auth_rrhh para persistencia de usuarios y roles
+auth_rrhh.set_firestore_db(chatbot.db)
+
 # Activar envío por WhatsApp vía Twilio si hay credenciales
 try:
     from twilio_whatsapp import register_twilio_sender
     register_twilio_sender()
 except ImportError:
     pass
+
+# Web Push
+try:
+    import hashlib as _hashlib
+    import threading as _threading
+    import json as _json_mod
+    import base64 as _b64mod
+    from pywebpush import webpush as _webpush_send, WebPushException as _WebPushException
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec
+    from cryptography.hazmat.primitives.asymmetric.ec import SECP256R1 as _SECP256R1
+    from cryptography.hazmat.primitives import serialization as _crypto_serial
+    _PUSH_AVAILABLE = True
+except ImportError:
+    _PUSH_AVAILABLE = False
+
+_VAPID_PRIVATE_KEY: str | None = None
+_VAPID_PUBLIC_KEY: str | None = None
+_VAPID_INITIALIZED = False
+
+
+def _vapid_pem_to_raw_b64(pem_str):
+    """Convierte PEM EC private key a raw 32-byte base64url (formato requerido por pywebpush)."""
+    try:
+        k = _crypto_serial.load_pem_private_key(pem_str.encode(), password=None)
+        raw = k.private_numbers().private_value.to_bytes(32, "big")
+        return _b64mod.urlsafe_b64encode(raw).rstrip(b"=").decode("utf-8")
+    except Exception:
+        return None
+
+
+def _ensure_vapid_keys():
+    global _VAPID_PRIVATE_KEY, _VAPID_PUBLIC_KEY, _VAPID_INITIALIZED
+    if _VAPID_INITIALIZED:
+        return
+    if not _PUSH_AVAILABLE:
+        _VAPID_INITIALIZED = True
+        return
+    # 1. env vars
+    priv = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+    pub = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+    if priv and pub:
+        if priv.startswith("-----"):
+            priv = _vapid_pem_to_raw_b64(priv) or priv
+        _VAPID_PRIVATE_KEY, _VAPID_PUBLIC_KEY = priv, pub
+        _VAPID_INITIALIZED = True
+        return
+    # 2. Firestore
+    if chatbot.db:
+        try:
+            doc = chatbot.db.collection("rrhh_config").document("vapid").get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                priv = (data.get("private_key") or "").strip()
+                pub = (data.get("public_key") or "").strip()
+                if priv and pub:
+                    # Convertir de PEM a raw base64url si fue guardado en formato PEM
+                    if priv.startswith("-----"):
+                        converted = _vapid_pem_to_raw_b64(priv)
+                        if converted:
+                            priv = converted
+                            try:
+                                chatbot.db.collection("rrhh_config").document("vapid").update({"private_key": priv})
+                            except Exception:
+                                pass
+                    if priv:
+                        _VAPID_PRIVATE_KEY = priv
+                        _VAPID_PUBLIC_KEY = pub
+                        _VAPID_INITIALIZED = True
+                        return
+        except Exception as exc:
+            logging.warning(f"VAPID Firestore read failed: {exc}")
+    # 3. Generate new key in raw base64url format (required by pywebpush)
+    try:
+        priv_key = _ec.generate_private_key(_SECP256R1())
+        priv_raw = priv_key.private_numbers().private_value.to_bytes(32, "big")
+        priv_b64 = _b64mod.urlsafe_b64encode(priv_raw).rstrip(b"=").decode("utf-8")
+        pub_bytes = priv_key.public_key().public_bytes(
+            _crypto_serial.Encoding.X962,
+            _crypto_serial.PublicFormat.UncompressedPoint,
+        )
+        pub_b64 = _b64mod.urlsafe_b64encode(pub_bytes).rstrip(b"=").decode("utf-8")
+        _VAPID_PRIVATE_KEY = priv_b64
+        _VAPID_PUBLIC_KEY = pub_b64
+        _VAPID_INITIALIZED = True
+        if chatbot.db:
+            try:
+                chatbot.db.collection("rrhh_config").document("vapid").set({
+                    "private_key": priv_b64,
+                    "public_key": pub_b64,
+                })
+            except Exception as exc:
+                logging.warning(f"VAPID Firestore write failed: {exc}")
+    except Exception as exc:
+        logging.warning(f"VAPID key generation failed: {exc}")
+
+
+def _send_push_all(title: str, body: str, url: str = "/rrhh"):
+    if not _PUSH_AVAILABLE or not chatbot.db:
+        return
+    _ensure_vapid_keys()
+    if not _VAPID_PRIVATE_KEY:
+        return
+    payload = _json_mod.dumps({"title": title, "body": body[:200], "url": url, "tag": "rrhh-push"})
+    vapid_private = _VAPID_PRIVATE_KEY
+
+    def _do():
+        try:
+            docs = list(chatbot.db.collection("push_subscriptions").stream())
+            expired = []
+            for doc in docs:
+                sub_info = (doc.to_dict() or {}).get("subscription")
+                if not sub_info:
+                    continue
+                try:
+                    _webpush_send(
+                        subscription_info=sub_info,
+                        data=payload,
+                        vapid_private_key=vapid_private,
+                        vapid_claims={"sub": "mailto:noreply@debo-chat.web.app"},
+                    )
+                except _WebPushException as exc:
+                    resp = getattr(exc, "response", None)
+                    if resp is not None and resp.status_code in (404, 410):
+                        expired.append(doc.id)
+                    else:
+                        logging.warning(f"Push error: {exc}")
+                except Exception as exc:
+                    logging.warning(f"Push error: {exc}")
+            for eid in expired:
+                try:
+                    chatbot.db.collection("push_subscriptions").document(eid).delete()
+                except Exception:
+                    pass
+        except Exception as exc:
+            logging.warning(f"Push send error: {exc}")
+
+    _threading.Thread(target=_do, daemon=True).start()
 
 logger = logging.getLogger(__name__)
 flask_app = Flask(__name__)
@@ -68,6 +208,24 @@ IN_MEMORY_CHAT_HISTORY = []
 IN_MEMORY_ACTIVE_AGENTS = {}
 IN_MEMORY_GENERAL_SETTINGS = {}
 IN_MEMORY_COMPANIES = {}
+
+# Caché TTL simple para lecturas frecuentes de Firestore
+import time as _time_mod
+_TTL_CACHE: dict = {}
+_TTL_CACHE_SECONDS = 30  # segundos
+
+def _cache_get(key):
+    entry = _TTL_CACHE.get(key)
+    if entry and (_time_mod.time() - entry["ts"]) < _TTL_CACHE_SECONDS:
+        return entry["data"]
+    return None
+
+def _cache_set(key, data):
+    _TTL_CACHE[key] = {"data": data, "ts": _time_mod.time()}
+
+def _cache_del(*keys):
+    for k in keys:
+        _TTL_CACHE.pop(k, None)
 
 GENERAL_SETTINGS_COLLECTION = "chatbot_config"
 GENERAL_SETTINGS_DOC = "general"
@@ -826,6 +984,11 @@ def _merge_company_entries(current, candidate):
 
 
 def _list_companies(include_inactive=False):
+    cache_key = "companies_all" if include_inactive else "companies_active"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     rows = []
     if chatbot.db:
         try:
@@ -865,13 +1028,22 @@ def _list_companies(include_inactive=False):
     if not any(item.get("company_id") == default_entry.get("company_id") for item in rows):
         rows.append(default_entry)
 
-    if not include_inactive:
+    rows.sort(key=lambda item: (str(item.get("company_name") or "").lower(), item.get("company_id")))
+
+    if include_inactive:
+        # Al cargar todo, también pre-cargamos el subconjunto activo para evitar segunda lectura
+        _cache_set("companies_all", rows)
+        active_rows = [item for item in rows if item.get("active", True)]
+        if not active_rows:
+            active_rows = [default_entry]
+        _cache_set("companies_active", active_rows)
+        return rows
+    else:
         rows = [item for item in rows if item.get("active", True)]
         if not rows:
             rows = [default_entry]
-
-    rows.sort(key=lambda item: (str(item.get("company_name") or "").lower(), item.get("company_id")))
-    return rows
+        _cache_set("companies_active", rows)
+        return rows
 
 
 def _company_map(include_inactive=False):
@@ -1605,26 +1777,29 @@ def _add_chat_history(
 
     if chatbot.db:
         chatbot.db.collection("chat_historial").add(payload)
+        _cache_del("chat_history_all")
         return
 
     IN_MEMORY_CHAT_HISTORY.append(payload)
 
 
 def _list_chat_history(limit=300):
-    if chatbot.db:
-        rows = []
-        for doc in chatbot.db.collection("chat_historial").stream():
-            data = doc.to_dict() or {}
-            data["id"] = doc.id
-            rows.append(data)
-    else:
-        rows = list(IN_MEMORY_CHAT_HISTORY)
-
-    rows.sort(
-        key=lambda x: _as_utc_naive(x.get("fecha")) or datetime.min,
-        reverse=True,
-    )
-    return rows[:limit]
+    all_rows = _cache_get("chat_history_all")
+    if all_rows is None:
+        if chatbot.db:
+            all_rows = []
+            for doc in chatbot.db.collection("chat_historial").stream():
+                data = doc.to_dict() or {}
+                data["id"] = doc.id
+                all_rows.append(data)
+        else:
+            all_rows = list(IN_MEMORY_CHAT_HISTORY)
+        all_rows.sort(
+            key=lambda x: _as_utc_naive(x.get("fecha")) or datetime.min,
+            reverse=True,
+        )
+        _cache_set("chat_history_all", all_rows)
+    return all_rows[:limit]
 
 
 def _serialize_history_item(item):
@@ -1720,6 +1895,7 @@ def _upsert_handoff(conversation_id, payload, merge=True):
     if chatbot.db:
         doc_ref = chatbot.db.collection("rrhh_handoffs").document(conversation_id)
         doc_ref.set(payload, merge=merge)
+        _cache_del("handoffs_all")
         return
 
     existing = IN_MEMORY_HANDOFFS.get(conversation_id, {})
@@ -1739,13 +1915,16 @@ def _branch_name(item):
 
 
 def _list_handoffs(include_closed=False, limit=100, company_id=None, branches=None, areas=None):
-    if chatbot.db:
-        docs = [
-            _from_firestore_doc(doc)
-            for doc in chatbot.db.collection("rrhh_handoffs").stream()
-        ]
-    else:
-        docs = [dict(value) for value in IN_MEMORY_HANDOFFS.values()]
+    docs = _cache_get("handoffs_all")
+    if docs is None:
+        if chatbot.db:
+            docs = [
+                _from_firestore_doc(doc)
+                for doc in chatbot.db.collection("rrhh_handoffs").stream()
+            ]
+        else:
+            docs = [dict(value) for value in IN_MEMORY_HANDOFFS.values()]
+        _cache_set("handoffs_all", docs)
 
     filtered = []
     target_company = _normalize_company_id(company_id)
@@ -1779,12 +1958,11 @@ def _list_handoffs(include_closed=False, limit=100, company_id=None, branches=No
 
 def _all_handoff_records_for_stats():
     if chatbot.db:
-        rows = []
-        for doc in chatbot.db.collection("rrhh_handoffs").stream():
-            payload = doc.to_dict() or {}
-            payload["id"] = doc.id
-            rows.append(payload)
-        return rows
+        docs = _cache_get("handoffs_all")
+        if docs is None:
+            docs = [_from_firestore_doc(doc) for doc in chatbot.db.collection("rrhh_handoffs").stream()]
+            _cache_set("handoffs_all", docs)
+        return docs
     return [dict(value) for value in IN_MEMORY_HANDOFFS.values()]
 
 
@@ -2024,6 +2202,30 @@ def _close_handoff(conversation_id, quien):
         wa_phone = conv.get("whatsapp_to_phone")
         if wa_phone:
             _reset_whatsapp_chat_context(wa_phone)
+    return True
+
+
+def _reopen_handoff(conversation_id, quien):
+    """Reabre una conversación cerrada (estado -> pendiente)."""
+    conv = _fetch_handoff(conversation_id)
+    if not conv:
+        return False
+    estado = str(conv.get("estado") or "").strip().lower()
+    if estado != HANDOFF_STATUS_CLOSED:
+        return True  # ya está abierta
+    _upsert_handoff(
+        conversation_id,
+        {
+            "estado": HANDOFF_STATUS_PENDING,
+            "updated_at": _utc_now(),
+        },
+        merge=True,
+    )
+    _add_handoff_message(
+        conversation_id,
+        remitente="sistema",
+        texto=f"Conversación reabierta por {quien}.",
+    )
     return True
 
 
@@ -2422,6 +2624,10 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             handoff_payload["colaborador_nombre"] = collab_nombre
             handoff_payload["colaborador_telefono"] = collab_tel
         _upsert_handoff(conversation_id, handoff_payload, merge=False)
+        _send_push_all(
+            f"Nueva conversación{' · ' + handoff_payload.get('company_name') if handoff_payload.get('company_name') else ''}",
+            f"{handoff_payload.get('colaborador_nombre') or handoff_payload.get('colaborador_telefono') or 'Usuario'}: {handoff_payload.get('ultima_consulta', 'Solicitud de atención')[:150]}",
+        )
         # Resumen de la conversación previa para el agente
         resumen = _generar_resumen_conversacion(chat_session_id)
         _add_handoff_message(
@@ -2599,6 +2805,10 @@ def responder_chat(mensaje_usuario):
             merge=True,
         )
         conv = _fetch_handoff(handoff_id) or {}
+        _send_push_all(
+            "Nuevo mensaje",
+            f"{conv.get('colaborador_nombre') or conv.get('colaborador_telefono') or 'Usuario'}: {mensaje_usuario.strip()[:150]}",
+        )
         estado = str(conv.get("estado") or "").strip().lower()
         if estado == HANDOFF_STATUS_PENDING:
             texto = "📨 Mensaje enviado. Un agente todavía no tomó la conversación."
@@ -2798,6 +3008,41 @@ def _can_manage_preferences():
     if not _auth_enabled():
         return True
     return _has_permission(auth_rrhh.PERM_PREFERENCES_MANAGE)
+
+
+@flask_app.get("/sw.js")
+def serve_sw():
+    from flask import make_response, send_from_directory
+    resp = make_response(send_from_directory("static", "sw.js"))
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@flask_app.get("/api/push/vapid-key")
+@rrhh_auth_required
+def push_vapid_key():
+    _ensure_vapid_keys()
+    if not _VAPID_PUBLIC_KEY:
+        return jsonify({"ok": False, "error": "Push no disponible"})
+    return jsonify({"ok": True, "public_key": _VAPID_PUBLIC_KEY})
+
+
+@flask_app.post("/api/push/subscribe")
+@rrhh_auth_required
+def push_subscribe():
+    sub = request.json
+    if not sub or not sub.get("endpoint"):
+        return jsonify({"ok": False})
+    sub_id = _hashlib.sha256(sub["endpoint"].encode()).hexdigest()[:32]
+    username = (_current_rrhh_user() or {}).get("username", "anon")
+    if chatbot.db:
+        chatbot.db.collection("push_subscriptions").document(sub_id).set({
+            "subscription": sub,
+            "username": username,
+            "updated_at": _utc_now(),
+        })
+    return jsonify({"ok": True})
 
 
 @flask_app.get("/")
@@ -3084,8 +3329,13 @@ def _resolve_whatsapp_contact(phone_raw, company_id, profile_name=""):
     return phone_clean, phone_clean
 
 
-def _add_comunicado_contacto(company_id, nombre, telefono, legajo=None):
-    """Agrega un contacto a la lista de la empresa (nombre, teléfono, legajo opcional)."""
+def _add_comunicado_contacto(company_id, nombre, telefono, legajo=None, upsert=False):
+    """Agrega o actualiza un contacto de la empresa.
+
+    upsert=False (default): si el teléfono ya existe devuelve "exists".
+    upsert=True: si existe actualiza nombre/legajo, devuelve "updated".
+    Devuelve "created" al agregar nuevo, False ante error.
+    """
     cid = _normalize_company_id(company_id)
     if not cid:
         return False
@@ -3094,13 +3344,22 @@ def _add_comunicado_contacto(company_id, nombre, telefono, legajo=None):
     if not telefono:
         return False
     legajo = str(legajo or "").strip() if legajo is not None else ""
+    digits_new = re.sub(r"[^\d]", "", telefono)
     if chatbot.db:
         doc_ref = chatbot.db.collection(COMUNICADOS_CONTACTOS_COLLECTION).document(cid)
         doc = doc_ref.get()
         contactos = list((doc.to_dict() or {}).get("contactos") or []) if doc.exists else []
+        for i, c in enumerate(contactos):
+            c_digits = re.sub(r"[^\d]", "", str(c.get("telefono") or ""))
+            if c_digits and c_digits == digits_new:
+                if upsert:
+                    contactos[i] = {"nombre": nombre, "telefono": c.get("telefono", telefono), "legajo": legajo or c.get("legajo", "")}
+                    doc_ref.set({"contactos": contactos}, merge=True)
+                    return "updated"
+                return "exists"
         contactos.append({"nombre": nombre, "telefono": telefono, "legajo": legajo})
         doc_ref.set({"contactos": contactos}, merge=True)
-        return True
+        return "created"
     return False
 
 
@@ -3112,7 +3371,7 @@ def _add_comunicado_contacto(company_id, nombre, telefono, legajo=None):
 def api_comunicados_plantilla():
     """Descarga plantilla CSV (para abrir en Excel: guardar como CSV y subir). Columnas: teléfono, nombre, legajo."""
     from flask import Response
-    csv_content = "\ufeffteléfono,nombre,legajo\n+5491112345678,Ejemplo,12345\n"
+    csv_content = "\ufeffteléfono;nombre;legajo\n=\"+5491112345678\";Ejemplo;12345\n"
     return Response(csv_content, mimetype="text/csv", headers={
         "Content-Disposition": "attachment; filename=plantilla_contactos_comunicados.csv",
     })
@@ -3136,16 +3395,24 @@ def api_comunicados_contactos_list():
     message="Sin permiso.",
 )
 def api_comunicados_contactos_add():
-    """Agrega un contacto a la lista de la empresa (nombre, teléfono, legajo opcional)."""
+    """Agrega o actualiza un contacto de la empresa.
+
+    Si upsert=true en el body, actualiza nombre/legajo si el teléfono ya existe.
+    Si upsert=false (default), devuelve 409 si el número ya existe.
+    """
     data = request.get_json(silent=True) or {}
     company_id = _normalize_company_id(data.get("company_id") or "")
     nombre = str(data.get("nombre") or "").strip()
     telefono = str(data.get("telefono") or "").strip()
     legajo = data.get("legajo")
+    upsert = bool(data.get("upsert"))
     if not telefono:
         return jsonify({"ok": False, "error": "El teléfono es obligatorio."}), 400
-    if _add_comunicado_contacto(company_id, nombre or "Sin nombre", telefono, legajo=legajo):
-        return jsonify({"ok": True, "contactos": _get_comunicados_contactos(company_id)})
+    result = _add_comunicado_contacto(company_id, nombre or "Sin nombre", telefono, legajo=legajo, upsert=upsert)
+    if result in ("created", "updated"):
+        return jsonify({"ok": True, "result": result, "contactos": _get_comunicados_contactos(company_id)})
+    if result == "exists":
+        return jsonify({"ok": False, "error": f"Ya existe un contacto con el número {telefono}.", "exists": True}), 409
     return jsonify({"ok": False, "error": "No se pudo guardar."}), 500
 
 
@@ -3196,6 +3463,42 @@ def api_comunicados_contactos_remove():
     if _remove_comunicado_contacto(company_id, telefono):
         return jsonify({"ok": True, "contactos": _get_comunicados_contactos(company_id)})
     return jsonify({"ok": False, "error": "No se encontró el contacto o no se pudo eliminar."}), 404
+
+
+@flask_app.delete("/api/comunicados/contactos/bulk")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="Sin permiso.",
+)
+def api_comunicados_contactos_bulk_remove():
+    """Elimina múltiples contactos de una empresa en una sola operación."""
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    telefonos = [str(t).strip() for t in (data.get("telefonos") or []) if t]
+    if not company_id or not telefonos:
+        return jsonify({"ok": False, "error": "Faltan company_id o teléfonos."}), 400
+    cid = company_id
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Sin base de datos."}), 500
+    normalized_inputs = set()
+    for t in telefonos:
+        n = _normalize_phones_for_comunicado([t])
+        if n:
+            normalized_inputs.add(n[0])
+    doc_ref = chatbot.db.collection(COMUNICADOS_CONTACTOS_COLLECTION).document(cid)
+    doc = doc_ref.get()
+    contactos = list((doc.to_dict() or {}).get("contactos") or []) if doc.exists else []
+    removed = 0
+    contactos_new = []
+    for c in contactos:
+        tel_stored = (c.get("telefono") or "").strip()
+        norm_stored = _normalize_phones_for_comunicado([tel_stored])
+        if norm_stored and norm_stored[0] in normalized_inputs:
+            removed += 1
+        else:
+            contactos_new.append(c)
+    doc_ref.set({"contactos": contactos_new}, merge=True)
+    return jsonify({"ok": True, "removed": removed, "contactos": _get_comunicados_contactos(cid)})
 
 
 @flask_app.post("/api/comunicados/enviar")
@@ -4295,6 +4598,7 @@ def configuracion_crear_empresa_api():
     ok, company, error = _upsert_company(data)
     if not ok:
         return jsonify({"ok": False, "error": error}), 400
+    _cache_del("companies_active", "companies_all")
     return jsonify({"ok": True, "company": _company_for_api(company)})
 
 
@@ -4346,6 +4650,7 @@ def configuracion_editar_empresa_api(company_id):
     ok, company, error = _upsert_company(payload)
     if not ok:
         return jsonify({"ok": False, "error": error}), 400
+    _cache_del("companies_active", "companies_all")
     if _normalize_company_id(session.get("company_id")) == company.get("company_id"):
         _set_company_session(company.get("company_id"))
     return jsonify({"ok": True, "company": _company_for_api(company)})
@@ -4360,6 +4665,7 @@ def configuracion_eliminar_empresa_api(company_id):
     if not ok:
         status_code = 404 if "no encontrada" in error.lower() else 409
         return jsonify({"ok": False, "error": error}), status_code
+    _cache_del("companies_active", "companies_all")
     if _normalize_company_id(session.get("company_id")) == _normalize_company_id(company_id):
         _set_company_session(_default_company_id())
     return jsonify({"ok": True})
@@ -4736,6 +5042,37 @@ def rrhh_conversaciones_api():
     if default_areas is not None:
         out["filter_by_areas"] = default_areas
     return jsonify(out)
+
+
+@flask_app.get("/api/rrhh/contactos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="Sin permiso para ver contactos.",
+)
+def rrhh_contactos_api():
+    """Lista contactos (teléfono + nombre) de conversaciones previas por WhatsApp para la empresa activa."""
+    company = _current_company()
+    company_id = _normalize_company_id(company.get("company_id"))
+    if not company_id:
+        return jsonify({"ok": True, "contactos": []})
+    convs = _list_handoffs(include_closed=True, limit=500, company_id=company_id)
+    by_phone = {}
+    for c in convs:
+        if str(c.get("channel") or "").strip().lower() != "whatsapp":
+            continue
+        phone = (c.get("whatsapp_to_phone") or "").strip()
+        if not phone:
+            continue
+        norm = _normalize_phone_for_match(phone)
+        if not norm:
+            continue
+        nombre = (c.get("colaborador_nombre") or "").strip() or phone
+        updated = _as_utc_naive(c.get("updated_at")) or datetime.min
+        if norm not in by_phone or (by_phone[norm]["updated_at"] or datetime.min) < updated:
+            by_phone[norm] = {"phone": phone, "nombre": nombre, "updated_at": updated}
+    contactos = [{"phone": v["phone"], "nombre": v["nombre"]} for v in by_phone.values()]
+    contactos.sort(key=lambda x: (x.get("nombre") or "").lower())
+    return jsonify({"ok": True, "contactos": contactos})
 
 
 @flask_app.post("/api/rrhh/empresa/seleccionar")
@@ -5151,6 +5488,138 @@ def rrhh_cerrar_api(conversation_id):
     if not _close_handoff(conversation_id, agente.get("display_name")):
         return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
     return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_CLOSED})
+
+
+@flask_app.post("/api/rrhh/conversaciones/<conversation_id>/reabrir")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para gestionar conversaciones.",
+)
+def rrhh_reabrir_api(conversation_id):
+    data = request.get_json(silent=True) or {}
+    agente = _resolve_rrhh_agent(data)
+    conv = _fetch_handoff(conversation_id)
+    if not conv:
+        return jsonify({"ok": False, "error": "Conversación no encontrada"}), 404
+    if not _conversation_matches_selected_company(conv):
+        return jsonify({"ok": False, "error": "Conversación no disponible para esta empresa."}), 404
+    if not _reopen_handoff(conversation_id, agente.get("display_name")):
+        return jsonify({"ok": False, "error": "No se pudo reabrir"}), 400
+    return jsonify({"ok": True, "conversation_id": conversation_id, "estado": HANDOFF_STATUS_PENDING})
+
+
+def _get_company_whatsapp_from(company):
+    """Devuelve el número 'from' de WhatsApp de la empresa (primer número configurado) para Twilio."""
+    if not company:
+        return None
+    nums = company.get("whatsapp_numbers") or []
+    if not nums:
+        return None
+    phone = (nums[0].get("phone") or "").strip()
+    return phone if phone else None
+
+
+@flask_app.post("/api/rrhh/conversaciones/iniciar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_MANAGE,
+    message="Sin permiso para gestionar conversaciones.",
+)
+def rrhh_iniciar_conversacion_api():
+    """Crea una conversación nueva e envía el primer mensaje por WhatsApp a esa persona (sin que te escriba antes)."""
+    data = request.get_json(silent=True) or {}
+    phone = (data.get("phone") or data.get("telefono") or "").strip()
+    mensaje = (data.get("mensaje") or data.get("texto") or "").strip()
+    nombre = (data.get("nombre") or "").strip()
+    if not phone:
+        return jsonify({"ok": False, "error": "Falta el número de teléfono (phone)."}), 400
+    if not mensaje:
+        return jsonify({"ok": False, "error": "Escribí el mensaje a enviar (mensaje)."}), 400
+    company = _current_company()
+    company_id = _normalize_company_id(company.get("company_id"))
+    if not company_id:
+        return jsonify({"ok": False, "error": "Seleccioná una empresa en el panel."}), 400
+    from_number = _get_company_whatsapp_from(company)
+    if not from_number:
+        from_number = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+        if from_number and not from_number.startswith("whatsapp:"):
+            try:
+                from twilio_whatsapp import _format_to_whatsapp
+                from_number = _format_to_whatsapp(from_number) or from_number
+            except Exception:
+                pass
+    if not from_number:
+        return jsonify({
+            "ok": False,
+            "error": "La empresa no tiene número de WhatsApp configurado. Agregá números en Configuración > Empresas.",
+        }), 400
+    if from_number.startswith("whatsapp:"):
+        from_number_raw = from_number.replace("whatsapp:", "", 1)
+    else:
+        from_number_raw = from_number
+    # Evitar crear duplicado si ya existe handoff abierto para este teléfono
+    existing_id = _find_open_handoff_by_whatsapp_phone(phone)
+    if existing_id:
+        conv = _fetch_handoff(existing_id)
+        if conv and _normalize_company_id(conv.get("company_id")) == company_id:
+            _add_handoff_message(existing_id, remitente="rrhh", texto=mensaje, agente=_rrhh_agent_name())
+            try:
+                from twilio_whatsapp import send_one
+                send_one(phone, body=mensaje, phone_number_id=from_number_raw)
+            except Exception as e:
+                logger.warning("Twilio envío al reabrir conversación: %s", e)
+            _upsert_handoff(
+                existing_id,
+                {"updated_at": _utc_now(), "ultimo_mensaje": mensaje[:200], "ultimo_mensaje_fecha": _utc_now()},
+                merge=True,
+            )
+            return jsonify({"ok": True, "conversation_id": existing_id, "existente": True})
+    conversation_id = _new_conversation_id()
+    now = _utc_now()
+    agente = _current_rrhh_user() or {}
+    display_name = str(agente.get("display_name") or agente.get("name") or _rrhh_agent_name() or "RRHH").strip()
+    handoff_payload = {
+        "conversation_id": conversation_id,
+        "company_id": company_id,
+        "company_name": company.get("company_name"),
+        "branch": "",
+        "area": "",
+        "estado": HANDOFF_STATUS_PENDING,
+        "created_at": now,
+        "updated_at": now,
+        "channel": "whatsapp",
+        "whatsapp_to_phone": phone,
+        "whatsapp_from_number": from_number_raw,
+        "colaborador_nombre": nombre or phone,
+        "colaborador_telefono": phone,
+        "rrhh_agente": display_name,
+        "rrhh_agente_id": str(agente.get("agent_id") or agente.get("user_id") or "").strip(),
+        "ultima_consulta": "(Mensaje iniciado por RRHH)",
+        "ultimo_mensaje": mensaje[:200],
+        "ultimo_mensaje_fecha": now,
+    }
+    _upsert_handoff(conversation_id, handoff_payload, merge=False)
+    _add_handoff_message(conversation_id, remitente="rrhh", texto=mensaje, agente=display_name)
+
+    def _mensaje_error_twilio(err_text):
+        err_lower = (err_text or "").lower()
+        if "63080" in err_lower or "50 daily" in err_lower or ("exceeded" in err_lower and "messages limit" in err_lower):
+            return (
+                "Límite diario de mensajes de Twilio alcanzado (50/día en cuentas trial). "
+                "Mañana se reinicia el contador, o pasate a una cuenta de pago en twilio.com para enviar más."
+            )
+        return err_text or "Error al enviar por WhatsApp"
+
+    try:
+        from twilio_whatsapp import send_one
+        if not send_one(phone, body=mensaje, phone_number_id=from_number_raw):
+            from twilio_whatsapp import last_twilio_error
+            err = _mensaje_error_twilio((last_twilio_error or "").strip())
+            return jsonify({"ok": False, "error": err}), 502
+    except Exception as e:
+        logger.warning("Twilio envío en iniciar conversación: %s", e)
+        err = _mensaje_error_twilio(str(e))
+        return jsonify({"ok": False, "error": err}), 502
+    return jsonify({"ok": True, "conversation_id": conversation_id})
 
 
 # Límite de subida para adjuntos (10 MB)

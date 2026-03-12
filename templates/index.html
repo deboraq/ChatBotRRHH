@@ -84,6 +84,39 @@
         border: none;
         background: #fff;
       }
+      /* Sidebar toggle button */
+      #sidebar-toggle {
+        position: absolute;
+        top: 10px;
+        right: -14px;
+        z-index: 10;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #374151;
+        font-size: 0.75rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+        padding: 0;
+        line-height: 1;
+      }
+      .app-sidebar { position: relative; }
+      /* Collapsed state */
+      .app-sidebar.collapsed {
+        width: 0;
+        min-width: 0;
+        padding: 0;
+        overflow: visible;
+      }
+      .app-sidebar.collapsed > *:not(#sidebar-toggle) { display: none; }
+      .app-sidebar.collapsed #sidebar-toggle {
+        right: -32px;
+      }
       @media (max-width: 640px) {
         .app-layout {
           flex-direction: column;
@@ -95,6 +128,22 @@
           flex-wrap: wrap;
           padding: 8px;
           gap: 8px;
+        }
+        .app-sidebar.collapsed {
+          width: 100%;
+          min-width: 0;
+          padding: 4px 8px;
+          height: auto;
+          overflow: hidden;
+        }
+        .app-sidebar.collapsed > *:not(#sidebar-toggle) { display: none; }
+        #sidebar-toggle {
+          position: static;
+          width: auto;
+          height: auto;
+          border-radius: 8px;
+          padding: 4px 10px;
+          font-size: 0.82rem;
         }
         .app-sidebar h2,
         .app-sidebar p.subtle {
@@ -143,11 +192,17 @@
       html[data-theme="dark"] .app-frame {
         background: #070d18;
       }
+      html[data-theme="dark"] #sidebar-toggle {
+        background: #1e293b;
+        border-color: #334155;
+        color: #cbd5e1;
+      }
     </style>
   </head>
   <body>
     <div class="app-layout">
       <aside class="app-sidebar">
+        <button id="sidebar-toggle" type="button" title="Ocultar menú" aria-label="Ocultar menú">◀</button>
         <h2>Módulos</h2>
         <p class="subtle">Seleccioná qué querés usar.</p>
         <button type="button" class="app-module-btn active" data-module="chat" data-src="/chat">
@@ -222,6 +277,30 @@
             frame.src = src;
             setTimeout(applyThemeToFrame, 300);
           });
+        });
+
+        // Sidebar toggle
+        var sidebar = document.querySelector(".app-sidebar");
+        var toggleBtn = document.getElementById("sidebar-toggle");
+        var SIDEBAR_KEY = "app_sidebar_collapsed";
+        function isMobile() { return window.innerWidth <= 640; }
+        function applyCollapsed(collapsed) {
+          if (collapsed) {
+            sidebar.classList.add("collapsed");
+            toggleBtn.textContent = isMobile() ? "☰ Menú" : "▶";
+            toggleBtn.title = "Mostrar menú";
+          } else {
+            sidebar.classList.remove("collapsed");
+            toggleBtn.textContent = isMobile() ? "✕" : "◀";
+            toggleBtn.title = "Ocultar menú";
+          }
+        }
+        var isCollapsed = localStorage.getItem(SIDEBAR_KEY) === "1";
+        applyCollapsed(isCollapsed);
+        toggleBtn.addEventListener("click", function() {
+          isCollapsed = !sidebar.classList.contains("collapsed");
+          localStorage.setItem(SIDEBAR_KEY, isCollapsed ? "1" : "0");
+          applyCollapsed(isCollapsed);
         });
       })();
     </script>

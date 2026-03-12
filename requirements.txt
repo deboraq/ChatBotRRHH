@@ -4,3 +4,5 @@ gunicorn>=25.1,<26
 python-dotenv>=1.0,<2
 # Sincronización base de conocimiento desde Google Drive
 google-api-python-client>=2.100,<3
+# Web Push notifications (VAPID)
+pywebpush>=2.0,<3
