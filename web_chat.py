@@ -2032,16 +2032,22 @@ def _add_handoff_message(
         conv = IN_MEMORY_HANDOFFS.setdefault(conversation_id, {"id": conversation_id})
         conv.setdefault("mensajes", []).append(payload)
 
-    _upsert_handoff(
-        conversation_id,
-        {
-            "updated_at": now,
-            "ultimo_mensaje": payload["texto"],
-            "ultimo_remitente": str(remitente or "").strip().lower(),
-            "ultimo_mensaje_fecha": now,
-        },
-        merge=True,
-    )
+    upsert_extra = {
+        "updated_at": now,
+        "ultimo_mensaje": payload["texto"],
+        "ultimo_remitente": str(remitente or "").strip().lower(),
+        "ultimo_mensaje_fecha": now,
+    }
+    _upsert_handoff(conversation_id, upsert_extra, merge=True)
+    # Incrementar contador de mensajes del colaborador para notificaciones por mensaje
+    if str(remitente or "").strip().lower() == "colaborador" and chatbot.db:
+        try:
+            from firebase_admin import firestore as _fs_admin
+            chatbot.db.collection("rrhh_handoffs").document(conversation_id).update(
+                {"colaborador_mensajes_count": _fs_admin.Increment(1)}
+            )
+        except Exception:
+            pass
     try:
         _hist_company_id = _normalize_company_id(_sess().get("company_id"))
     except Exception:
@@ -2379,16 +2385,19 @@ def _collect_new_messages_for_collaborator(conversation_id):
 def construir_temas_map(company_id=None, temas_habilitados=None):
     """
     Construye el mapa número -> tema para el menú.
-    Si temas_habilitados es una lista no vacía, solo se incluyen esos temas (normalizados).
+    Si temas_habilitados es una lista no vacía, esos temas son el menú (sin filtrar contra faqs).
+    Si no hay temas_habilitados, se usan los temas de la colección faqs o el fallback.
     """
     if company_id is None:
         company_id = (_current_company() or {}).get("company_id")
+    # Prioridad: temas_habilitados configurados por la empresa (KB auto-detectados o manuales)
+    if temas_habilitados and isinstance(temas_habilitados, list):
+        temas = sorted(temas_habilitados, key=chatbot.normalizar_texto)
+        return {str(i): tema for i, tema in enumerate(temas, start=1)}
+    # Fallback: temas desde colección faqs (legacy) o FAQ_FALLBACK
     temas = chatbot.obtener_temas_desde_firestore(company_id=company_id)
     if not temas:
         temas = sorted(chatbot.FAQ_FALLBACK.keys(), key=chatbot.normalizar_texto)
-    if temas_habilitados and isinstance(temas_habilitados, list):
-        allow_set = {chatbot.normalizar_texto(t) for t in temas_habilitados}
-        temas = [t for t in temas if chatbot.normalizar_texto(t) in allow_set]
     return {str(i): tema for i, tema in enumerate(temas, start=1)}
 
 
@@ -2450,15 +2459,18 @@ def construir_acciones_handoff():
 
 
 def armar_respuesta_no_entendida(consulta, temas_map):
-    lineas = [
-        "⚠️ Lo siento, no tengo información registrada sobre eso.",
-        "Probá con una palabra clave como: vacaciones, fraccionamiento, recibo o aguinaldo.",
-        "También podés escribir 'menu' para ver todas las opciones.",
-    ]
-    sugerencias = chatbot.sugerir_temas(consulta, temas_map)
-    if sugerencias:
-        lineas.append(f"Tal vez quisiste decir: {', '.join(sugerencias)}")
-    return "\n".join(lineas)
+    if temas_map:
+        temas_lista = "\n".join(f"{num}. {tema.capitalize()}" for num, tema in temas_map.items())
+        return (
+            "No encontré información sobre eso.\n\n"
+            "Podés consultar sobre estos temas:\n"
+            f"{temas_lista}\n\n"
+            "Escribí el número del tema o hablá con un agente si ninguno se adapta."
+        )
+    return (
+        "Todavía no tengo información cargada para esta empresa. "
+        "Podés hablar con un agente para que te ayuden."
+    )
 
 
 def limpiar_estado_conversacion():
@@ -2667,20 +2679,40 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map, permit
     tipo, texto_norm = chatbot.clasificar_input_feedback(texto_usuario)
 
     if tipo == "feedback":
-        # Si el tema es del knowledge base y el usuario dijo "no" → ofrecer derivación
+        # Si el tema es del knowledge base y el usuario dijo "no" → mostrar menú y ofrecer derivación
         if texto_norm == "no" and tema_pendiente == "knowledge_answer":
             chatbot.registrar_feedback(tema_pendiente, texto_norm, company_id=company_id)
             limpiar_estado_conversacion()
-            _sess()["pending_derivacion"] = True
-            return _payload(
-                "Entendido. ¿Querés que te derive con un agente de RRHH para que te ayuden mejor?",
-                await_feedback=False,
-                quick_actions=[
-                    {"label": "Sí, derivame", "value": "si"},
-                    {"label": "No, gracias", "value": "no"},
-                    {"label": "Nueva consulta", "value": "nueva consulta"},
-                ],
+            hr_name = (_current_company() or {}).get("hr_team_name") or "Atención"
+            # Si el mismo mensaje ya pide hablar con alguien → derivar directamente sin preguntar
+            texto_usuario_norm = chatbot.normalizar_texto(texto_usuario)
+            if permitir_hablar_con_humano and chatbot.solicita_contacto_rrhh(texto_usuario_norm):
+                conversation_id = _iniciar_handoff_rrhh(texto_usuario)
+                conv = _fetch_handoff(conversation_id) or {}
+                assigned = str(conv.get("rrhh_agente") or "").strip()
+                if assigned:
+                    respuesta_derivacion = (
+                        f"Entendido. Te derivé con el equipo de atención.\n"
+                        f"Te asigné con {assigned}. Podés seguir escribiendo por este chat."
+                    )
+                else:
+                    respuesta_derivacion = (
+                        f"Entendido. Derivé tu consulta al equipo de {hr_name}.\n"
+                        "Te van a responder por este mismo chat."
+                    )
+                return _payload(respuesta_derivacion, handoff_active=True, quick_actions=construir_acciones_handoff())
+            menu_texto = construir_menu_texto(temas_map, permitir_hablar_con_humano=False)
+            respuesta_no = (
+                f"Entendido. Podés consultar sobre estos temas:\n\n{menu_texto}"
             )
+            if permitir_hablar_con_humano:
+                _sess()["pending_derivacion"] = True
+                respuesta_no += f"\n\n¿O preferís que te derive con un agente de {hr_name}?"
+            acciones = construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=False)
+            if permitir_hablar_con_humano:
+                acciones.append({"label": f"Sí, hablar con {hr_name}", "value": "si"})
+                acciones.append({"label": "No, gracias", "value": "no"})
+            return _payload(respuesta_no, await_feedback=False, quick_actions=acciones)
         guardado = chatbot.registrar_feedback(tema_pendiente, texto_norm, company_id=company_id)
         limpiar_estado_conversacion()
         if guardado:
@@ -2825,7 +2857,12 @@ def responder_chat(mensaje_usuario):
     if _sess().get("pending_derivacion"):
         _sess().pop("pending_derivacion", None)
         msg_norm = chatbot.normalizar_texto(mensaje_usuario)
-        if msg_norm in {"si", "sí", "dale", "ok", "bueno", "yes", "quiero", "derivame"}:
+        _quiere_derivacion = (
+            msg_norm in {"si", "sí", "dale", "ok", "bueno", "yes", "quiero", "derivame"}
+            or msg_norm.startswith("si ")
+            or chatbot.solicita_contacto_rrhh(msg_norm)
+        )
+        if _quiere_derivacion:
             if not permitir:
                 return _payload(
                     "La derivación a un agente está desactivada para esta empresa. "
@@ -2860,7 +2897,10 @@ def responder_chat(mensaje_usuario):
             return payload
         # Si llega una nueva consulta durante feedback, sigue flujo normal.
 
-    if chatbot.solicita_contacto_rrhh(mensaje_norm):
+    # Solo disparar handoff directo si la empresa NO tiene KB cargada
+    # Si tiene KB, dejar que obtener_respuesta busque primero (ej: "contacto" puede ser sección de la KB)
+    _tiene_kb = bool(company_id and chatbot.obtener_knowledge_empresa(company_id))
+    if chatbot.solicita_contacto_rrhh(mensaje_norm) and not _tiene_kb:
         if not permitir:
             return _payload(
                 "En este momento la derivación a un agente está desactivada para esta empresa. "
@@ -2903,8 +2943,18 @@ def responder_chat(mensaje_usuario):
             quick_actions=_acciones_menu(6),
         )
 
-    respuesta, tema_id = chatbot.obtener_respuesta(mensaje_usuario, temas_map, company_id=company_id)
+    last_kb_pregunta = _sess().get("last_kb_pregunta")
+    respuesta, tema_id = chatbot.obtener_respuesta(
+        mensaje_usuario, temas_map, company_id=company_id, context_pregunta=last_kb_pregunta
+    )
     if respuesta:
+        if tema_id == "knowledge_answer":
+            _sess()["last_kb_pregunta"] = mensaje_usuario
+        elif tema_id in ("saludo", "ayuda", None):
+            pass  # mantener contexto anterior
+        else:
+            _sess().pop("last_kb_pregunta", None)
+
         if tema_id == "knowledge_derivacion":
             _sess()["pending_derivacion"] = True
             return _payload(
@@ -2936,7 +2986,7 @@ def responder_chat(mensaje_usuario):
         respuesta += "\nℹ️ No pude registrar esta consulta en la base de datos."
     return _payload(
         respuesta,
-        quick_actions=construir_acciones_sugerencias(mensaje_usuario, temas_map, permitir_hablar_con_humano=permitir),
+        quick_actions=construir_acciones_menu(temas_map, limite=6, permitir_hablar_con_humano=permitir),
     )
 
 
@@ -2961,6 +3011,7 @@ def _serialize_handoff(conv):
         "channel": conv.get("channel") or "",
         "colaborador_nombre": conv.get("colaborador_nombre") or "",
         "colaborador_telefono": conv.get("colaborador_telefono") or "",
+        "colaborador_mensajes_count": int(conv.get("colaborador_mensajes_count") or 0),
     }
 
 
@@ -3042,6 +3093,20 @@ def push_subscribe():
             "username": username,
             "updated_at": _utc_now(),
         })
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/push/unsubscribe")
+@rrhh_auth_required
+def push_unsubscribe():
+    data = request.json or {}
+    endpoint = (data.get("endpoint") or "").strip()
+    if endpoint and chatbot.db:
+        sub_id = _hashlib.sha256(endpoint.encode()).hexdigest()[:32]
+        try:
+            chatbot.db.collection("push_subscriptions").document(sub_id).delete()
+        except Exception:
+            pass
     return jsonify({"ok": True})
 
 
@@ -3804,11 +3869,17 @@ def _process_chat_turn(mensaje_trim):
             branches = _get_branches_for_company(company_for_next)
             areas = _get_all_areas_for_company(company_for_next)
             if branches:
-                reply = f"¡Perfecto, {company.get('company_name') or cid}! ¿Y de qué sucursal sos?"
                 quick_actions = _construir_acciones_sucursales(cid, limite=8)
+                nombres_b = [a.get("label") or a.get("value") for a in quick_actions if a.get("label") or a.get("value")]
+                reply = f"¡Perfecto, {company.get('company_name') or cid}! ¿Y de qué sucursal sos?"
+                if nombres_b:
+                    reply += "\n\n" + "\n".join(nombres_b) + "\n\nEscribí el número o el nombre."
             elif areas:
-                reply = f"¡Perfecto, {company.get('company_name') or cid}! ¿Y a qué área pertenecés?"
                 quick_actions = _construir_acciones_areas(cid, limite=8)
+                nombres_a = [a.get("label") or a.get("value") for a in quick_actions if a.get("label") or a.get("value")]
+                reply = f"¡Perfecto, {company.get('company_name') or cid}! ¿Y a qué área pertenecés?"
+                if nombres_a:
+                    reply += "\n\n" + "\n".join(nombres_a) + "\n\nEscribí el número o el nombre."
             else:
                 _set_chat_context_area("")
                 _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
@@ -3858,6 +3929,14 @@ def _process_chat_turn(mensaje_trim):
     if step == CHAT_CONTEXT_STEP_BRANCH:
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         mensaje_norm_b = chatbot.normalizar_texto(mensaje_trim)
+        # Saludo durante el paso de sucursal — repetir la pregunta con opciones
+        if chatbot.es_saludo(mensaje_norm_b):
+            opciones_b = _construir_acciones_sucursales(ctx_cid, limite=8)
+            nombres_b = [a.get("label") or a.get("value") for a in opciones_b if a.get("label") or a.get("value")]
+            reply_b = "¡Hola! ¿De qué sucursal sos?"
+            if nombres_b:
+                reply_b += "\n\n" + "\n".join(nombres_b) + "\n\nEscribí el número o el nombre."
+            return {"ok": True, "reply": reply_b, "await_feedback": False, "end_session": False, "quick_actions": opciones_b, "handoff_active": False}
         if chatbot.solicita_contacto_rrhh(mensaje_norm_b):
             opciones_b = _construir_acciones_sucursales(ctx_cid, limite=8)
             nombres_b = [a.get("label") or a.get("value") for a in opciones_b if a.get("label") or a.get("value")]
@@ -3865,15 +3944,22 @@ def _process_chat_turn(mensaje_trim):
             if nombres_b:
                 reply_b += "\n\nMenú:\n" + "\n".join(nombres_b) + "\n\nEscribí el número o el nombre."
             return {"ok": True, "reply": reply_b, "await_feedback": False, "end_session": False, "quick_actions": opciones_b, "handoff_active": False}
-        branch = _resolve_message_to_branch(mensaje_trim, ctx_cid) or _resolve_message_to_branch(_strip_leading_articles(mensaje_trim), ctx_cid)
+        _stripped1 = _strip_leading_articles(mensaje_trim)
+        _stripped2 = _strip_leading_articles(_stripped1)
+        branch = (_resolve_message_to_branch(mensaje_trim, ctx_cid)
+                  or _resolve_message_to_branch(_stripped1, ctx_cid)
+                  or _resolve_message_to_branch(_stripped2, ctx_cid))
         if branch:
             _set_chat_context_branch(branch)
             company = _set_company_session(ctx_cid)
             company_for_area = _get_company(ctx_cid, include_inactive=False)
             areas = _get_areas_for_branch(company_for_area, branch)
             if areas:
-                reply = f"¡Genial, {branch}! ¿Y a qué área pertenecés?"
                 quick_actions = _construir_acciones_areas(ctx_cid, limite=8, branch=branch)
+                nombres_a2 = [a.get("label") or a.get("value") for a in quick_actions if a.get("label") or a.get("value")]
+                reply = f"¡Genial, {branch}! ¿Y a qué área pertenecés?"
+                if nombres_a2:
+                    reply += "\n\n" + "\n".join(nombres_a2) + "\n\nEscribí el número o el nombre."
             else:
                 _set_chat_context_area("")
                 _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
@@ -3924,6 +4010,14 @@ def _process_chat_turn(mensaje_trim):
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         ctx_branch = _sess().get("chat_context_branch") or None
         mensaje_norm_a = chatbot.normalizar_texto(mensaje_trim)
+        # Saludo durante el paso de área — repetir la pregunta con opciones
+        if chatbot.es_saludo(mensaje_norm_a):
+            opciones_a = _construir_acciones_areas(ctx_cid, limite=8, branch=ctx_branch)
+            nombres_a = [a.get("label") or a.get("value") for a in opciones_a if a.get("label") or a.get("value")]
+            reply_a = "¡Hola! ¿A qué área pertenecés?"
+            if nombres_a:
+                reply_a += "\n\n" + "\n".join(nombres_a) + "\n\nEscribí el número o el nombre."
+            return {"ok": True, "reply": reply_a, "await_feedback": False, "end_session": False, "quick_actions": opciones_a, "handoff_active": False}
         # Intentar resolver el área primero (puede ser "rrhh", "ventas", etc.)
         area = _resolve_message_to_area(mensaje_trim, ctx_cid, branch=ctx_branch) or _resolve_message_to_area(_strip_leading_articles(mensaje_trim), ctx_cid, branch=ctx_branch)
         # Solo interceptar "hablar con agente" si el mensaje NO resuelve a un área válida
@@ -3982,9 +4076,11 @@ def _process_chat_turn(mensaje_trim):
         quiere_cambiar = getattr(chatbot, "solicita_cambiar_empresa", None) and chatbot.solicita_cambiar_empresa(mensaje_norm_ready)
         if not quiere_cambiar:
             cid_actual = _normalize_company_id(_sess().get("company_id") or _default_company_id())
-            cid_otro, company_otra = _resolve_message_to_company(mensaje_trim)
-            if cid_otro and company_otra and cid_otro != cid_actual:
-                quiere_cambiar = True
+            # Solo detectar cambio de empresa si el mensaje NO es un número puro (que puede ser selección de menú de temas)
+            if _parse_menu_number(mensaje_trim) is None:
+                cid_otro, company_otra = _resolve_message_to_company(mensaje_trim)
+                if cid_otro and company_otra and cid_otro != cid_actual:
+                    quiere_cambiar = True
         if quiere_cambiar:
             _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_COMPANY
             _sess().pop("chat_context_company_id", None)
@@ -4095,8 +4191,8 @@ def webhook_twilio_whatsapp():
     g.whatsapp_to = to_phone
     g.whatsapp_profile_name = (request.form.get("ProfileName") or "").strip()
     g.whatsapp_session = WHATSAPP_SESSIONS.setdefault(from_phone, {})
-    if not g.whatsapp_session.get("chat_context_step"):
-        _load_whatsapp_chat_context(from_phone)
+    # Siempre recargar desde Firestore para evitar inconsistencias entre instancias Cloud Run
+    _load_whatsapp_chat_context(from_phone)
     if not g.whatsapp_session.get("chat_context_company_id"):
         cid, company, line_label = _company_by_whatsapp_phone(to_phone)
         if cid and company:
@@ -4726,11 +4822,75 @@ def _extract_text_document_ai(pdf_bytes):
         return None, f"Document AI: {str(e)[:200]}"
 
 
-def _parse_pdf_text_to_entries(text):
-    """Convierte texto extraído de un PDF en lista de {pregunta, respuesta}. Acepta: 'Pregunta: ... Respuesta: ...' o líneas alternadas."""
+def _ai_generate_faqs_from_text(text):
+    """Usa Gemini (google-genai) para extraer pares pregunta/respuesta de cualquier documento.
+    Requiere GEMINI_API_KEY en .env. Si no está configurada, cae al parser rule-based."""
     if not (text or "").strip():
         return []
-    import re
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        logging.info("GEMINI_API_KEY no configurada; usando parser de FAQs por reglas.")
+        return _parse_pdf_text_to_entries(text)
+    try:
+        import json as _json
+        from google import genai as _genai
+        _client = _genai.Client(api_key=api_key)
+        prompt = (
+            "Analizá el siguiente documento de recursos humanos y extraé TODOS los pares pregunta/respuesta "
+            "útiles para un empleado. El documento puede ser un manual con secciones, una lista de Q&A, o texto libre.\n\n"
+            "Reglas OBLIGATORIAS:\n"
+            "- Por cada sección o tema del documento, generá AL MENOS una pregunta natural que haría un empleado.\n"
+            "- Las respuestas deben ser completas y basadas ÚNICAMENTE en el documento.\n"
+            "- Si hay 10 secciones, debe haber al menos 10 pares. Si hay 5, al menos 5.\n"
+            "- Respondé ÚNICAMENTE con el array JSON, sin texto antes ni después:\n"
+            '[{"pregunta": "¿...?", "respuesta": "..."}, {"pregunta": "¿...?", "respuesta": "..."}, ...]\n'
+            "- No incluyas explicaciones, solo el JSON.\n\n"
+            f"Documento:\n{text[:15000]}"
+        )
+        from google.genai import types as _gtypes
+        response = _client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=_gtypes.GenerateContentConfig(
+                thinking_config=_gtypes.ThinkingConfig(thinking_budget=0)
+            ),
+        )
+        content = (response.text or "").strip()
+        # Extraer JSON del response: buscar último [{ ... }] para ignorar texto previo
+        start = content.rfind("[{")
+        end = content.rfind("}]")
+        if start != -1 and end != -1 and end > start:
+            content = content[start:end + 2]
+        elif content.startswith("```"):
+            content = re.sub(r"^```(?:json)?\n?", "", content)
+            content = re.sub(r"\n?```$", "", content)
+        entries_raw = _json.loads(content)
+        if not isinstance(entries_raw, list):
+            return []
+        result = []
+        for e in entries_raw:
+            if isinstance(e, dict):
+                p = str(e.get("pregunta") or "").strip()[:500]
+                r = str(e.get("respuesta") or "").strip()[:8000]
+                if p or r:
+                    result.append({"pregunta": p, "respuesta": r})
+        logging.info(f"Gemini FAQ generation: {len(result)} pares extraídos. Raw inicio: {(response.text or '')[:300]!r}")
+        # Comparar con el parser por reglas: si el parser detecta más secciones, usarlo
+        rule_result = _parse_pdf_text_to_entries(text)
+        logging.info(f"Parser por reglas: {len(rule_result)} secciones.")
+        if len(rule_result) > len(result):
+            return rule_result
+        return result
+    except Exception as exc:
+        logging.warning(f"Gemini FAQ generation falló ({exc}); usando parser por reglas.")
+        return _parse_pdf_text_to_entries(text)
+
+
+def _parse_pdf_text_to_entries(text):
+    """Convierte texto extraído en lista de {pregunta, respuesta}.
+    Acepta: 'Pregunta: ... Respuesta: ...' o manuales con secciones en MAYÚSCULAS."""
+    if not (text or "").strip():
+        return []
     entries = []
     text = text.strip()
     # Patrón "Pregunta:" / "Respuesta:" (o P: / R:)
@@ -4745,14 +4905,45 @@ def _parse_pdf_text_to_entries(text):
                 entries.append({"pregunta": p[:500], "respuesta": r[:8000]})
     if entries:
         return entries
-    # Fallback: líneas en pares (impar = pregunta, par = respuesta)
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    for i in range(0, len(lines) - 1, 2):
-        p, r = lines[i], lines[i + 1]
-        if p or r:
-            entries.append({"pregunta": p[:500], "respuesta": r[:8000]})
-    if len(lines) % 2 and lines:
-        entries.append({"pregunta": lines[-1][:500], "respuesta": ""})
+    # Fallback: detectar encabezados MAYÚSCULAS línea por línea
+    import unicodedata
+
+    def _es_encabezado(ln):
+        s = unicodedata.normalize("NFC", ln.strip())
+        if not s or len(s) > 80 or len(s) < 3:
+            return False
+        if s.endswith(".") or s.endswith(","):
+            return False
+        # Contar letras y verificar que todas las letras sean mayúsculas
+        letras = [c for c in s if c.isalpha()]
+        if not letras:
+            return False
+        uppercase_ratio = sum(1 for c in letras if c.isupper()) / len(letras)
+        return uppercase_ratio >= 0.85  # al menos 85% mayúsculas
+
+    lines = [ln.rstrip() for ln in text.splitlines()]
+    current_heading = ""
+    current_body_lines = []
+
+    def _flush():
+        if current_body_lines:
+            body = " ".join(ln for ln in current_body_lines if ln)
+            if body.strip():
+                heading = current_heading or (body[:80] + "..." if len(body) > 80 else body)
+                entries.append({"pregunta": heading[:500], "respuesta": body.strip()[:8000]})
+
+    for ln in lines:
+        stripped = ln.strip()
+        if not stripped:
+            continue
+        if _es_encabezado(stripped):
+            _flush()
+            current_heading = stripped
+            current_body_lines = []
+        else:
+            current_body_lines.append(stripped)
+    _flush()
+    logging.info(f"Parser por reglas: {len(entries)} secciones detectadas.")
     return entries
 
 
@@ -4816,11 +5007,23 @@ def _parse_knowledge_file(file_storage):
         text, err = _extract_text_document_ai(raw)
         if err:
             return [], err
-        entries = _parse_pdf_text_to_entries(text or "")
+        entries = _ai_generate_faqs_from_text(text or "")
         if not entries:
-            return [], "No se encontraron pares Pregunta/Respuesta en el PDF. Usá formato 'Pregunta: ... Respuesta: ...' o líneas alternadas."
+            return [], "No se encontraron preguntas/respuestas en el PDF. Verificá que el documento tenga contenido de RRHH relevante."
+    elif filename.endswith(".txt"):
+        for enc in ("utf-8-sig", "utf-8", "latin-1"):
+            try:
+                text = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            return [], "No se pudo decodificar el archivo de texto."
+        entries = _ai_generate_faqs_from_text(text)
+        if not entries:
+            return [], "No se encontraron preguntas/respuestas en el archivo. Verificá el formato."
     else:
-        return [], "Formato no soportado. Usá CSV (.csv), Excel (.xlsx) o PDF (.pdf)."
+        return [], "Formato no soportado. Usá CSV (.csv), Excel (.xlsx), PDF (.pdf) o texto plano (.txt)."
     return entries, None
 
 
@@ -4842,6 +5045,7 @@ def configuracion_knowledge_upload():
         return jsonify({"ok": False, "error": "No se encontraron filas con pregunta o respuesta."}), 400
     if not chatbot.guardar_company_knowledge(company_id, entries):
         return jsonify({"ok": False, "error": "No se pudo guardar (revisá Firestore)."}), 500
+    _auto_update_temas_from_knowledge(company_id, entries)
     return jsonify({"ok": True, "count": len(entries), "message": f"Se cargaron {len(entries)} preguntas/respuestas."})
 
 
@@ -4860,26 +5064,44 @@ def configuracion_knowledge_plantilla():
 
 def _sync_knowledge_from_drive(company_id, folder_id):
     """
-    Lista archivos en la carpeta de Drive, extrae texto (Docs export, PDF con Document AI),
-    parsea Pregunta/Respuesta y guarda en company_knowledge. Devuelve (total_entries, error).
+    Lista archivos en la carpeta de Drive, extrae texto (Docs/Sheets export, PDF con Document AI,
+    archivos de texto), usa Gemini AI para generar pares Pregunta/Respuesta y guarda en
+    company_knowledge. Devuelve (total_entries, error).
     """
     if not folder_id or not str(folder_id).strip():
         return 0, "Falta el ID de la carpeta de Drive. Configuralo en la empresa o pasalo en la solicitud."
     folder_id = str(folder_id).strip()
+    # Limpiar URLs o parámetros pegados al ID (ej: "ID?usp=drive_link")
+    if "?" in folder_id:
+        folder_id = folder_id.split("?")[0].strip()
     try:
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
         from googleapiclient.http import MediaIoBaseDownload
     except ImportError:
         return 0, "Instalá: pip install google-api-python-client google-auth"
-    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if not creds_path or not os.path.isfile(creds_path):
-        return 0, "GOOGLE_APPLICATION_CREDENTIALS no apunta a un archivo. Ver docs/CONECTAR_DRIVE_API.md."
+    _DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+    creds = None
+    # 1) JSON inline en variable de entorno GOOGLE_DRIVE_CREDENTIALS_JSON
+    _creds_json = os.getenv("GOOGLE_DRIVE_CREDENTIALS_JSON", "").strip()
+    if _creds_json:
+        try:
+            import json as _json
+            _info = _json.loads(_creds_json)
+            creds = service_account.Credentials.from_service_account_info(_info, scopes=_DRIVE_SCOPES)
+        except Exception as _e:
+            return 0, f"GOOGLE_DRIVE_CREDENTIALS_JSON inválido: {_e}"
+    # 2) Ruta a archivo en GOOGLE_APPLICATION_CREDENTIALS
+    if creds is None:
+        creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        if creds_path and os.path.isfile(creds_path):
+            try:
+                creds = service_account.Credentials.from_service_account_file(creds_path, scopes=_DRIVE_SCOPES)
+            except Exception as _e:
+                return 0, f"Error leyendo credenciales desde archivo: {_e}"
+    if creds is None:
+        return 0, "Configurá GOOGLE_DRIVE_CREDENTIALS_JSON (JSON de la cuenta de servicio) en las variables de entorno."
     try:
-        creds = service_account.Credentials.from_service_account_file(
-            creds_path,
-            scopes=["https://www.googleapis.com/auth/drive.readonly"],
-        )
         drive = build("drive", "v3", credentials=creds, cache_discovery=False)
     except Exception as e:
         return 0, f"Error al conectar con Drive: {str(e)[:200]}"
@@ -4901,12 +5123,21 @@ def _sync_knowledge_from_drive(company_id, folder_id):
         name = (f.get("name") or "").lower()
         mime = (f.get("mimeType") or "").lower()
         text = None
-        if "document" in mime or name.endswith(".gdoc"):
+        # Google Docs / Google Slides → exportar como texto plano
+        if "document" in mime or "presentation" in mime or name.endswith((".gdoc", ".gslides")):
             try:
                 content = drive.files().export(fileId=file_id, mimeType="text/plain").execute()
                 text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
-            except Exception as e:
-                continue  # omitir este archivo
+            except Exception:
+                continue
+        # Google Sheets → exportar como CSV
+        elif "spreadsheet" in mime or name.endswith(".gsheet"):
+            try:
+                content = drive.files().export(fileId=file_id, mimeType="text/csv").execute()
+                text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
+            except Exception:
+                continue
+        # PDF → extraer texto con Document AI
         elif "pdf" in mime or name.endswith(".pdf"):
             try:
                 from io import BytesIO
@@ -4922,21 +5153,136 @@ def _sync_knowledge_from_drive(company_id, folder_id):
                     continue
             except Exception:
                 continue
+        # Archivos de texto plano
+        elif mime.startswith("text/") or name.endswith(".txt"):
+            try:
+                from io import BytesIO
+                request = drive.files().get_media(fileId=file_id)
+                buf = BytesIO()
+                downloader = MediaIoBaseDownload(buf, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                text = buf.getvalue().decode("utf-8", errors="replace")
+            except Exception:
+                continue
         else:
             continue
         if text:
-            all_entries.extend(_parse_pdf_text_to_entries(text))
+            all_entries.extend(_ai_generate_faqs_from_text(text))
     if not all_entries:
-        return 0, "No se extrajeron preguntas/respuestas de los archivos. Revisá formato (Pregunta: ... Respuesta: ...) y que la carpeta esté compartida con la cuenta de servicio."
+        return 0, "No se extrajeron preguntas/respuestas de los archivos. Verificá que la carpeta esté compartida con la cuenta de servicio y que los documentos tengan contenido de RRHH."
     if not chatbot.guardar_company_knowledge(company_id, all_entries):
         return 0, "No se pudo guardar en Firestore."
+    # Auto-generar temas del menú a partir de las preguntas extraídas
+    _auto_update_temas_from_knowledge(company_id, all_entries)
     return len(all_entries), None
+
+
+_KB_TOPIC_KEYWORDS = [
+    ("vacaciones",      ["vacacion", "dias vacaciones", "licencia anual", "vacaciones anuales",
+                         "licencias anuales", "dias de vacacion"]),
+    ("recibo",          ["recibo de sueldo", "recibo", "boleta de sueldo", "firma digital"]),
+    ("adelanto",        ["adelanto de sueldo", "adelanto", "anticipo de sueldo", "adelanto de salario",
+                         "adelanto sueldo"]),
+    ("aguinaldo",       ["aguinaldo", " sac ", "sueldo anual complementario", "anual complementario"]),
+    ("licencias",       ["licencia por", "licencia especial", "licencias especiales", "licencia matrimonio",
+                         "licencia nacimiento", "licencia fallecimiento", "licencia examen",
+                         "licencias por", "licencias especial", "dias corridos por", "permiso especial",
+                         "dias de licencia", "licencias especiales"]),
+    ("art",             ["art ", " art,", "accidente de trabajo", "accidente laboral", "aseguradora",
+                         "riesgos del trabajo", "galeno art", "formulario de denuncia", "art\n", "\nart"]),
+    ("home office",     ["home office", "trabajo remoto", "teletrabajo", "trabajar desde", "dias remotos",
+                         "trabajo desde casa", "politica de home", "dias por semana", "modalidad remota",
+                         "trabajo hibrido", "modalidad hibrida"]),
+    ("uniforme",        ["uniforme", "ropa de trabajo", "elementos de trabajo", "deposito de suministros",
+                         "equipamiento", "indumentaria"]),
+    ("capacitacion",    ["capacitacion", "capacitar", "cursos", "formacion", "instituto xyz",
+                         "convenio de capacitacion", "entrenamiento", "training"]),
+    ("obra social",     ["obra social", "cobertura medica", "cobertura de salud", "osde", "prepaga",
+                         "cambio de plan", "agregar familiares", "medicina prepaga"]),
+    ("contacto",        ["contacto rrhh", "comunicarse con", "area de recursos humanos", "interno 200",
+                         "correo de rrhh", "horario de atencion", "oficina de rrhh", "contacto de rrhh",
+                         "datos de contacto", "como contactar"]),
+    ("nacimiento",      ["nacimiento", "maternidad", "paternidad", "licencia por hijo", "adopcion"]),
+    ("casamiento",      ["casamiento", "matrimonio", "boda"]),
+    ("fraccionamiento", ["fraccionamiento", "fraccionar"]),
+]
+
+
+_HEADING_TO_TEMA = {
+    "licencias": "licencias", "licencia": "licencias",
+    "licencias especiales": "licencias",
+    "home office": "home office", "teletrabajo": "home office",
+    "adelanto": "adelanto", "adelanto de sueldo": "adelanto",
+    "aguinaldo": "aguinaldo", "sac": "aguinaldo",
+    "vacaciones": "vacaciones",
+    "recibo": "recibo", "recibo de sueldo": "recibo",
+    "uniforme": "uniforme",
+    "art": "art",
+    "capacitacion": "capacitacion",
+    "obra social": "obra social",
+    "contacto": "contacto", "contacto rrhh": "contacto",
+    "nacimiento": "nacimiento", "maternidad": "nacimiento",
+    "casamiento": "casamiento", "matrimonio": "casamiento",
+    "fraccionamiento": "fraccionamiento",
+}
+
+
+def _extraer_temas_de_knowledge(entries):
+    """Extrae temas del menú buscando keywords en pregunta Y respuesta de cada entrada."""
+    temas_encontrados = []
+    for entry in entries:
+        pregunta_norm = chatbot.normalizar_texto(entry.get("pregunta") or "")
+        respuesta_norm = chatbot.normalizar_texto(entry.get("respuesta") or "")
+        texto_completo = pregunta_norm + " " + respuesta_norm
+        if not texto_completo.strip():
+            continue
+        matched = False
+        # Primero: ¿el heading es exactamente un nombre de tema conocido?
+        tema_directo = _HEADING_TO_TEMA.get(pregunta_norm.strip())
+        if tema_directo:
+            if tema_directo not in temas_encontrados:
+                temas_encontrados.append(tema_directo)
+            matched = True
+        else:
+            for tema, keywords in _KB_TOPIC_KEYWORDS:
+                if any(kw in texto_completo for kw in keywords):
+                    if tema not in temas_encontrados:
+                        temas_encontrados.append(tema)
+                    matched = True
+                    break
+        if not matched:
+            # Extraer primera palabra significativa (>=5 letras) de la pregunta como tema
+            for w in pregunta_norm.split():
+                if len(w) >= 5 and w not in {"cuant", "donde", "como", "cuales", "puedo", "sobre",
+                                              "cuanta", "tengo", "hacer", "pedir", "quien", "queda"}:
+                    if w not in temas_encontrados:
+                        temas_encontrados.append(w)
+                    break
+    return temas_encontrados[:12]
+
+
+def _auto_update_temas_from_knowledge(company_id, entries):
+    """Actualiza temas_habilitados de la empresa a partir de las preguntas de la KB."""
+    if not entries or not company_id:
+        return
+    try:
+        temas_clean = _extraer_temas_de_knowledge(entries)
+        if temas_clean and chatbot.db:
+            cid_key = _normalize_company_id(company_id)
+            chatbot.db.collection(COMPANIES_COLLECTION).document(cid_key).update({"temas_habilitados": temas_clean})
+            for ck in ("companies_active", "companies_all"):
+                _cache_set(ck, None)
+            logging.info(f"Auto-temas para {company_id}: {temas_clean}")
+    except Exception as exc:
+        logging.warning(f"_auto_update_temas_from_knowledge falló: {exc}")
 
 
 @flask_app.post("/api/configuracion/knowledge/sync-from-drive")
 @rrhh_auth_required
 def configuracion_knowledge_sync_from_drive():
-    """Sincroniza la base de conocimiento desde una carpeta de Google Drive (Docs y PDF)."""
+    """Sincroniza la base de conocimiento desde una carpeta de Google Drive usando IA (Gemini) para extraer FAQs de cualquier documento."""
     if not _can_manage_general_config():
         return _forbidden_json_error("Sin permiso para gestionar base de conocimiento.")
     data = request.get_json(silent=True) or {}
@@ -4955,6 +5301,28 @@ def configuracion_knowledge_sync_from_drive():
     if err:
         return jsonify({"ok": False, "error": err}), 400
     return jsonify({"ok": True, "count": count, "message": f"Se sincronizaron {count} preguntas/respuestas desde Drive."})
+
+
+@flask_app.post("/api/configuracion/knowledge/regenerar-temas")
+@rrhh_auth_required
+def configuracion_knowledge_regenerar_temas():
+    """Regenera los temas del menú a partir de la base de conocimiento existente (sin re-sincronizar Drive)."""
+    if not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso para regenerar temas.")
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    if not company_id:
+        return jsonify({"ok": False, "error": "Falta company_id."}), 400
+    entries = chatbot.obtener_knowledge_empresa(company_id)
+    if not entries:
+        return jsonify({"ok": False, "error": "La empresa no tiene base de conocimiento cargada."}), 404
+    _auto_update_temas_from_knowledge(company_id, entries)
+    _cache_del("companies_active", "companies_all")
+    company = _get_company(company_id, include_inactive=True)
+    temas = (company or {}).get("temas_habilitados") or []
+    # Diagnóstico: qué pregunta tiene cada entrada
+    entradas_debug = [{"pregunta": e.get("pregunta", "")[:80], "resp_preview": (e.get("respuesta") or "")[:60]} for e in entries]
+    return jsonify({"ok": True, "temas": temas, "entradas": entradas_debug, "message": f"Se generaron {len(temas)} temas del menú a partir de {len(entries)} entradas."})
 
 
 @flask_app.post("/api/configuracion/conversaciones/autocierre/ejecutar")

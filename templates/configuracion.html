@@ -418,12 +418,13 @@
               <label for="knowledge-drive-folder-id">Carpeta Drive (ID)</label>
               <input type="text" id="knowledge-drive-folder-id" placeholder="ID de carpeta (o configurá en la empresa)" style="min-width:280px; padding:6px 10px;" />
               <button type="button" id="knowledge-sync-drive-btn" class="btn btn-primary">Sincronizar desde Drive</button>
+              <button type="button" id="knowledge-regenerar-temas-btn" class="btn ghost" title="Regenera los temas del menú a partir de la base de conocimiento actual">Regenerar temas del menú</button>
             </div>
             <div class="knowledge-upload-wrap">
               <a href="/api/configuracion/knowledge/plantilla" download class="btn ghost">Descargar plantilla CSV</a>
               <form id="knowledge-upload-form" class="knowledge-upload-form">
                 <input type="hidden" id="knowledge-company-id" name="company_id" value="" />
-                <input type="file" id="knowledge-file" name="file" accept=".csv,.xlsx,.xls,.pdf" />
+                <input type="file" id="knowledge-file" name="file" accept=".csv,.xlsx,.xls,.pdf,.txt" />
                 <button type="submit" id="knowledge-upload-btn" class="btn btn-primary">Subir y reemplazar base</button>
               </form>
             </div>
@@ -3683,7 +3684,7 @@
             const statusEl = document.getElementById("knowledge-status");
             if (!companyId) { if (statusEl) statusEl.textContent = "Seleccioná una empresa."; return; }
             syncBtn.disabled = true;
-            if (statusEl) statusEl.textContent = "Sincronizando desde Drive...";
+            if (statusEl) statusEl.textContent = "Sincronizando desde Drive (la IA está leyendo los documentos, puede tardar unos segundos)...";
             try {
               const body = { company_id: companyId };
               if (folderId) body.folder_id = folderId;
@@ -3703,6 +3704,34 @@
               showToast(getErrorMessage(err), true);
             } finally {
               syncBtn.disabled = false;
+            }
+          });
+        }
+
+        const regenerarTemasBtn = document.getElementById("knowledge-regenerar-temas-btn");
+        if (regenerarTemasBtn) {
+          regenerarTemasBtn.addEventListener("click", async () => {
+            const companyId = document.getElementById("knowledge-company-id")?.value;
+            if (!companyId) { showToast("Seleccioná una empresa primero.", true); return; }
+            const statusEl = document.getElementById("knowledge-status");
+            regenerarTemasBtn.disabled = true;
+            if (statusEl) statusEl.textContent = "Regenerando temas del menú...";
+            try {
+              const r = await fetch("/api/configuracion/knowledge/regenerar-temas", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: companyId }),
+              });
+              if (r.status === 401) { window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`; return; }
+              const d = await r.json();
+              if (!d.ok) throw new Error(d.error || "Error al regenerar.");
+              if (statusEl) statusEl.textContent = d.message || `Temas generados: ${(d.temas || []).join(", ")}`;
+              showToast(d.message || `Temas del menú actualizados: ${(d.temas || []).join(", ")}`);
+            } catch (err) {
+              if (statusEl) statusEl.textContent = `Error: ${getErrorMessage(err)}`;
+              showToast(getErrorMessage(err), true);
+            } finally {
+              regenerarTemasBtn.disabled = false;
             }
           });
         }

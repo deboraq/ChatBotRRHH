@@ -330,7 +330,8 @@
       const BASE_DOCUMENT_TITLE = document.title || "Panel de atención";
       let seenConversationMap = {};
       let unreadConversationIds = new Set();
-      let notifiedConversationMap = {};
+      let notifiedConversationMap = {};   // convId → ultimo_mensaje_iso ya notificado
+      let notifiedMsgCountMap = {};       // convId → colaborador_mensajes_count ya notificado
       let hasConversationSnapshot = false;
       let hasAppliedFilterOnce = false;
       let autoCloseConfig = { auto_close_enabled: false, auto_close_minutes: 0 };
@@ -502,32 +503,46 @@
         window.location.reload();
       }
 
-      function notifyNewMessages(newConvs) {
-        if (!newConvs || !newConvs.length) return;
-        try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (_) {}
-        if (Notification.permission !== "granted") return;
-        const count = newConvs.length;
-        const conv = newConvs[0];
-        const nombre = conv?.colaborador_nombre || conv?.colaborador_telefono || "Nuevo mensaje";
-        const empresa = conv?.company_name ? ` · ${conv.company_name}` : "";
-        const body = count > 1
-          ? `${count} conversaciones con mensajes nuevos`
-          : (conv?.ultima_consulta || "Nuevo mensaje");
-        const title = `Panel de atención${empresa}`;
-        const opts = {
-          body: `${nombre}: ${body}`,
-          tag: `rrhh-${conv?.conversation_id || "msg"}-${Date.now()}`,
-          data: { url: "/rrhh" },
-        };
-        // Preferir service worker showNotification (más confiable que new Notification())
+      function _isNotifMuted() {
+        return localStorage.getItem("rrhh_notif_muted") === "1";
+      }
+
+      function _showOneNotification(title, opts) {
         if (_swReg) {
           _swReg.showNotification(title, opts).catch(() => {});
         } else {
           try {
-            const notif = new Notification(title, opts);
-            notif.onclick = () => { window.focus(); notif.close(); };
+            const n = new Notification(title, opts);
+            n.onclick = () => { window.focus(); n.close(); };
           } catch (_) {}
         }
+      }
+
+      function notifyNewMessages(newConvs) {
+        // newConvs: array de { conv, msgCount }
+        if (!newConvs || !newConvs.length) return;
+        if (_isNotifMuted()) return;
+        try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (_) {}
+        if (Notification.permission !== "granted") return;
+        newConvs.forEach(({ conv, msgCount }, idx) => {
+          const nombre = conv?.colaborador_nombre || conv?.colaborador_telefono || "Nuevo mensaje";
+          const empresa = conv?.company_name ? ` · ${conv.company_name}` : "";
+          const body = msgCount > 1
+            ? `${msgCount} mensajes nuevos`
+            : (conv?.ultima_consulta || "Nuevo mensaje");
+          const title = `Panel de atención${empresa}`;
+          const opts = {
+            body: `${nombre}: ${body}`,
+            tag: `rrhh-${conv?.conversation_id || "msg"}-${Date.now()}-${idx}`,
+            data: { url: "/rrhh" },
+          };
+          // Escalonar ligeramente para que aparezcan como notificaciones separadas
+          if (idx === 0) {
+            _showOneNotification(title, opts);
+          } else {
+            setTimeout(() => _showOneNotification(title, opts), idx * 400);
+          }
+        });
       }
 
       function recalculateUnreadConversations({ notify } = { notify: false }) {
@@ -541,9 +556,20 @@
           if (!notify || convId === currentConversationId) return;
           const currentIso = String(conv?.ultimo_mensaje_iso || "");
           const previousIso = String(notifiedConversationMap[convId] || "");
-          if (parseIsoMillis(currentIso) > parseIsoMillis(previousIso)) {
+          const currentCount = Number(conv?.colaborador_mensajes_count || 0);
+          const previousCount = Number(notifiedMsgCountMap[convId] || 0);
+          // Calcular cuántos mensajes nuevos llegaron
+          let newMsgCount = 0;
+          if (previousCount === 0 && parseIsoMillis(currentIso) > parseIsoMillis(previousIso)) {
+            // Primera vez viendo esta conversación con mensajes: contar como 1
+            newMsgCount = 1;
+          } else if (currentCount > previousCount) {
+            newMsgCount = currentCount - previousCount;
+          }
+          if (newMsgCount > 0) {
             notifiedConversationMap[convId] = currentIso;
-            newConvs.push(conv);
+            notifiedMsgCountMap[convId] = currentCount;
+            newConvs.push({ conv, msgCount: newMsgCount });
           }
         });
         unreadConversationIds = nextUnread;
@@ -1681,12 +1707,25 @@ const agente = agentNameEl.value.trim() || "Agente";
         }
       }
 
+      function _showNotifToast(msg) {
+        let t = document.getElementById("notif-toast");
+        if (!t) {
+          t = document.createElement("div");
+          t.id = "notif-toast";
+          document.body.appendChild(t);
+        }
+        t.textContent = msg;
+        t.className = "notif-toast-visible";
+        clearTimeout(t._timer);
+        t._timer = setTimeout(() => { t.className = ""; }, 2800);
+      }
+
       function setupNotifBtn() {
         if (!notifBtn) return;
         const hasPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
         const hasNotif = "Notification" in window;
         if (!hasPush && !hasNotif) {
-          // Navegador sin soporte (ej. Chrome en iPhone) — tappable con instrucciones
+          // Navegador sin soporte (ej. Chrome en iPhone)
           notifBtn.textContent = "🔔";
           notifBtn.title = "Cómo activar notificaciones en iPhone";
           notifBtn.addEventListener("click", () => {
@@ -1696,29 +1735,63 @@ const agente = agentNameEl.value.trim() || "Agente";
         }
         function sync() {
           const p = Notification.permission;
-          notifBtn.dataset.state = p;
-          notifBtn.textContent = p === "granted" ? "🔔" : p === "denied" ? "🔕" : "🔔";
-          notifBtn.title =
-            p === "granted"
-              ? "Notificaciones activas"
-              : p === "denied"
-              ? "Notificaciones bloqueadas — habilitarlas en configuración del navegador"
-              : "Activar notificaciones push";
-          notifBtn.classList.toggle("notif-active", p === "granted");
+          const muted = _isNotifMuted();
+          const active = p === "granted" && !muted;
+          notifBtn.dataset.state = active ? "granted" : p === "denied" ? "denied" : "default";
+          notifBtn.textContent = active ? "🔔" : p === "denied" ? "🔕" : "🔕";
+          notifBtn.title = p === "denied"
+            ? "Notificaciones bloqueadas — habilitarlas en configuración del navegador"
+            : active
+            ? "Notificaciones activas — tocá para desactivar"
+            : "Activar notificaciones";
+          notifBtn.classList.toggle("notif-active", active);
           notifBtn.classList.toggle("notif-denied", p === "denied");
         }
         sync();
         notifBtn.addEventListener("click", async () => {
-          if (Notification.permission === "denied") return;
-          if (Notification.permission === "granted") {
-            try { new Notification("Panel de atención", { body: "Las notificaciones ya están activas.", tag: "rrhh-test" }); } catch (_) {}
+          const p = Notification.permission;
+          if (p === "denied") {
+            _showNotifToast("Notificaciones bloqueadas. Habilitarlas en la configuración del navegador.");
             return;
           }
+          if (p === "granted") {
+            // Toggle: si está activo → desactivar, si está desactivado → activar
+            if (_isNotifMuted()) {
+              // Reactivar
+              localStorage.removeItem("rrhh_notif_muted");
+              if (hasPush) await _activatePush();
+              sync();
+              _showNotifToast("🔔 Notificaciones activadas");
+            } else {
+              // Desactivar
+              localStorage.setItem("rrhh_notif_muted", "1");
+              // Dar de baja la suscripción push
+              if (hasPush && _swReg) {
+                try {
+                  const sub = await _swReg.pushManager.getSubscription();
+                  if (sub) {
+                    await fetch("/api/push/unsubscribe", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ endpoint: sub.endpoint }),
+                    });
+                    await sub.unsubscribe();
+                  }
+                } catch (_) {}
+              }
+              sync();
+              _showNotifToast("🔕 Notificaciones desactivadas");
+            }
+            return;
+          }
+          // Sin permiso todavía → solicitar
           const result = await Notification.requestPermission();
           sync();
           if (result !== "granted") return;
+          localStorage.removeItem("rrhh_notif_muted");
           if (hasPush) await _activatePush();
-          try { new Notification("Panel de atención", { body: "Notificaciones activadas. Te avisaremos cuando lleguen mensajes.", tag: "rrhh-test" }); } catch (_) {}
+          sync();
+          _showNotifToast("🔔 Notificaciones activadas");
         });
       }
 
@@ -1726,7 +1799,7 @@ const agente = agentNameEl.value.trim() || "Agente";
         applyTheme(getInitialTheme());
         await _registerSW();
         setupNotifBtn();
-        if (Notification.permission === "granted" && _swReg) await _activatePush();
+        if (Notification.permission === "granted" && !_isNotifMuted() && _swReg) await _activatePush();
         seenConversationMap = loadSeenConversationMap();
         if (authEnabled) {
           agentNameEl.value = currentAgentName;
