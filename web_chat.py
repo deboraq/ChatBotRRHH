@@ -4148,6 +4148,63 @@ def chat_api():
     return jsonify(result)
 
 
+@flask_app.post("/webhook/n8n/sync-knowledge")
+def webhook_n8n_sync_knowledge():
+    """
+    Webhook para N8N: recibe notificación de cambio en Drive, sincroniza la KB
+    de la empresa correspondiente y regenera los temas del menú automáticamente.
+
+    Auth: header X-Webhook-Secret con el valor de N8N_WEBHOOK_SECRET.
+    Body JSON: { "folder_id": "...", "company_id": "..." }
+      - folder_id: ID de la subcarpeta de la empresa en Drive (recomendado)
+      - company_id: ID de la empresa en el sistema (alternativo)
+      Se puede enviar uno o ambos. Si solo se envía folder_id, el sistema busca
+      qué empresa tiene esa carpeta configurada.
+    """
+    expected_secret = os.getenv("N8N_WEBHOOK_SECRET", "").strip()
+    if not expected_secret:
+        return jsonify({"ok": False, "error": "N8N_WEBHOOK_SECRET no configurado en el servidor."}), 503
+    incoming_secret = (request.headers.get("X-Webhook-Secret") or "").strip()
+    if incoming_secret != expected_secret:
+        logging.warning("webhook_n8n_sync_knowledge: secret inválido desde %s", request.remote_addr)
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    folder_id = (data.get("folder_id") or "").strip()
+    company_id = _normalize_company_id(data.get("company_id") or "")
+
+    # Resolver empresa por folder_id si no se pasó company_id
+    if not company_id and folder_id:
+        for company in _list_companies(include_inactive=False):
+            if (company.get("drive_folder_id") or "").strip() == folder_id:
+                company_id = _normalize_company_id(company.get("company_id"))
+                break
+
+    if not company_id:
+        return jsonify({"ok": False, "error": "No se pudo determinar la empresa. Pasá company_id o folder_id configurado en la empresa."}), 400
+
+    # Si no hay folder_id, usar el de la empresa
+    if not folder_id:
+        company_data = _get_company(company_id, include_inactive=False)
+        folder_id = ((company_data or {}).get("drive_folder_id") or "").strip()
+
+    if not folder_id:
+        return jsonify({"ok": False, "error": f"La empresa '{company_id}' no tiene carpeta Drive configurada."}), 400
+
+    logging.info("N8N sync triggered: company=%s folder=%s", company_id, folder_id)
+    count, err = _sync_knowledge_from_drive(company_id, folder_id)
+    if err:
+        return jsonify({"ok": False, "company_id": company_id, "error": err}), 400
+
+    return jsonify({
+        "ok": True,
+        "company_id": company_id,
+        "folder_id": folder_id,
+        "entries_count": count,
+        "message": f"Sync OK: {count} preguntas/respuestas actualizadas para '{company_id}'.",
+    })
+
+
 @flask_app.get("/webhook/twilio/whatsapp")
 def webhook_twilio_whatsapp_get():
     """Twilio a veces valida la URL con GET. Respondemos TwiML vacío."""
