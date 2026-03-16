@@ -6,3 +6,5 @@ python-dotenv>=1.0,<2
 google-api-python-client>=2.100,<3
 # Web Push notifications (VAPID)
 pywebpush>=2.0,<3
+# IA para generación de FAQs desde documentos (nuevo SDK)
+google-genai>=1.0

@@ -1,0 +1,10 @@
+{
+  "name": "Panel de atención",
+  "short_name": "Panel",
+  "start_url": "/rrhh",
+  "display": "standalone",
+  "background_color": "#1a2233",
+  "theme_color": "#2563eb",
+  "description": "Panel de atención y gestión de conversaciones derivadas",
+  "icons": []
+}

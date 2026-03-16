@@ -347,6 +347,32 @@ def obtener_knowledge_empresa(company_id=None):
         return []
 
 
+# Sinónimos para expandir consultas antes de buscar en la KB
+_SINONIMOS_QUERY = [
+    (["trabajar desde casa", "trabajo desde casa", "trabajar en casa", "trabajo en casa",
+      "desde mi casa", "desde casa"], "home office teletrabajo"),
+    (["trabajo remoto", "trabajar remoto"], "home office teletrabajo"),
+    (["teletrabajo"], "home office"),
+    (["licencia matrimonial", "licencia por casamiento", "por casarme", "me caso"], "licencia matrimonio"),
+    (["nacio mi hijo", "nacimiento de hijo", "nacio bebe"], "licencia nacimiento"),
+    (["fallecio", "fallecimiento familiar", "muerte familiar"], "licencia fallecimiento"),
+    (["dias de descanso", "dias libres pagos"], "vacaciones"),
+    (["me lastime", "accidente laboral", "accidente de trabajo"], "art"),
+    (["comunicarme con", "como contacto", "numero de rrhh", "telefono de rrhh"], "contacto rrhh"),
+]
+
+
+def _expandir_consulta_kb(entrada_norm):
+    """Agrega términos sinónimos a la consulta para mejorar el matching en la KB."""
+    extra = []
+    for frases, expansion in _SINONIMOS_QUERY:
+        if any(frase in entrada_norm for frase in frases):
+            extra.append(expansion)
+    if extra:
+        return entrada_norm + " " + " ".join(extra)
+    return entrada_norm
+
+
 def buscar_en_knowledge(entrada_norm, entries):
     """
     Busca la mejor respuesta en la base de conocimiento de la empresa.
@@ -370,6 +396,24 @@ def buscar_en_knowledge(entrada_norm, entries):
             return (e.get("respuesta") or "").strip(), 90
         if len(entrada_norm) >= 3 and (p in entrada_norm or entrada_norm in p):
             return (e.get("respuesta") or "").strip(), 85
+    # Keyword match: cualquier palabra significativa (>=5 letras) del usuario en la pregunta/respuesta
+    palabras_usuario_kw = {w for w in entrada_norm.split() if len(w) >= 5}
+    if palabras_usuario_kw:
+        mejor_kw = None
+        mejor_kw_score = 0
+        for e in entries:
+            p = normalizar_texto(e.get("pregunta") or "")
+            r = normalizar_texto(e.get("respuesta") or "")
+            palabras_entry = {w for w in (p + " " + r).split() if len(w) >= 5}
+            comunes = palabras_usuario_kw & palabras_entry
+            if comunes:
+                # Score base 60 (supera threshold parcial 55) + bonus por más palabras en común
+                score = 60 + min(int(len(comunes) / max(len(palabras_usuario_kw), 1) * 30), 30)
+                if score > mejor_kw_score:
+                    mejor_kw_score = score
+                    mejor_kw = e
+        if mejor_kw:
+            return (mejor_kw.get("respuesta") or "").strip(), mejor_kw_score
     # Fuzzy sobre las preguntas — requiere al menos una palabra clave en común
     preguntas_norm = [normalizar_texto(e.get("pregunta") or "") for e in entries if (e.get("pregunta") or "").strip()]
     if not preguntas_norm:
@@ -679,6 +723,12 @@ def clasificar_input_feedback(texto):
         return "vacio", texto_norm
     if texto_norm in {"si", "no"}:
         return "feedback", texto_norm
+    # Detectar "no, ..." / "si, ..." como feedback aunque vengan con texto adicional
+    primer_palabra = texto_norm.split()[0]
+    if primer_palabra == "no":
+        return "feedback", "no"
+    if primer_palabra in {"si", "dale", "claro"}:
+        return "feedback", "si"
     if texto_norm == "menu":
         return "menu", texto_norm
     if texto_norm in PALABRAS_SALIDA:
@@ -711,18 +761,15 @@ def manejar_feedback_interactivo(tema_id, texto_feedback):
     return "continuar", None
 
 
-def obtener_respuesta(entrada, temas_map, company_id=None):
+def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None):
     """
     Devuelve (respuesta, tema_id) según la entrada del usuario.
     Si la empresa tiene base de conocimiento (archivo subido), se busca ahí primero.
-    Luego se usa company_id para FAQs en 'faqs' y temas_map.
+    context_pregunta: pregunta del turno anterior para resolver follow-ups (ej: "cuantos dias?").
     """
     entrada_norm = normalizar_texto(entrada)
     if not entrada_norm:
         return "⚠️ No llegué a entender tu consulta. ¿Podrías reformularla?", "ayuda"
-
-    if solicita_contacto_rrhh(entrada_norm):
-        return MENSAJE_CONTACTO, "RRHH"
 
     tema_elegido = detectar_tema(entrada_norm, temas_map)
     saludo_detectado = es_saludo(entrada_norm)
@@ -737,15 +784,28 @@ def obtener_respuesta(entrada, temas_map, company_id=None):
         if tema_norm == "hola":
             return MENSAJE_BIENVENIDA, "saludo"
 
-    # Base de conocimiento por empresa — si existe, es la única fuente de respuestas
+    # Base de conocimiento por empresa — búsqueda ANTES del check de contacto/derivación
+    # para que "quiero saber sobre el contacto" encuentre la sección CONTACTO RRHH de la KB
     if company_id:
         entries = obtener_knowledge_empresa(company_id)
         if entries:
-            resp, score = buscar_en_knowledge(entrada_norm, entries)
+            entrada_kb = _expandir_consulta_kb(entrada_norm)
+            resp, score = buscar_en_knowledge(entrada_kb, entries)
             intencion = _detectar_intencion(entrada_norm)
 
+            # Usar contexto del turno anterior solo para queries MUY cortas (1-2 palabras significativas)
+            # Para queries más largas, la pregunta tiene suficiente información propia
+            palabras_significativas = [w for w in entrada_norm.split() if len(w) >= 5]
+            # Usar contexto solo si la búsqueda directa no encontró ni un match parcial.
+            # Si score >= KNOWLEDGE_PARTIAL_THRESHOLD ya hay coincidencia suficiente → no contaminar.
+            if context_pregunta and len(palabras_significativas) <= 2 and (not resp or score < KNOWLEDGE_PARTIAL_THRESHOLD):
+                ctx_norm = normalizar_texto(context_pregunta)
+                entrada_con_ctx = _expandir_consulta_kb(ctx_norm + " " + entrada_norm)
+                resp_ctx, score_ctx = buscar_en_knowledge(entrada_con_ctx, entries)
+                if resp_ctx and score_ctx > score:
+                    resp, score = resp_ctx, score_ctx
+
             if resp and score >= KNOWLEDGE_MATCH_THRESHOLD:
-                # Respuesta buena encontrada — pedir feedback primero
                 if intencion == "fecha" and score < 95:
                     return (
                         f"{resp}\n\n📅 Para coordinar *cuándo* gestionar esto, podés hablar con un agente de RRHH."
@@ -753,14 +813,12 @@ def obtener_respuesta(entrada, temas_map, company_id=None):
                 return resp, "knowledge_answer"
 
             if resp and score >= KNOWLEDGE_PARTIAL_THRESHOLD:
-                # Match parcial — dar lo que hay, pedir feedback (si dice "no" se ofrecerá derivación)
                 return (
                     f"Esto es lo más cercano que encontré en nuestra base de datos:\n\n{resp}"
                 ), "knowledge_answer"
 
-            # La empresa tiene knowledge base pero no hubo match — igual pedir feedback
+            # La empresa tiene knowledge base pero no hubo match
             if tema_elegido:
-                area = AREAS_POR_TEMA.get(normalizar_texto(tema_elegido), "RRHH")
                 return (
                     f"No encontré información específica sobre \"{tema_elegido}\" en la base de datos de tu empresa."
                 ), "knowledge_answer"
@@ -768,19 +826,9 @@ def obtener_respuesta(entrada, temas_map, company_id=None):
                 "No encontré información sobre eso en nuestra base de datos."
             ), "knowledge_answer"
 
-    # Sin knowledge base — usar FAQs tradicionales
-    if saludo_detectado and tema_elegido and normalizar_texto(tema_elegido) not in {"hola", "ayuda"}:
-        respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
-        if respuesta:
-            return f"👋 ¡Hola! Sobre tu consulta de {tema_elegido}:\n{respuesta}", tema_elegido
-
-    if tema_elegido:
-        tema_norm = normalizar_texto(tema_elegido)
-        if tema_norm == "vacaciones" and consulta_sobre_dias_vacaciones(entrada_norm):
-            return RESPUESTA_DIAS_VACACIONES, tema_elegido
-        respuesta = obtener_respuesta_faq(tema_elegido, company_id=company_id)
-        if respuesta:
-            return respuesta, tema_elegido
+    # Solo si no hay KB (o la empresa no tiene KB cargada), verificar si quiere hablar con un agente
+    if solicita_contacto_rrhh(entrada_norm):
+        return MENSAJE_CONTACTO, "RRHH"
 
     if entrada_norm == "ayuda":
         return MENSAJE_AYUDA, "ayuda"
