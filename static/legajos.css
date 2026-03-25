@@ -93,6 +93,84 @@ html[data-theme="dark"] .legajos-add-panel {
   margin-top: 1.25rem;
 }
 
+.legajos-audit-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.legajos-audit-filtros,
+.legajos-doc-buscar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem 0.75rem;
+  padding: 0.75rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius, 10px);
+}
+
+.legajos-audit-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.legajos-audit-label--grow {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+.legajos-audit-label input,
+.legajos-audit-label select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.legajos-audit-filtros-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.legajos-subpanel-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--title-section);
+}
+
+.legajos-doc-tipos-panel {
+  margin-bottom: 0.75rem;
+}
+
+.legajos-hint--compact {
+  margin: 0.2rem 0 0.55rem;
+  font-size: 0.82rem;
+}
+
+.legajos-doc-tipos-table {
+  font-size: 0.84rem;
+}
+
+.legajos-doc-results-panel {
+  margin-bottom: 1rem;
+}
+
+.legajos-doc-search-table {
+  font-size: 0.84rem;
+}
+
 .legajos-audit-head {
   display: flex;
   flex-wrap: wrap;
@@ -100,6 +178,13 @@ html[data-theme="dark"] .legajos-add-panel {
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.35rem;
+}
+
+.legajos-audit-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .legajos-audit-detail {

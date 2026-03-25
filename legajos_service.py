@@ -112,6 +112,18 @@ def empleado_from_snap(doc_snap) -> dict:
     }
 
 
+def _empleado_row_matches_substring(q: str, emp: dict) -> bool:
+    """Misma lógica que el filtro de list_empleados (legajo, nombre, DNI, email)."""
+    qn = str(q or "").strip().lower()
+    if not qn:
+        return True
+    leg = (emp.get("legajo_numero") or "").lower()
+    nom = (emp.get("nombre_completo") or "").lower()
+    dni_f = (emp.get("dni") or "").lower()
+    em = (emp.get("email") or "").lower()
+    return qn in leg or qn in nom or qn in dni_f or qn in em
+
+
 def get_empleado(db, empleado_id: str) -> dict | None:
     if not db or not empleado_id:
         return None
@@ -411,18 +423,93 @@ def auditoria_from_snap(doc_snap) -> dict:
     }
 
 
-def list_auditoria(db, company_id: str, limit: int = 80) -> list[dict]:
-    """Últimos eventos de una empresa (orden local por fecha, sin índice compuesto)."""
+def _event_at_utc(data: dict) -> datetime | None:
+    """Convierte el campo at del documento de auditoría a datetime UTC."""
+    v = (data or {}).get("at")
+    if isinstance(v, datetime):
+        if v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v.astimezone(timezone.utc)
+    if hasattr(v, "timestamp"):
+        try:
+            return datetime.fromtimestamp(float(v.timestamp()), tz=timezone.utc)
+        except Exception:
+            return None
+    return None
+
+
+def _auditoria_details_flat(details: Any) -> str:
+    if not isinstance(details, dict):
+        return ""
+    parts = [f"{k}: {v}" for k, v in details.items()]
+    return " · ".join(parts)
+
+
+def _auditoria_details_search_blob(details: Any) -> str:
+    if not isinstance(details, dict):
+        return ""
+    parts: list[str] = []
+    for k, v in details.items():
+        parts.append(f"{k}:{v}")
+    return " ".join(parts).lower()
+
+
+def list_auditoria(
+    db,
+    company_id: str,
+    limit: int = 80,
+    username: str | None = None,
+    action: str | None = None,
+    q: str | None = None,
+    at_from: datetime | None = None,
+    at_to: datetime | None = None,
+    max_limit: int = 500,
+) -> list[dict]:
+    """
+    Eventos de una empresa (orden por fecha descendente).
+    Filtros opcionales en memoria: fechas UTC (at_from / at_to inclusive),
+    usuario (substring), acción (exacta), texto en detalle/username/acción.
+    """
     if not db or not company_id:
         return []
     cid = str(company_id).strip().lower()
-    lim = max(1, min(int(limit or 80), 200))
+    cap = max(1, min(int(max_limit or 500), 8000))
+    lim = max(1, min(int(limit or 80), cap))
+    uname_f = (username or "").strip().lower()
+    act_f = (action or "").strip()
+    q_f = (q or "").strip().lower()
     try:
         snaps = list(
             db.collection(LEGAJOS_AUDITORIA_COLLECTION).where("company_id", "==", cid).stream()
         )
     except Exception:
         return []
+
+    filtered: list = []
+    for s in snaps:
+        data = s.to_dict() or {}
+        t = _event_at_utc(data)
+        if at_from is not None:
+            if t is None or t < at_from:
+                continue
+        if at_to is not None:
+            if t is None or t > at_to:
+                continue
+        if uname_f:
+            u = str(data.get("username") or "").lower()
+            if uname_f not in u:
+                continue
+        if act_f and str(data.get("action") or "") != act_f:
+            continue
+        if q_f:
+            blob = _auditoria_details_search_blob(data.get("details"))
+            hay = q_f in blob
+            hay = hay or q_f in str(data.get("username") or "").lower()
+            hay = hay or q_f in str(data.get("action") or "").lower()
+            if not hay:
+                continue
+        filtered.append(s)
+    snaps = filtered
 
     def _sort_key(s):
         d = s.to_dict() or {}
@@ -441,6 +528,114 @@ def list_auditoria(db, company_id: str, limit: int = 80) -> list[dict]:
     except Exception:
         snaps.sort(key=lambda s: s.id, reverse=True)
     return [auditoria_from_snap(s) for s in snaps[:lim]]
+
+
+def list_documentos_resumen_tipos(
+    db,
+    company_id: str,
+    empleados_search: str | None = None,
+) -> list[dict]:
+    """
+    Cuenta documentos por tipo (carpeta lógica) en la empresa.
+    Si empleados_search está definido, solo cuenta archivos de colaboradores que
+    coincidan con ese texto (mismo criterio que el buscador de colaboradores).
+    Devuelve [{"tipo_documento": str, "count": int}, ...] ordenado por tipo.
+    """
+    if not db or not str(company_id or "").strip():
+        return []
+    cid = str(company_id).strip().lower()
+    id_filter: set[str] | None = None
+    es = str(empleados_search or "").strip()
+    if es:
+        emps = list_empleados(db, cid, search=es)
+        id_filter = {str(r.get("id") or "").strip() for r in emps if r.get("id")}
+        if not id_filter:
+            return []
+    counts: dict[str, int] = {}
+    try:
+        for snap in db.collection(LEGAJOS_DOCUMENTOS_COLLECTION).where("company_id", "==", cid).stream():
+            row = documento_from_snap(snap)
+            eid = str(row.get("empleado_id") or "").strip()
+            if id_filter is not None and eid not in id_filter:
+                continue
+            t = str(row.get("tipo_documento") or "otro").strip() or "otro"
+            counts[t] = counts.get(t, 0) + 1
+    except Exception:
+        return []
+    out = [{"tipo_documento": k, "count": v} for k, v in counts.items()]
+    out.sort(key=lambda x: (str(x.get("tipo_documento") or "").lower(),))
+    return out
+
+
+def search_documentos_empresa(
+    db,
+    company_id: str,
+    q: str = "",
+    limit: int = 40,
+    tipo_documento: str | None = None,
+    empleados_q: str | None = None,
+) -> list[dict]:
+    """
+    Lista o busca documentos de la empresa. Filtros opcionales (al menos uno):
+    - q: texto en nombre de archivo y/o en datos del colaborador (nombre, DNI, legajo, email)
+    - tipo_documento: carpeta / tipo
+    - empleados_q: solo documentos de colaboradores que coincidan con ese texto
+      (igual que el buscador superior de la pantalla).
+    Devuelve filas enriquecidas con nombre y DNI del colaborador.
+    """
+    if not db or not str(company_id or "").strip():
+        return []
+    cid = str(company_id).strip().lower()
+    qn = str(q or "").strip().lower()
+    tipo_f = str(tipo_documento or "").strip().lower() or None
+    eq = str(empleados_q or "").strip()
+    id_filter: set[str] | None = None
+    if eq:
+        emps = list_empleados(db, cid, search=eq)
+        id_filter = {str(r.get("id") or "").strip() for r in emps if r.get("id")}
+        if not id_filter:
+            return []
+    if not qn and not tipo_f and not eq:
+        return []
+    lim = max(1, min(int(limit or 40), 500))
+    matches: list[dict] = []
+    cache: dict[str, dict] = {}
+    try:
+        for snap in db.collection(LEGAJOS_DOCUMENTOS_COLLECTION).where("company_id", "==", cid).stream():
+            row = documento_from_snap(snap)
+            eid = str(row.get("empleado_id") or "").strip()
+            if id_filter is not None and eid not in id_filter:
+                continue
+            rt = str(row.get("tipo_documento") or "otro").strip().lower() or "otro"
+            if tipo_f and rt != tipo_f:
+                continue
+            if eid not in cache:
+                cache[eid] = get_empleado(db, eid) or {}
+            emp = cache[eid]
+            if qn:
+                fn_ok = qn in (row.get("filename") or "").lower()
+                emp_ok = _empleado_row_matches_substring(qn, emp)
+                if not fn_ok and not emp_ok:
+                    continue
+            matches.append(row)
+    except Exception:
+        return []
+    matches.sort(key=lambda r: str(r.get("uploaded_at") or ""), reverse=True)
+    matches = matches[:lim]
+    out: list[dict] = []
+    for row in matches:
+        eid = str(row.get("empleado_id") or "").strip()
+        emp = cache.get(eid) or get_empleado(db, eid) or {}
+        if eid not in cache:
+            cache[eid] = emp
+        out.append(
+            {
+                **row,
+                "empleado_nombre": emp.get("nombre_completo") or "",
+                "empleado_dni": emp.get("dni") or "",
+            }
+        )
+    return out
 
 
 def _normalize_import_row(row: dict) -> tuple[str, str, str, str, str, str, str]:
@@ -607,6 +802,31 @@ def build_legajos_export_xlsx_bytes(items: list[dict]) -> tuple[bytes | None, st
                 str(row.get("sucursal") or ""),
                 str(row.get("area") or ""),
                 str(row.get("notas") or ""),
+            ]
+        )
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue(), None
+
+
+def build_auditoria_export_xlsx_bytes(eventos: list[dict]) -> tuple[bytes | None, str | None]:
+    """Excel con columnas separadas para respaldo / control de auditoría de legajos."""
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return None, "openpyxl no instalado."
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Auditoria legajos"
+    ws.append(["fecha_hora_utc", "usuario", "accion", "detalle", "id_evento"])
+    for ev in eventos or []:
+        ws.append(
+            [
+                str(ev.get("at") or ""),
+                str(ev.get("username") or ""),
+                str(ev.get("action") or ""),
+                _auditoria_details_flat(ev.get("details")),
+                str(ev.get("id") or ""),
             ]
         )
     buf = io.BytesIO()
