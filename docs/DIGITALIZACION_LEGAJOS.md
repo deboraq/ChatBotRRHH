@@ -2,6 +2,30 @@
 
 Guía para digitalizar los legajos de ~800 empleados de forma segura, integrable con el ecosistema actual (ChatBot RRHH, Firebase, panel con usuarios y roles).
 
+## Estado en el código
+
+- **Permisos:** `legajos_ver` y `legajos_gestionar` en `auth_rrhh.py` (catálogo de roles).
+- **Ruta:** `GET /legajos` — UI con listado, alta de colaborador, documentos, subida y descarga (enlace firmado ~15 min).
+- **Firestore:** colecciones `legajos_empleados` (incluye `dni`, `updated_at`, `updated_by`), `legajos_documentos` y `legajos_auditoria` (ver `legajos_service.py`).
+- **Storage:** prefijo `legajos_uploads/{company_id}/{empleado_id}/…` en el mismo bucket que `FIREBASE_STORAGE_BUCKET`.
+- **APIs:** `GET/POST /api/legajos/empleados`, `GET /api/legajos/empleados/<id>`, `PATCH /api/legajos/empleados/<id>`, `GET /api/legajos/empleados/export` (CSV UTF-8 con BOM), `POST …/import`, `GET/POST …/empleados/<id>/documentos`, `GET …/documentos/<id>/link`, `DELETE …/documentos/<id>`, `POST /api/legajos/empresa/seleccionar`.
+- **Menú principal:** botón **Legajos** si el usuario tiene `legajos_ver`.
+- **Rol por defecto `rrhh`:** sin legajos; **admin** tiene todo. Asignar permisos en **Configuración → Roles y permisos**.
+
+### Reglas Firebase (cliente)
+
+En el repo hay `firestore.rules` y `storage.rules` que **niegan** lectura/escritura desde el SDK web (toda la lógica va por el backend con Admin SDK / cuenta de servicio).
+
+Desplegar (cuando corresponda):
+
+```bash
+firebase deploy --only firestore:rules,storage
+```
+
+**Antes de desplegar:** si ya tenés reglas distintas en el proyecto (por ejemplo acceso cliente a alguna colección), fusioná los cambios a mano; estas reglas **bloquean todo** el acceso cliente a Firestore y Storage.
+
+Si en el futuro alguna pantalla usa Firestore **desde el navegador**, habrá que ajustar reglas por colección; hasta entonces este enfoque es el más seguro para legajos y datos sensibles.
+
 ---
 
 ## 1. Qué necesitás tener claro

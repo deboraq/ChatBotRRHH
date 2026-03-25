@@ -2843,6 +2843,12 @@
           phoneInput.placeholder = "+54 9 11 1234-5678";
           phoneInput.value = item.phone || "";
           phoneInput.style.cssText = "flex:1; min-width:140px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
+          const emailInput = document.createElement("input");
+          emailInput.type = "email";
+          emailInput.dataset.role = "notify_email";
+          emailInput.placeholder = "Email de notificación (opcional)";
+          emailInput.value = item.notify_email || "";
+          emailInput.style.cssText = "flex:1.5; min-width:180px; padding:0.4rem; border:1px solid var(--border-color,#ccc); border-radius:4px;";
           const btnRemove = document.createElement("button");
           btnRemove.type = "button";
           btnRemove.textContent = "Quitar";
@@ -2850,6 +2856,7 @@
           btnRemove.addEventListener("click", () => { row.remove(); });
           row.appendChild(labelEl);
           row.appendChild(phoneInput);
+          row.appendChild(emailInput);
           row.appendChild(btnRemove);
           modalCompanyWhatsappList.appendChild(row);
         });
@@ -2862,7 +2869,8 @@
         rows.forEach((row) => {
           const label = (row.querySelector("[data-role='label']")?.value || "").trim();
           const phone = (row.querySelector("[data-role='phone']")?.value || "").trim();
-          if (phone) out.push({ label: label || "Principal", phone });
+          const notify_email = (row.querySelector("[data-role='notify_email']")?.value || "").trim();
+          if (phone) out.push({ label: label || "Principal", phone, notify_email: notify_email || null });
         });
         return out;
       }
@@ -3372,7 +3380,7 @@
       }
       if (modalCompanyWhatsappAdd) {
         modalCompanyWhatsappAdd.addEventListener("click", () => {
-          renderWhatsappNumbersList([...getModalWhatsappNumbers(), { label: "", phone: "" }]);
+          renderWhatsappNumbersList([...getModalWhatsappNumbers(), { label: "", phone: "", notify_email: "" }]);
         });
       }
       if (companyFormModal) {

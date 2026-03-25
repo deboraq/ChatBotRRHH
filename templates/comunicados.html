@@ -240,11 +240,29 @@
 
         <div class="comunicados-step">
           <h2>Paso 3 – Enviar</h2>
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.92rem;">
+              <input type="radio" name="modo-envio" id="modo-ahora" value="ahora" checked /> Enviar ahora
+            </label>
+            <label style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;font-size:0.92rem;">
+              <input type="radio" name="modo-envio" id="modo-programar" value="programar" /> Programar para después
+            </label>
+          </div>
+          <div id="programar-wrap" style="display:none;margin-bottom:0.75rem;">
+            <label style="font-size:0.9rem;display:block;margin-bottom:0.3rem;">Fecha y hora de envío</label>
+            <input type="datetime-local" id="scheduled-at" style="padding:0.4rem 0.6rem;border:1px solid var(--border-color,#ccc);border-radius:6px;font-size:0.92rem;" />
+            <span class="hint" style="display:block;margin-top:0.25rem;">La hora es local del navegador.</span>
+          </div>
           <button type="submit" id="btn-enviar" class="btn-send">Enviar comunicado</button>
         </div>
       </form>
 
       <div id="resultado" class="comunicados-result" style="display: none;" role="status"></div>
+
+      <div id="programados-section" style="margin-top:2rem;display:none;">
+        <h2 style="font-size:1rem;margin-bottom:0.5rem;">Comunicados programados</h2>
+        <div id="programados-list"></div>
+      </div>
     </main>
 
     <script>window.availableCompaniesForComunicados = {{ available_companies | tojson }};</script>
@@ -257,6 +275,21 @@
         var availableCompanies = window.availableCompaniesForComunicados || [];
         var destinatariosEl = document.getElementById("destinatarios");
         var btnEnviar = document.getElementById("btn-enviar");
+        var modoAhoraEl = document.getElementById("modo-ahora");
+        var modoProgramarEl = document.getElementById("modo-programar");
+        var programarWrap = document.getElementById("programar-wrap");
+        var scheduledAtEl = document.getElementById("scheduled-at");
+        var programadosSection = document.getElementById("programados-section");
+        var programadosList = document.getElementById("programados-list");
+
+        // Mostrar/ocultar selector de fecha según modo
+        [modoAhoraEl, modoProgramarEl].forEach(function(r) {
+          r && r.addEventListener("change", function() {
+            var programar = modoProgramarEl && modoProgramarEl.checked;
+            programarWrap.style.display = programar ? "block" : "none";
+            btnEnviar.textContent = programar ? "Programar envío" : "Enviar comunicado";
+          });
+        });
         var resultadoEl = document.getElementById("resultado");
         var destinatariosCountEl = document.getElementById("destinatarios-count");
 
@@ -436,8 +469,55 @@
             })
             .catch(function() { contactosSummaryEl.textContent = "Error al cargar contactos."; });
         }
-        companyEl.addEventListener("change", loadContactos);
+        companyEl.addEventListener("change", function() { loadContactos(); loadProgramados(); });
         loadContactos();
+
+        // Cargar y mostrar comunicados programados
+        function loadProgramados() {
+          var cid = getCompanyId();
+          if (!cid || !programadosList) return;
+          fetch("/api/comunicados/programados?company_id=" + encodeURIComponent(cid))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              var items = (data.comunicados || []).filter(function(c) {
+                return c.estado === "pendiente" || c.estado === "enviando";
+              });
+              if (!items.length) { programadosSection.style.display = "none"; return; }
+              programadosSection.style.display = "block";
+              programadosList.innerHTML = "";
+              items.forEach(function(c) {
+                var row = document.createElement("div");
+                row.style.cssText = "display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid var(--border-color,#eee);flex-wrap:wrap;";
+                var dt = c.scheduled_at ? new Date(c.scheduled_at).toLocaleString() : "—";
+                var info = document.createElement("span");
+                info.style.flex = "1";
+                info.innerHTML = "<strong>" + escHtml(dt) + "</strong> · " +
+                  escHtml((c.mensaje || "").substring(0, 60) + (c.mensaje && c.mensaje.length > 60 ? "…" : "")) +
+                  " <em style='color:#888;'>(" + (c.destinatarios || []).length + " dest.)</em>";
+                var badge = document.createElement("span");
+                badge.textContent = c.estado;
+                badge.style.cssText = "font-size:0.78rem;padding:2px 7px;border-radius:10px;background:" + (c.estado === "pendiente" ? "#dbeafe" : "#fef9c3") + ";color:#1e40af;";
+                var btnCancel = document.createElement("button");
+                btnCancel.textContent = "Cancelar";
+                btnCancel.type = "button";
+                btnCancel.style.cssText = "font-size:0.8rem;padding:3px 10px;border:1px solid #f87171;border-radius:5px;background:#fff;color:#dc2626;cursor:pointer;";
+                btnCancel.onclick = function() {
+                  if (!confirm("¿Cancelar este comunicado programado?")) return;
+                  fetch("/api/comunicados/programados/" + encodeURIComponent(c.id), { method: "DELETE" })
+                    .then(function() { loadProgramados(); });
+                };
+                row.appendChild(info);
+                row.appendChild(badge);
+                if (c.estado === "pendiente") row.appendChild(btnCancel);
+                programadosList.appendChild(row);
+              });
+            })
+            .catch(function() {});
+        }
+        function escHtml(s) {
+          return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        }
+        loadProgramados();
 
         form.addEventListener("submit", function(e) {
           e.preventDefault();
@@ -447,6 +527,7 @@
           var mensaje = (mensajeEl && mensajeEl.value) ? mensajeEl.value.trim() : "";
           var imagenUrl = (imagenUrlEl && imagenUrlEl.value) ? imagenUrlEl.value.trim() : "";
           var archivo = comunicadoArchivoEl && comunicadoArchivoEl.files && comunicadoArchivoEl.files[0] ? comunicadoArchivoEl.files[0] : null;
+          var esProgramado = modoProgramarEl && modoProgramarEl.checked;
           if (!destinatarios.length) {
             resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
             resultadoEl.innerHTML = "<h3>Error</h3><p>No hay destinatarios. Usá «Seleccionar contactos» o pegá números en la lista.</p>";
@@ -457,6 +538,60 @@
             resultadoEl.innerHTML = "<h3>Error</h3><p>Escribí el mensaje del comunicado o agregá una imagen (URL o archivo del equipo/celular).</p>";
             return;
           }
+
+          // Modo PROGRAMAR
+          if (esProgramado) {
+            var scheduledAt = scheduledAtEl && scheduledAtEl.value;
+            if (!scheduledAt) {
+              resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
+              resultadoEl.innerHTML = "<h3>Error</h3><p>Elegí la fecha y hora de envío.</p>";
+              return;
+            }
+            // Convertir datetime-local a ISO UTC
+            var dtLocal = new Date(scheduledAt);
+            if (isNaN(dtLocal.getTime()) || dtLocal <= new Date()) {
+              resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
+              resultadoEl.innerHTML = "<h3>Error</h3><p>La fecha debe ser en el futuro.</p>";
+              return;
+            }
+            btnEnviar.disabled = true;
+            var payload = {
+              company_id: companyId,
+              destinatarios: destinatarios,
+              mensaje: mensaje,
+              scheduled_at: dtLocal.toISOString(),
+            };
+            if (imagenUrl) payload.imagen_url = imagenUrl;
+            if (whatsappCanalEl && whatsappCanalEl.value) payload.whatsapp_label = whatsappCanalEl.value;
+
+            var subirPromesa = archivo ? subirArchivoComunicado(archivo).then(function(url) { payload.imagen_url = url; }) : Promise.resolve();
+            subirPromesa.then(function() {
+              return fetch("/api/comunicados/programar", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+              }).then(function(r) { return r.json(); });
+            }).then(function(data) {
+              btnEnviar.disabled = false;
+              resultadoEl.style.display = "block";
+              if (data.ok) {
+                var dt = new Date(data.comunicado.scheduled_at).toLocaleString();
+                resultadoEl.className = "comunicados-result success";
+                resultadoEl.innerHTML = "<h3>✅ Comunicado programado</h3><p>Se enviará el <strong>" + escHtml(dt) + "</strong> a " + destinatarios.length + " destinatario(s).</p>";
+                scheduledAtEl.value = "";
+                loadProgramados();
+              } else {
+                resultadoEl.className = "comunicados-result error";
+                resultadoEl.innerHTML = "<h3>Error</h3><p>" + escHtml(data.error || "No se pudo programar.") + "</p>";
+              }
+            }).catch(function(err) {
+              btnEnviar.disabled = false;
+              resultadoEl.style.display = "block"; resultadoEl.className = "comunicados-result error";
+              resultadoEl.innerHTML = "<h3>Error</h3><p>" + escHtml(err.message || "Error de conexión.") + "</p>";
+            });
+            return; // No continuar con envío inmediato
+          }
+
           btnEnviar.disabled = true;
           resultadoEl.style.display = "block";
           resultadoEl.className = "comunicados-result";

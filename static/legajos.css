@@ -1,0 +1,541 @@
+/* Módulo Legajos: complemento a rrhh.css */
+
+.legajos-page {
+  max-width: 1400px;
+}
+
+.legajos-add-panel {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.legajos-add-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  color: var(--title-section);
+}
+
+.legajos-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.legajos-add-row input {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  min-width: 90px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.legajos-add-row input#legajos-add-nombre {
+  min-width: 160px;
+  flex: 1 1 140px;
+}
+
+.legajos-add-row input#legajos-add-email {
+  min-width: 180px;
+  flex: 1 1 160px;
+}
+
+.legajos-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.legajos-cell-dni {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.legajos-col-acciones,
+.legajos-actions-cell {
+  white-space: nowrap;
+  font-size: 0.82rem;
+  width: 1%;
+}
+
+.btn-legajos-danger {
+  padding: 0.35rem 0.65rem;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.btn-legajos-danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+html[data-theme="dark"] .legajos-add-panel {
+  background: #101a2a;
+  border-color: #334155;
+}
+
+.legajos-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+  line-height: 1.45;
+}
+
+.legajos-audit-panel {
+  margin-top: 1.25rem;
+}
+
+.legajos-audit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.legajos-audit-detail {
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  max-width: 420px;
+  word-break: break-word;
+}
+
+.legajos-page .subtle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.legajos-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  margin: 1rem 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.legajos-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.legajos-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.legajos-modal[hidden] {
+  display: none !important;
+}
+
+.legajos-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(15, 23, 42, 0.55);
+  cursor: pointer;
+}
+
+.legajos-modal-box {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  width: 100%;
+  max-width: 440px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius, 10px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+}
+
+.legajos-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.legajos-modal-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--title-section, var(--text));
+}
+
+.legajos-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 0.25rem;
+}
+
+.legajos-modal-close:hover {
+  color: var(--text);
+}
+
+.legajos-modal-body {
+  padding: 0.75rem 1rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+.legajos-modal-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem 0.75rem;
+  min-width: 0;
+}
+
+.legajos-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.legajos-modal-field--full {
+  grid-column: 1 / -1;
+}
+
+.legajos-modal-field input {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.legajos-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.legajos-modal-actions .btn-legajos-primary {
+  align-self: center;
+}
+
+html[data-theme="dark"] .legajos-modal-backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+html[data-theme="dark"] .legajos-modal-box {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+html[data-theme="dark"] .legajos-modal-field input[readonly] {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+.legajos-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-soft);
+}
+
+.legajos-field-grow {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.legajos-field input,
+.legajos-field select,
+.legajos-field textarea {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.btn-legajos-primary {
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  align-self: flex-end;
+}
+
+.btn-legajos-primary:hover {
+  background: var(--primary-strong);
+}
+
+.btn-legajos-secondary {
+  padding: 0.45rem 0.85rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.btn-legajos-secondary:hover {
+  background: var(--surface-soft);
+}
+
+.legajos-status {
+  min-height: 1.25rem;
+  font-size: 0.88rem;
+  color: var(--text-soft);
+  margin: 0 0 0.5rem;
+}
+
+.legajos-status--error {
+  color: var(--danger);
+}
+
+.legajos-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.legajos-split > .legajos-panel {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+@media (max-width: 900px) {
+  .legajos-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.legajos-panel {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.legajos-panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  color: var(--title-section);
+}
+
+.legajos-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+
+.legajos-docs-wrap {
+  margin-top: 1rem;
+}
+
+.legajos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  table-layout: auto;
+}
+
+.legajos-table-main {
+  min-width: 720px;
+}
+
+.legajos-table th,
+.legajos-table td {
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
+}
+
+.legajos-table th {
+  font-weight: 600;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  white-space: nowrap;
+}
+
+.legajos-table-main th:nth-child(2),
+.legajos-table-main td:nth-child(2) {
+  min-width: 7.5rem;
+}
+
+.legajos-table-main th:nth-child(3),
+.legajos-table-main td:nth-child(3) {
+  min-width: 9rem;
+}
+
+.legajos-table tbody tr[data-id] {
+  cursor: pointer;
+}
+
+.legajos-table tbody tr[data-id]:hover {
+  background: #eff6ff;
+}
+
+.legajos-row--active {
+  background: #dbeafe !important;
+}
+
+.legajos-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1.25rem !important;
+}
+
+.legajos-detail-meta {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  color: var(--text-soft);
+  line-height: 1.45;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.legajos-modal-id-meta {
+  margin-top: 0;
+  font-size: 0.8rem;
+}
+
+.legajos-modal-field input[readonly] {
+  opacity: 0.9;
+  cursor: default;
+  background: var(--surface-soft);
+}
+
+.legajos-upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+}
+
+.legajos-actions {
+  white-space: nowrap;
+}
+
+.legajos-actions .btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 0.5rem;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.legajos-actions .legajos-del {
+  color: var(--danger);
+}
+
+html[data-theme="dark"] .legajos-table tbody tr[data-id]:hover {
+  background: #1e293b;
+}
+
+html[data-theme="dark"] .legajos-row--active {
+  background: #1e3a5f !important;
+}
+
+html[data-theme="dark"] .legajos-upload-form {
+  border-color: #334155;
+}
+
+/* Clases heredadas (pantalla intro antigua, por si se reutilizan) */
+.legajos-intro {
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.legajos-badge {
+  display: inline-block;
+  margin: 0.75rem 0 0;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.legajos-badge--manage {
+  background: #dcfce7;
+  color: #166534;
+}
+
+html[data-theme="dark"] .legajos-intro {
+  background: #101a2a;
+  border-color: #334155;
+}
+
+html[data-theme="dark"] .legajos-badge {
+  background: #312e81;
+  color: #c7d2fe;
+}
+
+html[data-theme="dark"] .legajos-badge--manage {
+  background: #14532d;
+  color: #bbf7d0;
+}

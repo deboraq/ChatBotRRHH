@@ -205,11 +205,11 @@
         <button id="sidebar-toggle" type="button" title="Ocultar menú" aria-label="Ocultar menú">◀</button>
         <h2>Módulos</h2>
         <p class="subtle">Seleccioná qué querés usar.</p>
-        <button type="button" class="app-module-btn active" data-module="chat" data-src="/chat">
+        <button type="button" class="app-module-btn {% if (initial_module|default('chat')) == 'chat' %}active{% endif %}" data-module="chat" data-src="/chat">
           Asistente (Chat)
         </button>
         {% if can_view_conversations|default(true) %}
-        <button type="button" class="app-module-btn" data-module="rrhh" data-src="/rrhh">
+        <button type="button" class="app-module-btn {% if (initial_module|default('chat')) == 'rrhh' %}active{% endif %}" data-module="rrhh" data-src="/rrhh">
           Panel de atención
         </button>
         {% endif %}
@@ -238,13 +238,18 @@
           Historial
         </button>
         {% endif %}
+        {% if can_view_legajos|default(false) %}
+        <button type="button" class="app-module-btn {% if (initial_module|default('chat')) == 'legajos' %}active{% endif %}" data-module="legajos" data-src="/legajos">
+          Legajos
+        </button>
+        {% endif %}
       </aside>
       <main class="app-main">
         <iframe
           id="app-frame"
           class="app-frame"
           title="Contenido del módulo"
-          src="/chat"
+          src="/{{ initial_module|default('chat') }}"
         ></iframe>
       </main>
     </div>
