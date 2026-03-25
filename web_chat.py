@@ -3503,6 +3503,21 @@ def _legajos_audit(action: str, company_id: str, details: dict | None = None):
         logger.debug("legajos audit omitido: %s", exc)
 
 
+def _parse_legajos_audit_datetime(param_name: str):
+    """Parsea ISO 8601 desde query (ej. toISOString() del navegador) a UTC."""
+    raw = (request.args.get(param_name) or "").strip()
+    if not raw:
+        return None
+    try:
+        s = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 @flask_app.post("/api/legajos/empresa/seleccionar")
 @rrhh_permission_required(
     auth_rrhh.PERM_LEGAJOS_VIEW,
@@ -3755,6 +3770,20 @@ def api_legajos_empleados_import():
     return jsonify({"ok": True, **result, "company_id": cid})
 
 
+@flask_app.get("/api/legajos/usuarios-empresa")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para ver legajos.",
+)
+def api_legajos_usuarios_empresa():
+    """Usuarios RRHH con acceso a la empresa activa (para filtro de auditoría)."""
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err, "usuarios": []}), 400
+    usuarios = auth_rrhh.list_users_for_company(cid)
+    return jsonify({"ok": True, "usuarios": usuarios, "company_id": cid})
+
+
 @flask_app.get("/api/legajos/auditoria")
 @rrhh_permission_required(
     auth_rrhh.PERM_LEGAJOS_VIEW,
@@ -3770,8 +3799,115 @@ def api_legajos_auditoria_list():
         lim = int(request.args.get("limit") or 80)
     except ValueError:
         lim = 80
-    eventos = legajos_service.list_auditoria(chatbot.db, cid, limit=lim)
+    username = (request.args.get("username") or "").strip() or None
+    action = (request.args.get("action") or "").strip() or None
+    q = (request.args.get("q") or request.args.get("search") or "").strip() or None
+    at_from = _parse_legajos_audit_datetime("at_from")
+    at_to = _parse_legajos_audit_datetime("at_to")
+    eventos = legajos_service.list_auditoria(
+        chatbot.db,
+        cid,
+        limit=lim,
+        username=username,
+        action=action,
+        q=q,
+        at_from=at_from,
+        at_to=at_to,
+    )
     return jsonify({"ok": True, "eventos": eventos, "company_id": cid})
+
+
+@flask_app.get("/api/legajos/auditoria/export")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para exportar auditoría de legajos.",
+)
+def api_legajos_auditoria_export():
+    """Descarga Excel con los mismos filtros que el listado (hasta 5000 filas)."""
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    username = (request.args.get("username") or "").strip() or None
+    action = (request.args.get("action") or "").strip() or None
+    q = (request.args.get("q") or request.args.get("search") or "").strip() or None
+    at_from = _parse_legajos_audit_datetime("at_from")
+    at_to = _parse_legajos_audit_datetime("at_to")
+    eventos = legajos_service.list_auditoria(
+        chatbot.db,
+        cid,
+        limit=5000,
+        username=username,
+        action=action,
+        q=q,
+        at_from=at_from,
+        at_to=at_to,
+        max_limit=5000,
+    )
+    body, gen_err = legajos_service.build_auditoria_export_xlsx_bytes(eventos)
+    if gen_err or not body:
+        return jsonify({"ok": False, "error": gen_err or "No se pudo generar el Excel."}), 503
+    safe_cid = "".join(c for c in cid if c.isalnum() or c in "._-") or "empresa"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    filename = f"legajos_auditoria_{safe_cid}_{stamp}.xlsx"
+    return send_file(
+        io.BytesIO(body),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@flask_app.get("/api/legajos/documentos/buscar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para buscar documentos de legajos.",
+)
+def api_legajos_documentos_buscar():
+    """Busca archivos por nombre y/o carpeta (tipo_documento) en la empresa."""
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible.", "resultados": []}), 503
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err, "resultados": []}), 400
+    q = (request.args.get("q") or "").strip()
+    tipo_documento = (request.args.get("tipo_documento") or "").strip() or None
+    empleados_q = (request.args.get("empleados_q") or "").strip() or None
+    if not q and not tipo_documento and not empleados_q:
+        return jsonify({"ok": True, "resultados": [], "company_id": cid})
+    try:
+        lim = int(request.args.get("limit") or 40)
+    except ValueError:
+        lim = 40
+    resultados = legajos_service.search_documentos_empresa(
+        chatbot.db,
+        cid,
+        q,
+        limit=lim,
+        tipo_documento=tipo_documento,
+        empleados_q=empleados_q,
+    )
+    return jsonify({"ok": True, "resultados": resultados, "company_id": cid})
+
+
+@flask_app.get("/api/legajos/documentos/tipos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para ver legajos.",
+)
+def api_legajos_documentos_tipos():
+    """Resumen de cantidad de archivos por tipo (carpeta) en la empresa."""
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible.", "tipos": []}), 503
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err, "tipos": []}), 400
+    empleados_q = (request.args.get("empleados_q") or "").strip() or None
+    tipos = legajos_service.list_documentos_resumen_tipos(
+        chatbot.db, cid, empleados_search=empleados_q
+    )
+    return jsonify({"ok": True, "tipos": tipos, "company_id": cid})
 
 
 @flask_app.get("/api/legajos/empleados/<empleado_id>/documentos")
@@ -3800,43 +3936,60 @@ def api_legajos_documentos_upload(empleado_id):
     emp, err = _legajos_empleado_si_acceso(empleado_id)
     if err:
         return jsonify({"ok": False, "error": err}), 404
-    meta, up_err = _upload_legajo_file_to_storage(emp["company_id"], empleado_id)
-    if up_err or not meta:
-        if up_err and "Storage no configurado" in up_err:
-            return jsonify({"ok": False, "error": up_err}), 501
-        if up_err:
-            status = 400 if any(
-                x in up_err for x in ("No se envió", "Tipo no permitido", "supera el límite")
-            ) else 500
-            return jsonify({"ok": False, "error": up_err}), status
-        return jsonify({"ok": False, "error": "Error al subir el archivo."}), 500
+    bucket = _get_storage_bucket()
+    if not bucket:
+        return jsonify({"ok": False, "error": "Storage no configurado (Firebase Storage)."}), 501
+    files = [f for f in request.files.getlist("file") if f and f.filename]
+    if not files:
+        return jsonify({"ok": False, "error": "No se envió ningún archivo."}), 400
     tipo = (request.form.get("tipo_documento") or "otro").strip() or "otro"
     user = _current_rrhh_user()
     uname = str((user or {}).get("username") or "").strip()
-    ok, row, msg = legajos_service.create_documento(
-        chatbot.db,
-        empleado_id=empleado_id,
-        company_id=emp["company_id"],
-        storage_path=meta["storage_path"],
-        filename=meta["filename"],
-        content_type=meta["content_type"],
-        size_bytes=meta["size_bytes"],
-        uploaded_by=uname,
-        tipo_documento=tipo,
-    )
-    if not ok:
-        return jsonify({"ok": False, "error": msg or "No se pudo registrar el documento."}), 500
-    _legajos_audit(
-        legajos_service.LEGAJOS_AUDIT_DOCUMENTO_SUBIR,
-        emp["company_id"],
-        {
-            "empleado_id": empleado_id,
-            "documento_id": (row or {}).get("id"),
-            "filename": (row or {}).get("filename"),
-            "tipo": tipo,
-        },
-    )
-    return jsonify({"ok": True, "documento": row})
+    documentos: list[dict] = []
+    errores: list[dict] = []
+    for fs in files:
+        meta, up_err = _upload_one_legajo_filestorage(bucket, emp["company_id"], empleado_id, fs)
+        orig_name = (fs.filename or "").strip() or (meta or {}).get("filename") or "archivo"
+        if up_err or not meta:
+            errores.append({"filename": orig_name, "error": up_err or "Error al subir."})
+            continue
+        ok, row, msg = legajos_service.create_documento(
+            chatbot.db,
+            empleado_id=empleado_id,
+            company_id=emp["company_id"],
+            storage_path=meta["storage_path"],
+            filename=meta["filename"],
+            content_type=meta["content_type"],
+            size_bytes=meta["size_bytes"],
+            uploaded_by=uname,
+            tipo_documento=tipo,
+        )
+        if not ok:
+            errores.append({"filename": orig_name, "error": msg or "No se pudo registrar el documento."})
+            continue
+        _legajos_audit(
+            legajos_service.LEGAJOS_AUDIT_DOCUMENTO_SUBIR,
+            emp["company_id"],
+            {
+                "empleado_id": empleado_id,
+                "documento_id": (row or {}).get("id"),
+                "filename": (row or {}).get("filename"),
+                "tipo": tipo,
+            },
+        )
+        documentos.append(row or {})
+    if not documentos and errores:
+        first = errores[0].get("error") or "Error al subir."
+        return jsonify({"ok": False, "error": first, "errores": errores, "documentos": []}), 400
+    body = {
+        "ok": True,
+        "documentos": documentos,
+        "errores": errores,
+        "subidos": len(documentos),
+    }
+    if len(documentos) == 1 and not errores:
+        body["documento"] = documentos[0]
+    return jsonify(body)
 
 
 @flask_app.get("/api/legajos/documentos/<documento_id>/link")
@@ -7089,20 +7242,16 @@ def _upload_file_to_storage(prefix_path: str):
         return None, str(e)
 
 
-def _upload_legajo_file_to_storage(company_id: str, empleado_id: str):
-    """Sube el archivo multipart a legajos_uploads/{company}/{empleado_id}/… y devuelve metadatos (sin URL pública)."""
-    bucket = _get_storage_bucket()
-    if not bucket:
-        return None, "Storage no configurado (Firebase Storage)."
-    file_storage = request.files.get("file")
+def _upload_one_legajo_filestorage(bucket, company_id: str, empleado_id: str, file_storage):
+    """Sube un archivo (werkzeug FileStorage) a legajos_uploads/… Devuelve (meta dict | None, error str | None)."""
     if not file_storage or not file_storage.filename:
-        return None, "No se envió ningún archivo."
+        return None, "Archivo vacío o sin nombre."
     raw = file_storage.read()
     if len(raw) > UPLOAD_MAX_BYTES:
         return None, f"El archivo supera el límite de {UPLOAD_MAX_BYTES // (1024*1024)} MB."
     ext = (file_storage.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in UPLOAD_ALLOWED_EXTENSIONS:
-        return None, f"Tipo no permitido. Permitidos: {', '.join(UPLOAD_ALLOWED_EXTENSIONS)}."
+        return None, f"Tipo no permitido. Permitidos: {', '.join(sorted(UPLOAD_ALLOWED_EXTENSIONS))}."
     content_type = file_storage.content_type or ("application/pdf" if ext == "pdf" else "image/jpeg")
     safe_name = "".join(c for c in file_storage.filename if c.isalnum() or c in "._- ").strip() or "archivo"
     cid = _normalize_company_id(company_id) or str(company_id or "").strip().lower()
@@ -7122,6 +7271,17 @@ def _upload_legajo_file_to_storage(company_id: str, empleado_id: str):
         )
     except Exception as e:
         return None, str(e)
+
+
+def _upload_legajo_file_to_storage(company_id: str, empleado_id: str):
+    """Sube un único archivo del request (campo ``file``)."""
+    bucket = _get_storage_bucket()
+    if not bucket:
+        return None, "Storage no configurado (Firebase Storage)."
+    file_storage = request.files.get("file")
+    if not file_storage or not file_storage.filename:
+        return None, "No se envió ningún archivo."
+    return _upload_one_legajo_filestorage(bucket, company_id, empleado_id, file_storage)
 
 
 @flask_app.post("/api/comunicados/upload")

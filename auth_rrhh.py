@@ -714,6 +714,32 @@ def user_has_company_access(username, company_id):
     return assignment_matches_company(entry.get("assignments"), company_id)
 
 
+def list_users_for_company(company_id: str) -> list[dict]:
+    """
+    Usuarios RRHH con acceso a la empresa (asignación explícita o acceso global sin asignaciones).
+    Cada ítem: username, display_name (para desplegables y filtros).
+    """
+    cid = _normalize_company_id(company_id)
+    if not cid:
+        return []
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for entry in _load_users_from_file(users_file_path()) + _load_admin_user_from_env():
+        un = str(entry.get("username") or "").strip()
+        if not un:
+            continue
+        key = un.lower()
+        if key in seen:
+            continue
+        if not assignment_matches_company(entry.get("assignments"), cid):
+            continue
+        seen.add(key)
+        dn = str(entry.get("display_name") or un).strip() or un
+        rows.append({"username": un, "display_name": dn})
+    rows.sort(key=lambda r: r["username"].lower())
+    return rows
+
+
 def is_auth_enabled():
     mode = _parse_bool_mode(os.getenv("RRHH_AUTH_ENABLED", "auto"))
     users = get_users()

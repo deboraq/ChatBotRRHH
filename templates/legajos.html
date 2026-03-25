@@ -55,7 +55,7 @@
           </select>
         </label>
         {% endif %}
-        <label class="legajos-field legajos-field-grow">
+        <label class="legajos-field legajos-field-grow" title="Filtra colaboradores; el resumen de carpetas abajo usa el mismo criterio. Si tenés abiertos «Documentos encontrados», esa tabla se actualiza sola.">
           Buscar
           <input type="search" id="legajos-search" placeholder="Nombre, DNI, email, legajo…" autocomplete="off" />
         </label>
@@ -147,9 +147,9 @@
                 <option value="otro" selected>Otro</option>
               </select>
             </label>
-            <label class="legajos-field">
-              Archivo
-              <input type="file" id="legajos-file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" required />
+            <label class="legajos-field legajos-field--file">
+              Archivos
+              <input type="file" id="legajos-file" name="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" multiple required />
             </label>
             <button type="submit" class="btn-legajos-primary">Subir</button>
           </form>
@@ -173,9 +173,107 @@
       <section class="legajos-panel legajos-audit-panel">
         <div class="legajos-audit-head">
           <h2 class="legajos-panel-title" style="margin:0;">Actividad reciente</h2>
-          <button type="button" class="btn-legajos-secondary" id="legajos-audit-refresh">Actualizar</button>
+          <div class="legajos-audit-head-actions">
+            <button type="button" class="btn-legajos-secondary" id="legajos-audit-export" title="Mismos filtros que la tabla; hasta 5000 filas">
+              Exportar auditoría (Excel)
+            </button>
+            <button type="button" class="btn-legajos-secondary" id="legajos-audit-refresh">Actualizar</button>
+          </div>
         </div>
-        <p class="legajos-hint">Altas, ediciones, bajas, importaciones (Excel o CSV), documentos.</p>
+        <p class="legajos-hint">Altas, ediciones, bajas, importaciones (Excel o CSV), documentos. Filtrá por fechas (día completo en tu hora local), usuario, acción o texto en el detalle. El export usa los mismos filtros.</p>
+        <div class="legajos-audit-controls">
+          <div class="legajos-audit-filtros">
+            <label class="legajos-audit-label">
+              Usuario
+              <select id="legajos-audit-user" aria-label="Filtrar por usuario">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label class="legajos-audit-label">
+              Acción
+              <select id="legajos-audit-action" aria-label="Filtrar por tipo de acción">
+                <option value="">Todas</option>
+                <option value="empleado_crear">Alta colaborador</option>
+                <option value="empleado_editar">Edición colaborador</option>
+                <option value="empleado_eliminar">Baja colaborador</option>
+                <option value="empleado_importar">Importación colaboradores</option>
+                <option value="documento_subir">Subida de archivo</option>
+                <option value="documento_descargar">Descarga de archivo</option>
+                <option value="documento_eliminar">Eliminación de archivo</option>
+              </select>
+            </label>
+            <label class="legajos-audit-label">
+              Desde
+              <input type="date" id="legajos-audit-from" autocomplete="off" />
+            </label>
+            <label class="legajos-audit-label">
+              Hasta
+              <input type="date" id="legajos-audit-to" autocomplete="off" />
+            </label>
+            <label class="legajos-audit-label legajos-audit-label--grow">
+              Buscar en detalle
+              <input type="search" id="legajos-audit-q" placeholder="Archivo, legajo, DNI, ID…" autocomplete="off" />
+            </label>
+            <div class="legajos-audit-filtros-actions">
+              <button type="button" class="btn-legajos-primary" id="legajos-audit-apply">Aplicar filtros</button>
+              <button type="button" class="btn-legajos-secondary" id="legajos-audit-clear">Limpiar</button>
+            </div>
+          </div>
+          <div class="legajos-doc-tipos-panel" id="legajos-doc-tipos-wrap">
+            <h3 class="legajos-subpanel-title">Carpetas (tipo de documento)</h3>
+            <p class="legajos-hint legajos-hint--compact">Archivos agrupados por la categoría que elegís al subir (contrato, DNI, etc.). «Ver» muestra el listado de esa carpeta en toda la empresa.</p>
+            <div class="legajos-table-wrap">
+              <table class="legajos-table legajos-doc-tipos-table">
+                <thead>
+                  <tr>
+                    <th>Carpeta</th>
+                    <th>Archivos</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="legajos-doc-tipos-tbody">
+                  <tr><td colspan="3" class="legajos-empty">Cargando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="legajos-doc-buscar">
+            <label class="legajos-audit-label">
+              Carpeta
+              <select id="legajos-doc-tipo" aria-label="Filtrar búsqueda por tipo de documento">
+                <option value="">Todas</option>
+                <option value="contrato">Contrato</option>
+                <option value="dni">DNI / identificación</option>
+                <option value="certificado">Certificado</option>
+                <option value="evaluacion">Evaluación</option>
+                <option value="otro">Otro</option>
+              </select>
+            </label>
+            <label class="legajos-audit-label legajos-audit-label--grow">
+              Buscar en documentos
+              <input type="search" id="legajos-doc-q" placeholder="Archivo, nombre, DNI, legajo o email…" autocomplete="off" />
+            </label>
+            <button type="button" class="btn-legajos-secondary" id="legajos-doc-search">Buscar en todos los legajos</button>
+          </div>
+        </div>
+        <div class="legajos-doc-results-panel" id="legajos-doc-results-wrap" hidden>
+          <h3 class="legajos-subpanel-title">Documentos encontrados</h3>
+          <div class="legajos-table-wrap">
+            <table class="legajos-table legajos-doc-search-table">
+              <thead>
+                <tr>
+                  <th>Archivo</th>
+                  <th>Colaborador</th>
+                  <th>DNI</th>
+                  <th>Tipo</th>
+                  <th>Fecha</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="legajos-doc-search-tbody"></tbody>
+            </table>
+          </div>
+        </div>
         <div class="legajos-table-wrap">
           <table class="legajos-table legajos-audit-table">
             <thead>
@@ -230,6 +328,120 @@
         var searchTimer = null;
         var lastEmpleados = [];
 
+        var DOC_TIPO_LABELS = {
+          contrato: "Contrato",
+          dni: "DNI / identificación",
+          certificado: "Certificado",
+          evaluacion: "Evaluación",
+          otro: "Otro",
+        };
+
+        function legajosLabelTipoDoc(code) {
+          if (code == null || code === "") return "—";
+          var k = String(code);
+          return DOC_TIPO_LABELS[k] || k;
+        }
+
+        function rebuildLegajosDocTipoSelect(apiTipos) {
+          var sel = document.getElementById("legajos-doc-tipo");
+          if (!sel) return;
+          var prev = sel.value;
+          sel.innerHTML = "";
+          var o0 = document.createElement("option");
+          o0.value = "";
+          o0.textContent = "Todas";
+          sel.appendChild(o0);
+          var seen = {};
+          ["contrato", "dni", "certificado", "evaluacion", "otro"].forEach(function(key) {
+            seen[key] = true;
+            var o = document.createElement("option");
+            o.value = key;
+            o.textContent = DOC_TIPO_LABELS[key] || key;
+            sel.appendChild(o);
+          });
+          (apiTipos || []).forEach(function(row) {
+            var k = String((row && row.tipo_documento) || "").trim();
+            if (!k || seen[k]) return;
+            seen[k] = true;
+            var o = document.createElement("option");
+            o.value = k;
+            o.textContent = k;
+            sel.appendChild(o);
+          });
+          if (prev) {
+            for (var i = 0; i < sel.options.length; i++) {
+              if (sel.options[i].value === prev) {
+                sel.value = prev;
+                return;
+              }
+            }
+          }
+        }
+
+        async function loadDocTiposResumen() {
+          var tb = document.getElementById("legajos-doc-tipos-tbody");
+          if (!tb) return;
+          var cid = legajosActiveCompanyId();
+          if (!cid) {
+            tb.innerHTML = '<tr><td colspan="3" class="legajos-empty">Seleccioná una empresa para ver las carpetas.</td></tr>';
+            rebuildLegajosDocTipoSelect([]);
+            return;
+          }
+          tb.innerHTML = '<tr><td colspan="3" class="legajos-empty">Cargando…</td></tr>';
+          try {
+            var paramsT = new URLSearchParams({ company_id: cid });
+            var topQTipos = (searchEl && searchEl.value) ? searchEl.value.trim() : "";
+            if (topQTipos) paramsT.set("empleados_q", topQTipos);
+            var res = await fetch("/api/legajos/documentos/tipos?" + paramsT.toString(), {
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              tb.innerHTML =
+                '<tr><td colspan="3" class="legajos-empty">' + escapeHtml(data.error || "Sin datos") + "</td></tr>";
+              return;
+            }
+            var list = data.tipos || [];
+            rebuildLegajosDocTipoSelect(list);
+            tb.innerHTML = "";
+            if (!list.length) {
+              tb.innerHTML =
+                '<tr><td colspan="3" class="legajos-empty">' +
+                (topQTipos
+                  ? "Ningún archivo de los colaboradores que coinciden con la búsqueda superior (o no hay coincidencias)."
+                  : "No hay documentos subidos en esta empresa.") +
+                "</td></tr>";
+              return;
+            }
+            list.forEach(function(row) {
+              var code = String((row && row.tipo_documento) || "").trim() || "otro";
+              var n = parseInt(row.count, 10);
+              if (isNaN(n)) n = 0;
+              var tr = document.createElement("tr");
+              tr.innerHTML =
+                "<td>" + escapeHtml(legajosLabelTipoDoc(code)) + "</td>" +
+                "<td>" + String(n) + "</td>" +
+                '<td><button type="button" class="btn-link legajos-doc-ver-carpeta" data-tipo="' +
+                escapeHtml(code) +
+                '">Ver</button></td>';
+              tb.appendChild(tr);
+            });
+          } catch (e) {
+            tb.innerHTML = '<tr><td colspan="3" class="legajos-empty">Error al cargar carpetas.</td></tr>';
+          }
+        }
+
+        async function buscarDocumentosGlobalPorTipo(tipoCode) {
+          var sel = document.getElementById("legajos-doc-tipo");
+          if (sel && tipoCode) sel.value = tipoCode;
+          await buscarDocumentosGlobal();
+        }
+
         var actionLabels = {
           empleado_crear: "Alta colaborador",
           empleado_editar: "Edición de colaborador",
@@ -253,10 +465,104 @@
           }
         }
 
+        function legajosActiveCompanyId() {
+          return (cfg.company_id || (companySel && companySel.value) || "").trim();
+        }
+
+        /** Lleva la vista al listado de colaboradores y panel de documentos (arriba del módulo). */
+        function scrollLegajosVistaPrincipal() {
+          var split = document.querySelector(".legajos-split");
+          if (split) {
+            split.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+          }
+          var bar = document.querySelector(".legajos-toolbar");
+          if (bar) bar.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        async function loadAuditUserOptions() {
+          var sel = document.getElementById("legajos-audit-user");
+          if (!sel) return;
+          var prev = sel.value;
+          sel.innerHTML = '<option value="">Todos</option>';
+          var cid = legajosActiveCompanyId();
+          if (!cid) return;
+          try {
+            var res = await fetch(
+              "/api/legajos/usuarios-empresa?company_id=" + encodeURIComponent(cid),
+              { credentials: "same-origin", cache: "no-store" }
+            );
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) return;
+            (data.usuarios || []).forEach(function(u) {
+              var opt = document.createElement("option");
+              opt.value = u.username || "";
+              var un = u.username || "";
+              var dn = u.display_name || "";
+              opt.textContent = dn && dn !== un ? dn + " (" + un + ")" : un;
+              sel.appendChild(opt);
+            });
+            if (prev) {
+              var found = false;
+              for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === prev) {
+                  found = true;
+                  break;
+                }
+              }
+              if (found) sel.value = prev;
+            }
+          } catch (e) {}
+        }
+
+        function legajosAuditDateToStartISO(ymd) {
+          if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+          var p = ymd.split("-");
+          var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 0, 0, 0, 0);
+          return isNaN(d.getTime()) ? "" : d.toISOString();
+        }
+
+        function legajosAuditDateToEndISO(ymd) {
+          if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+          var p = ymd.split("-");
+          var d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), 23, 59, 59, 999);
+          return isNaN(d.getTime()) ? "" : d.toISOString();
+        }
+
+        function appendLegajosAuditFilterParams(params) {
+          var cid = legajosActiveCompanyId();
+          if (cid) params.set("company_id", cid);
+          var au = document.getElementById("legajos-audit-user");
+          var aa = document.getElementById("legajos-audit-action");
+          var aq = document.getElementById("legajos-audit-q");
+          var df = document.getElementById("legajos-audit-from");
+          var dt = document.getElementById("legajos-audit-to");
+          if (au && au.value.trim()) params.set("username", au.value.trim());
+          if (aa && aa.value) params.set("action", aa.value);
+          if (aq && aq.value.trim()) params.set("q", aq.value.trim());
+          if (df && df.value) {
+            var iso = legajosAuditDateToStartISO(df.value);
+            if (iso) params.set("at_from", iso);
+          }
+          if (dt && dt.value) {
+            var isoEnd = legajosAuditDateToEndISO(dt.value);
+            if (isoEnd) params.set("at_to", isoEnd);
+          }
+        }
+
         async function loadAuditoria() {
           if (!auditTbody) return;
           try {
-            var res = await fetch("/api/legajos/auditoria?limit=100", { credentials: "same-origin", cache: "no-store" });
+            var params = new URLSearchParams({ limit: "150" });
+            appendLegajosAuditFilterParams(params);
+            var res = await fetch("/api/legajos/auditoria?" + params.toString(), {
+              credentials: "same-origin",
+              cache: "no-store",
+            });
             if (res.status === 401) {
               loginRedirect();
               return;
@@ -269,7 +575,8 @@
             var evs = data.eventos || [];
             auditTbody.innerHTML = "";
             if (!evs.length) {
-              auditTbody.innerHTML = '<tr><td colspan="4" class="legajos-empty">Sin actividad registrada aún.</td></tr>';
+              auditTbody.innerHTML =
+                '<tr><td colspan="4" class="legajos-empty">Sin eventos con estos filtros. Probá limpiar o ampliar la búsqueda.</td></tr>';
               return;
             }
             evs.forEach(function(ev) {
@@ -284,6 +591,104 @@
             });
           } catch (e) {
             if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="4" class="legajos-empty">Error al cargar auditoría.</td></tr>';
+          }
+        }
+
+        async function buscarDocumentosGlobal() {
+          var dq = document.getElementById("legajos-doc-q");
+          var dtipo = document.getElementById("legajos-doc-tipo");
+          var wrap = document.getElementById("legajos-doc-results-wrap");
+          var dtbody = document.getElementById("legajos-doc-search-tbody");
+          if (!dq || !wrap || !dtbody) return;
+          var term = dq.value.trim();
+          var tipoF = dtipo && dtipo.value ? dtipo.value.trim() : "";
+          var colabQ = (searchEl && searchEl.value) ? searchEl.value.trim() : "";
+          if (!term && !tipoF && !colabQ) {
+            setStatus(
+              "Elegí una carpeta, escribí en Buscar arriba (colaboradores) o un texto en documentos.",
+              true
+            );
+            return;
+          }
+          var params = new URLSearchParams({ limit: "200" });
+          if (term) params.set("q", term);
+          if (tipoF) params.set("tipo_documento", tipoF);
+          if (colabQ) params.set("empleados_q", colabQ);
+          var cid = legajosActiveCompanyId();
+          if (cid) params.set("company_id", cid);
+          setStatus("Buscando documentos…");
+          try {
+            var res = await fetch("/api/legajos/documentos/buscar?" + params.toString(), {
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "Error en la búsqueda", true);
+              wrap.hidden = true;
+              return;
+            }
+            var rows = data.resultados || [];
+            dtbody.innerHTML = "";
+            wrap.hidden = false;
+            if (!rows.length) {
+              var bits = [];
+              if (colabQ) bits.push("colaboradores (búsqueda superior)");
+              if (tipoF) bits.push("carpeta «" + escapeHtml(legajosLabelTipoDoc(tipoF)) + "»");
+              if (term) bits.push("texto «" + escapeHtml(term) + "» (archivo o datos del colaborador)");
+              var msgEmpty =
+                bits.length > 0
+                  ? "No hay archivos que cumplan: " + bits.join(" · ") + "."
+                  : "No hay archivos.";
+              dtbody.innerHTML = '<tr><td colspan="6" class="legajos-empty">' + msgEmpty + "</td></tr>";
+              setStatus("Sin resultados.");
+              return;
+            }
+            rows.forEach(function(r) {
+              var tr = document.createElement("tr");
+              var eid = r.empleado_id || "";
+              var fn = escapeHtml(r.filename || "");
+              var nom = escapeHtml(r.empleado_nombre || "—");
+              var dni = escapeHtml(r.empleado_dni || "");
+              var tipo = escapeHtml(legajosLabelTipoDoc(r.tipo_documento || ""));
+              var fe = escapeHtml(formatLegajosLocalDateTime(r.uploaded_at) || r.uploaded_at || "");
+              tr.innerHTML =
+                "<td>" + fn + "</td><td>" + nom + "</td><td>" + dni + "</td><td>" + tipo + "</td><td>" + fe + "</td>" +
+                '<td><button type="button" class="btn-link legajos-open-legajo" data-eid="' + escapeHtml(eid) + '">Abrir legajo</button></td>';
+              tr.querySelector(".legajos-open-legajo").addEventListener("click", async function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var emp = lastEmpleados.find(function(x) { return x.id === eid; });
+                if (emp) {
+                  await selectEmpleado(eid, emp);
+                  scrollLegajosVistaPrincipal();
+                  return;
+                }
+                try {
+                  var res2 = await fetch("/api/legajos/empleados/" + encodeURIComponent(eid), {
+                    credentials: "same-origin",
+                    cache: "no-store",
+                  });
+                  var d2 = await res2.json();
+                  if (d2.ok && d2.empleado) {
+                    await selectEmpleado(eid, d2.empleado);
+                    scrollLegajosVistaPrincipal();
+                  } else {
+                    setStatus("No se pudo cargar el colaborador.", true);
+                  }
+                } catch (err) {
+                  setStatus("Error de red.", true);
+                }
+              });
+              dtbody.appendChild(tr);
+            });
+            setStatus(rows.length + " documento(s) encontrado(s).");
+          } catch (e) {
+            setStatus("Error al buscar documentos.", true);
           }
         }
 
@@ -339,6 +744,7 @@
           selectedId = null;
           selectedEmp = null;
           if (detail) detail.hidden = true;
+          await loadAuditUserOptions();
           loadEmpleados();
         }
 
@@ -542,7 +948,12 @@
             renderRows(lastEmpleados);
             setStatus("");
             highlightSelectedRow();
+            loadDocTiposResumen();
             loadAuditoria();
+            var docResWrap = document.getElementById("legajos-doc-results-wrap");
+            if (docResWrap && !docResWrap.hidden) {
+              buscarDocumentosGlobal();
+            }
           } catch (e) {
             setStatus("Error de red.", true);
           }
@@ -606,7 +1017,7 @@
           docs.forEach(function(d) {
             var tr = document.createElement("tr");
             var nameCell = escapeHtml(d.filename || "");
-            var tipo = escapeHtml(d.tipo_documento || "");
+            var tipo = escapeHtml(legajosLabelTipoDoc(d.tipo_documento || ""));
             var fecha = escapeHtml(formatLegajosLocalDateTime(d.uploaded_at) || d.uploaded_at || "");
             var actions = '<button type="button" class="btn-link legajos-dl" data-id="' + escapeHtml(d.id) + '">Descargar</button>';
             if (cfg.can_manage) {
@@ -669,6 +1080,7 @@
               return;
             }
             if (selectedId && selectedEmp) selectEmpleado(selectedId, selectedEmp);
+            loadDocTiposResumen();
             loadAuditoria();
           } catch (e) {
             setStatus("Error de red.", true);
@@ -684,6 +1096,83 @@
         }
         if (refreshBtn) refreshBtn.addEventListener("click", function() { loadEmpleados(); loadAuditoria(); });
         if (auditRefresh) auditRefresh.addEventListener("click", loadAuditoria);
+        var auditExport = document.getElementById("legajos-audit-export");
+        if (auditExport) {
+          auditExport.addEventListener("click", async function() {
+            var params = new URLSearchParams();
+            appendLegajosAuditFilterParams(params);
+            setStatus("Generando Excel de auditoría…");
+            try {
+              var res = await fetch("/api/legajos/auditoria/export?" + params.toString(), {
+                credentials: "same-origin",
+                cache: "no-store",
+              });
+              if (res.status === 401) {
+                loginRedirect();
+                return;
+              }
+              if (!res.ok) {
+                var errJ = await res.json().catch(function() { return {}; });
+                setStatus((errJ && errJ.error) || "No se pudo exportar.", true);
+                return;
+              }
+              var blob = await res.blob();
+              var disp = res.headers.get("Content-Disposition") || "";
+              var fn = "legajos_auditoria.xlsx";
+              var m = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disp);
+              if (m && m[1]) fn = m[1].replace(/['"]/g, "").trim();
+              var a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = fn;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(a.href);
+              setStatus("Auditoría exportada (Excel).");
+            } catch (e) {
+              setStatus("Error al exportar auditoría.", true);
+            }
+          });
+        }
+        var auditApply = document.getElementById("legajos-audit-apply");
+        var auditClear = document.getElementById("legajos-audit-clear");
+        var docSearchBtn = document.getElementById("legajos-doc-search");
+        var docSearchQ = document.getElementById("legajos-doc-q");
+        if (auditApply) auditApply.addEventListener("click", loadAuditoria);
+        if (auditClear) {
+          auditClear.addEventListener("click", function() {
+            var au = document.getElementById("legajos-audit-user");
+            var aa = document.getElementById("legajos-audit-action");
+            var aq = document.getElementById("legajos-audit-q");
+            if (au) au.value = "";
+            if (aa) aa.value = "";
+            if (aq) aq.value = "";
+            var dff = document.getElementById("legajos-audit-from");
+            var dtt = document.getElementById("legajos-audit-to");
+            if (dff) dff.value = "";
+            if (dtt) dtt.value = "";
+            loadAuditoria();
+          });
+        }
+        if (docSearchBtn) docSearchBtn.addEventListener("click", buscarDocumentosGlobal);
+        if (docSearchQ) {
+          docSearchQ.addEventListener("keydown", function(ev) {
+            if (ev.key === "Enter") {
+              ev.preventDefault();
+              buscarDocumentosGlobal();
+            }
+          });
+        }
+        var docTiposTb = document.getElementById("legajos-doc-tipos-tbody");
+        if (docTiposTb) {
+          docTiposTb.addEventListener("click", function(ev) {
+            var t = ev.target;
+            if (!t || !t.classList || !t.classList.contains("legajos-doc-ver-carpeta")) return;
+            ev.preventDefault();
+            var code = (t.getAttribute("data-tipo") || "").trim();
+            if (code) buscarDocumentosGlobalPorTipo(code);
+          });
+        }
 
         if (btnExport) {
           btnExport.addEventListener("click", async function() {
@@ -923,14 +1412,17 @@
             if (!selectedId) return;
             var fileInput = document.getElementById("legajos-file");
             var tipo = document.getElementById("legajos-tipo");
-            if (!fileInput || !fileInput.files || !fileInput.files[0]) {
-              setStatus("Elegí un archivo.", true);
+            if (!fileInput || !fileInput.files || !fileInput.files.length) {
+              setStatus("Elegí al menos un archivo.", true);
               return;
             }
+            var n = fileInput.files.length;
             var fd = new FormData();
-            fd.append("file", fileInput.files[0]);
+            for (var i = 0; i < n; i++) {
+              fd.append("file", fileInput.files[i]);
+            }
             fd.append("tipo_documento", (tipo && tipo.value) || "otro");
-            setStatus("Subiendo…");
+            setStatus(n === 1 ? "Subiendo…" : "Subiendo " + n + " archivos…");
             try {
               var res = await fetch("/api/legajos/empleados/" + encodeURIComponent(selectedId) + "/documentos", {
                 method: "POST",
@@ -947,8 +1439,23 @@
                 return;
               }
               fileInput.value = "";
-              setStatus("Archivo subido.");
+              var sub = data.subidos != null ? data.subidos : (data.documentos && data.documentos.length) || 0;
+              var errs = data.errores || [];
+              var msg = sub === 1 ? "1 archivo subido." : sub + " archivos subidos.";
+              if (errs.length) {
+                msg +=
+                  " Falló: " +
+                  errs
+                    .map(function(e) {
+                      return (e.filename || "?") + ": " + (e.error || "");
+                    })
+                    .join("; ");
+                setStatus(msg, sub === 0);
+              } else {
+                setStatus(msg);
+              }
               if (selectedEmp) selectEmpleado(selectedId, selectedEmp);
+              loadDocTiposResumen();
               loadAuditoria();
             } catch (e) {
               setStatus("Error de red.", true);
@@ -956,7 +1463,10 @@
           });
         }
 
-        loadEmpleados();
+        (async function boot() {
+          await loadAuditUserOptions();
+          await loadEmpleados();
+        })();
       })();
     </script>
   </body>
