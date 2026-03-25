@@ -7,6 +7,8 @@ try:
 except ImportError:
     pass
 
+import csv
+import io
 import logging
 import re
 import smtplib
@@ -15,10 +17,22 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from functools import wraps
 
-from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask import (
+    Flask,
+    g,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
+)
 
 import app as chatbot
 import auth_rrhh
+import legajos_service
 import stats_service
 
 # Conectar Firestore a auth_rrhh para persistencia de usuarios y roles
@@ -167,6 +181,66 @@ def _send_push_all(title: str, body: str, url: str = "/rrhh"):
             logging.warning(f"Push send error: {exc}")
 
     _threading.Thread(target=_do, daemon=True).start()
+
+
+def _notify_handoff_via_n8n(handoff_payload: dict, company: dict):
+    """Envía email de notificación cuando se crea un nuevo handoff."""
+    # Para WA: buscar el email del número específico que recibió el mensaje
+    notify_email = ""
+    wa_from_number = str(handoff_payload.get("whatsapp_from_number") or "").strip()
+    if wa_from_number:
+        for line in (company.get("whatsapp_numbers") or []):
+            p = str(line.get("phone") or "").strip()
+            if p and _normalize_phone_for_match(p) == _normalize_phone_for_match(wa_from_number):
+                notify_email = str(line.get("notify_email") or "").strip()
+                break
+    # Fallback: email general de la empresa
+    if not notify_email:
+        notify_email = str(company.get("handoff_notify_email") or "").strip()
+    if not notify_email:
+        return
+
+    def _do():
+        try:
+            company_name = handoff_payload.get("company_name") or handoff_payload.get("company_id") or "Sin empresa"
+            colaborador = handoff_payload.get("colaborador_nombre") or handoff_payload.get("colaborador_telefono") or "Colaborador"
+            consulta = handoff_payload.get("ultima_consulta") or "Solicitud de atención"
+            area = handoff_payload.get("area") or ""
+            branch = handoff_payload.get("branch") or ""
+            canal = "WhatsApp" if handoff_payload.get("channel") == "whatsapp" else "Web"
+
+            subject = f"[{company_name}] Nueva consulta de {colaborador}"
+
+            lineas = [
+                f"Nueva conversación iniciada en el ChatBot RRHH.",
+                "",
+                f"Empresa:     {company_name}",
+                f"Colaborador: {colaborador}",
+                f"Canal:       {canal}",
+            ]
+            if area:
+                lineas.append(f"Área:        {area}")
+            if branch:
+                lineas.append(f"Sucursal:    {branch}")
+            resumen = handoff_payload.get("resumen_conversacion") or ""
+            lineas += [
+                "",
+                "Último mensaje:",
+                consulta,
+            ]
+            if resumen:
+                lineas += ["", "Resumen de la conversación:", resumen]
+            lineas += ["", "Ver en el panel: https://debo-chat.web.app/?m=rrhh"]
+            body = "\n".join(lineas)
+
+            ok, err = _send_email(notify_email, subject, body)
+            if not ok:
+                logging.warning(f"Handoff notify email error: {err}")
+        except Exception as exc:
+            logging.warning(f"Handoff notify email error: {exc}")
+
+    _threading.Thread(target=_do, daemon=True).start()
+
 
 logger = logging.getLogger(__name__)
 flask_app = Flask(__name__)
@@ -804,7 +878,8 @@ def _normalize_whatsapp_numbers(raw):
             continue
         seen_phones.add(key)
         label = str(item.get("label") or "").strip() or "Principal"
-        out.append({"phone": phone[:30], "label": label[:80]})
+        notify_email = str(item.get("notify_email") or "").strip()[:200] or None
+        out.append({"phone": phone[:30], "label": label[:80], "notify_email": notify_email})
     return out
 
 
@@ -884,6 +959,7 @@ def _normalize_company_entry(entry):
         "temas_habilitados": temas_habilitados,
         "whatsapp_numbers": whatsapp_numbers,
         "drive_folder_id": str(entry.get("drive_folder_id") or "").strip()[:128] or None,
+        "handoff_notify_email": str(entry.get("handoff_notify_email") or "").strip()[:200] or None,
     }
     if out.get("drive_folder_id") is None:
         out.pop("drive_folder_id", None)
@@ -980,6 +1056,11 @@ def _merge_company_entries(current, candidate):
         base["drive_folder_id"] = v
     else:
         base.setdefault("drive_folder_id", base.get("drive_folder_id"))
+    if "handoff_notify_email" in extra:
+        v = str(extra.get("handoff_notify_email") or "").strip()[:200] or None
+        base["handoff_notify_email"] = v
+    else:
+        base.setdefault("handoff_notify_email", base.get("handoff_notify_email"))
     return base
 
 
@@ -1677,6 +1758,8 @@ def _default_landing_for_user(user_payload):
         return "/rrhh"
     if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_HISTORY_VIEW):
         return "/historial"
+    if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_LEGAJOS_VIEW):
+        return "/legajos"
     if auth_rrhh.role_has_permission(role, auth_rrhh.PERM_USERS_MANAGE) or auth_rrhh.role_has_permission(
         role, auth_rrhh.PERM_ROLES_MANAGE
     ):
@@ -2640,8 +2723,10 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             f"Nueva conversación{' · ' + handoff_payload.get('company_name') if handoff_payload.get('company_name') else ''}",
             f"{handoff_payload.get('colaborador_nombre') or handoff_payload.get('colaborador_telefono') or 'Usuario'}: {handoff_payload.get('ultima_consulta', 'Solicitud de atención')[:150]}",
         )
-        # Resumen de la conversación previa para el agente
+        # Generar resumen antes de notificar para incluirlo en el email
         resumen = _generar_resumen_conversacion(chat_session_id)
+        handoff_payload["resumen_conversacion"] = resumen
+        _notify_handoff_via_n8n(handoff_payload, company)
         _add_handoff_message(
             conversation_id,
             remitente="sistema",
@@ -2852,6 +2937,26 @@ def responder_chat(mensaje_usuario):
             handoff_active=True,
             quick_actions=construir_acciones_handoff(),
         )
+
+    # Frases inequívocas de contacto humano — se procesan siempre, sin importar el estado de sesión.
+    # Esto cubre el caso WhatsApp donde pending_derivacion se perdió entre instancias de Cloud Run.
+    _FRASES_CONTACTO_DIRECTA = {
+        "hablar con alguien", "hablar con un agente", "hablar con un asistente",
+        "quiero hablar con alguien", "quiero hablar con un agente",
+        "necesito hablar con alguien", "necesito un agente",
+        "contacto humano", "atencion humana", "derivame con alguien",
+    }
+    if permitir and any(f in chatbot.normalizar_texto(mensaje_usuario) for f in _FRASES_CONTACTO_DIRECTA):
+        _sess().pop("pending_feedback_topic", None)
+        _sess().pop("pending_derivacion", None)
+        conversation_id = _iniciar_handoff_rrhh(mensaje_usuario)
+        conv = _fetch_handoff(conversation_id) or {}
+        assigned = str(conv.get("rrhh_agente") or "").strip()
+        if assigned:
+            respuesta = f"👩‍💼 Perfecto, te derivé con el equipo de atención.\nTe asigné con {assigned}. Podés seguir escribiendo por este chat."
+        else:
+            respuesta = "👩‍💼 Perfecto, derivé tu consulta al equipo de atención.\nTe van a responder por este mismo chat."
+        return _payload(respuesta, handoff_active=True, quick_actions=construir_acciones_handoff())
 
     # Estado: el bot ofreció derivación y espera confirmación del usuario
     if _sess().get("pending_derivacion"):
@@ -3126,16 +3231,31 @@ def home():
     # Mostrar siempre todos los módulos en el sidebar; al hacer clic en uno protegido se redirige a login si hace falta.
     user = _current_rrhh_user()
     show_all = _auth_enabled() and user is None
+    _allowed_modules = {
+        "chat",
+        "rrhh",
+        "configuracion",
+        "estadisticas",
+        "historial",
+        "comunicados",
+        "preferencias",
+        "legajos",
+    }
+    initial_module = request.args.get("m", "chat")
+    if initial_module not in _allowed_modules:
+        initial_module = "chat"
     return render_template(
         "index.html",
         company_name=company_name,
         hr_team_name=hr_display,
+        initial_module=initial_module,
         can_view_config=_can_manage_configuration() if not show_all else True,
         can_view_stats=_can_view_stats() if not show_all else True,
         can_manage_preferences=_can_manage_preferences() if not show_all else True,
         can_view_conversations=_has_permission(auth_rrhh.PERM_CONVERSATIONS_VIEW) if not show_all else True,
         can_view_history=_has_permission(auth_rrhh.PERM_HISTORY_VIEW) if not show_all else True,
         can_view_comunicados=_has_permission(auth_rrhh.PERM_COMUNICADOS_SEND) if not show_all else False,
+        can_view_legajos=_has_permission(auth_rrhh.PERM_LEGAJOS_VIEW) if not show_all else False,
     )
 
 
@@ -3306,6 +3426,484 @@ def historial_page():
     )
 
 
+@flask_app.get("/legajos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="No tenés permisos para acceder a Legajos digitales.",
+)
+def legajos_page():
+    """Módulo de legajos digitales: listado de colaboradores y documentos en Storage."""
+    company = _set_company_session(session.get("company_id") or _default_company_id())
+    current_user = _current_rrhh_user()
+    available_companies = (
+        _companies_for_user(current_user) if current_user else _list_companies(include_inactive=False)
+    )
+    return render_template(
+        "legajos.html",
+        auth_enabled=_auth_enabled(),
+        rrhh_user=current_user,
+        can_manage_legajos=_has_permission(auth_rrhh.PERM_LEGAJOS_MANAGE),
+        available_companies=available_companies,
+        selected_company_id=company.get("company_id"),
+        selected_company_name=company.get("company_name"),
+    )
+
+
+def _legajos_effective_company_id(explicit: str | None):
+    """Empresa activa para legajos: parámetro explícito o sesión; valida acceso del usuario."""
+    raw = str(explicit or "").strip()
+    cid = _normalize_company_id(raw) if raw else ""
+    if not cid:
+        cid = _normalize_company_id(_selected_company_id_for_rrhh() or _default_company_id() or "")
+    if not cid:
+        return None, "No hay empresa seleccionada."
+    user = _current_rrhh_user()
+    if _auth_enabled() and user and not _user_can_access_company(user, cid):
+        return None, "Sin acceso a esa empresa."
+    return cid, None
+
+
+def _legajos_empleado_si_acceso(empleado_id: str):
+    emp = legajos_service.get_empleado(chatbot.db, empleado_id)
+    if not emp:
+        return None, "Colaborador no encontrado."
+    user = _current_rrhh_user()
+    cid = str(emp.get("company_id") or "").strip().lower()
+    if _auth_enabled() and user and not _user_can_access_company(user, cid):
+        return None, "Sin acceso a este legajo."
+    return emp, None
+
+
+def _legajos_documento_si_acceso(documento_id: str):
+    doc = legajos_service.get_documento(chatbot.db, documento_id)
+    if not doc:
+        return None, "Documento no encontrado."
+    user = _current_rrhh_user()
+    cid = str(doc.get("company_id") or "").strip().lower()
+    if _auth_enabled() and user and not _user_can_access_company(user, cid):
+        return None, "Sin acceso a este documento."
+    return doc, None
+
+
+def _legajos_audit(action: str, company_id: str, details: dict | None = None):
+    """Registra auditoría de legajos (no interrumpe si falla)."""
+    if not chatbot.db:
+        return
+    try:
+        user = _current_rrhh_user()
+        uname = str((user or {}).get("username") or "").strip() or "anon"
+        legajos_service.append_auditoria(
+            chatbot.db,
+            str(company_id or "").strip().lower(),
+            uname,
+            action,
+            details,
+        )
+    except Exception as exc:
+        logger.debug("legajos audit omitido: %s", exc)
+
+
+@flask_app.post("/api/legajos/empresa/seleccionar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para usar legajos.",
+)
+def api_legajos_seleccionar_empresa():
+    """Cambia la empresa en sesión (misma lógica que RRHH) para usuarios que solo tienen permiso de legajos."""
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id"))
+    if not company_id:
+        return jsonify({"ok": False, "error": "Seleccioná una empresa válida."}), 400
+    company = _get_company(company_id, include_inactive=False)
+    if not company:
+        return jsonify({"ok": False, "error": "Empresa no encontrada o inactiva."}), 404
+    current_user = _current_rrhh_user()
+    if current_user and not _user_can_access_company(current_user, company_id):
+        return _forbidden_json_error("No tenés acceso a la empresa seleccionada.")
+    selected = _set_company_session(company.get("company_id"))
+    return jsonify(
+        {
+            "ok": True,
+            "company": {
+                "company_id": selected.get("company_id"),
+                "company_name": selected.get("company_name"),
+            },
+        }
+    )
+
+
+@flask_app.get("/api/legajos/empleados")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para ver legajos.",
+)
+def api_legajos_empleados_list():
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible.", "empleados": []}), 503
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err, "empleados": []}), 400
+    q = (request.args.get("q") or request.args.get("search") or "").strip()
+    items = legajos_service.list_empleados(chatbot.db, cid, search=q or None)
+    return jsonify({"ok": True, "empleados": items, "company_id": cid})
+
+
+@flask_app.get("/api/legajos/empleados/export")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para exportar legajos.",
+)
+def api_legajos_empleados_export():
+    """Descarga Excel (.xlsx) con las mismas columnas que el ejemplo de importación (columnas separadas)."""
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    q = (request.args.get("q") or request.args.get("search") or "").strip()
+    items = legajos_service.list_empleados(chatbot.db, cid, search=q or None)
+    body, gen_err = legajos_service.build_legajos_export_xlsx_bytes(items)
+    if gen_err or not body:
+        return jsonify({"ok": False, "error": gen_err or "No se pudo generar el Excel."}), 503
+    safe_cid = "".join(c for c in cid if c.isalnum() or c in "._-") or "empresa"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    filename = f"legajos_colaboradores_{safe_cid}_{stamp}.xlsx"
+    return send_file(
+        io.BytesIO(body),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@flask_app.get("/api/legajos/empleados/ejemplo-importacion")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para descargar el ejemplo de legajos.",
+)
+def api_legajos_ejemplo_importacion():
+    """Descarga un .xlsx con columnas separadas (Excel); al importar, el servidor lee las mismas filas que con CSV."""
+    body, err = legajos_service.build_legajos_ejemplo_xlsx_bytes()
+    if err or not body:
+        return jsonify({"ok": False, "error": err or "No se pudo generar el ejemplo."}), 503
+    return send_file(
+        io.BytesIO(body),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="legajos_colaboradores_ejemplo.xlsx",
+    )
+
+
+@flask_app.post("/api/legajos/empleados")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para crear o editar legajos.",
+)
+def api_legajos_empleados_create():
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    data = request.get_json(silent=True) or {}
+    cid, err = _legajos_effective_company_id(data.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    user = _current_rrhh_user()
+    uname = str((user or {}).get("username") or "").strip()
+    ok, row, msg = legajos_service.create_empleado(
+        chatbot.db,
+        company_id=cid,
+        dni=str(data.get("dni") or "").strip(),
+        nombre_completo=str(data.get("nombre_completo") or "").strip(),
+        created_by=uname,
+        legajo_numero=str(data.get("legajo_numero") or "").strip(),
+        sucursal=str(data.get("sucursal") or "").strip(),
+        area=str(data.get("area") or "").strip(),
+        notas=str(data.get("notas") or "").strip(),
+        email=str(data.get("email") or "").strip(),
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": msg or "No se pudo crear el colaborador."}), 400
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_EMPLEADO_CREAR,
+        cid,
+        {"empleado_id": (row or {}).get("id"), "dni": (row or {}).get("dni")},
+    )
+    return jsonify({"ok": True, "empleado": row})
+
+
+@flask_app.delete("/api/legajos/empleados/<empleado_id>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para eliminar colaboradores.",
+)
+def api_legajos_empleado_delete(empleado_id):
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    emp, err = _legajos_empleado_si_acceso(empleado_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    cid = str(emp.get("company_id") or "").strip().lower()
+    ok, paths, msg = legajos_service.delete_empleado_completo(chatbot.db, empleado_id)
+    if not ok:
+        return jsonify({"ok": False, "error": msg or "No se pudo eliminar."}), 400
+    for p in paths:
+        try:
+            bucket = _get_storage_bucket()
+            if bucket and p:
+                bucket.blob(p).delete()
+        except Exception:
+            pass
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_EMPLEADO_ELIMINAR,
+        cid,
+        {"empleado_id": empleado_id, "dni": emp.get("dni")},
+    )
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/legajos/empleados/<empleado_id>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para ver legajos.",
+)
+def api_legajos_empleado_get(empleado_id):
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    emp, err = _legajos_empleado_si_acceso(empleado_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    return jsonify({"ok": True, "empleado": emp})
+
+
+@flask_app.patch("/api/legajos/empleados/<empleado_id>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para editar legajos.",
+)
+def api_legajos_empleado_patch(empleado_id):
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    emp, err = _legajos_empleado_si_acceso(empleado_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    data = request.get_json(silent=True) or {}
+
+    def _patch_str(key, fallback):
+        if key in data:
+            return str(data.get(key) or "").strip()
+        return str(fallback or "").strip()
+
+    user = _current_rrhh_user()
+    uname = str((user or {}).get("username") or "").strip()
+    ok, row, msg = legajos_service.update_empleado(
+        chatbot.db,
+        empleado_id=empleado_id,
+        legajo_numero=_patch_str("legajo_numero", emp.get("legajo_numero")),
+        nombre_completo=_patch_str("nombre_completo", emp.get("nombre_completo")),
+        updated_by=uname,
+        sucursal=_patch_str("sucursal", emp.get("sucursal")),
+        area=_patch_str("area", emp.get("area")),
+        notas=_patch_str("notas", emp.get("notas")),
+        email=_patch_str("email", emp.get("email")),
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": msg or "No se pudo actualizar."}), 400
+    cid = str(emp.get("company_id") or "").strip().lower()
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_EMPLEADO_EDITAR,
+        cid,
+        {"empleado_id": empleado_id, "legajo_numero": (row or {}).get("legajo_numero")},
+    )
+    return jsonify({"ok": True, "empleado": row})
+
+
+@flask_app.post("/api/legajos/empleados/import")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para importar legajos.",
+)
+def api_legajos_empleados_import():
+    """Importa colaboradores desde .xlsx (Excel) o .csv (UTF-8). Mismas columnas; el servidor convierte Excel a filas como CSV."""
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    cid, err = _legajos_effective_company_id(request.form.get("company_id") or request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    file_storage = request.files.get("file")
+    if not file_storage or not file_storage.filename:
+        return jsonify({"ok": False, "error": "Adjuntá un archivo .xlsx o .csv"}), 400
+    name = (file_storage.filename or "").lower()
+    if not (name.endswith(".csv") or name.endswith(".xlsx") or name.endswith(".xlsm")):
+        return jsonify({"ok": False, "error": "El archivo debe ser .xlsx (Excel) o .csv"}), 400
+    raw = file_storage.read()
+    filas, parse_err = legajos_service.parse_legajos_import_file(file_storage.filename or "", raw)
+    if parse_err:
+        return jsonify({"ok": False, "error": parse_err}), 400
+    if not filas:
+        return jsonify({"ok": False, "error": "No hay filas de datos para importar."}), 400
+    user = _current_rrhh_user()
+    uname = str((user or {}).get("username") or "").strip()
+    result = legajos_service.import_empleados_desde_filas(chatbot.db, cid, filas, created_by=uname)
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_EMPLEADO_IMPORTAR,
+        cid,
+        {
+            "creados": result.get("created"),
+            "omitidos_duplicado": result.get("skipped_duplicate"),
+            "errores": len(result.get("errors") or []),
+        },
+    )
+    return jsonify({"ok": True, **result, "company_id": cid})
+
+
+@flask_app.get("/api/legajos/auditoria")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para ver auditoría de legajos.",
+)
+def api_legajos_auditoria_list():
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible.", "eventos": []}), 503
+    cid, err = _legajos_effective_company_id(request.args.get("company_id"))
+    if err:
+        return jsonify({"ok": False, "error": err, "eventos": []}), 400
+    try:
+        lim = int(request.args.get("limit") or 80)
+    except ValueError:
+        lim = 80
+    eventos = legajos_service.list_auditoria(chatbot.db, cid, limit=lim)
+    return jsonify({"ok": True, "eventos": eventos, "company_id": cid})
+
+
+@flask_app.get("/api/legajos/empleados/<empleado_id>/documentos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para ver legajos.",
+)
+def api_legajos_documentos_list(empleado_id):
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible.", "documentos": []}), 503
+    emp, err = _legajos_empleado_si_acceso(empleado_id)
+    if err:
+        return jsonify({"ok": False, "error": err, "documentos": []}), 404
+    docs = legajos_service.list_documentos(chatbot.db, emp["id"])
+    return jsonify({"ok": True, "documentos": docs, "empleado": emp})
+
+
+@flask_app.post("/api/legajos/empleados/<empleado_id>/documentos")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para subir documentos de legajo.",
+)
+def api_legajos_documentos_upload(empleado_id):
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    emp, err = _legajos_empleado_si_acceso(empleado_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    meta, up_err = _upload_legajo_file_to_storage(emp["company_id"], empleado_id)
+    if up_err or not meta:
+        if up_err and "Storage no configurado" in up_err:
+            return jsonify({"ok": False, "error": up_err}), 501
+        if up_err:
+            status = 400 if any(
+                x in up_err for x in ("No se envió", "Tipo no permitido", "supera el límite")
+            ) else 500
+            return jsonify({"ok": False, "error": up_err}), status
+        return jsonify({"ok": False, "error": "Error al subir el archivo."}), 500
+    tipo = (request.form.get("tipo_documento") or "otro").strip() or "otro"
+    user = _current_rrhh_user()
+    uname = str((user or {}).get("username") or "").strip()
+    ok, row, msg = legajos_service.create_documento(
+        chatbot.db,
+        empleado_id=empleado_id,
+        company_id=emp["company_id"],
+        storage_path=meta["storage_path"],
+        filename=meta["filename"],
+        content_type=meta["content_type"],
+        size_bytes=meta["size_bytes"],
+        uploaded_by=uname,
+        tipo_documento=tipo,
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": msg or "No se pudo registrar el documento."}), 500
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_DOCUMENTO_SUBIR,
+        emp["company_id"],
+        {
+            "empleado_id": empleado_id,
+            "documento_id": (row or {}).get("id"),
+            "filename": (row or {}).get("filename"),
+            "tipo": tipo,
+        },
+    )
+    return jsonify({"ok": True, "documento": row})
+
+
+@flask_app.get("/api/legajos/documentos/<documento_id>/link")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_VIEW,
+    message="Sin permiso para descargar documentos de legajo.",
+)
+def api_legajos_documento_link(documento_id):
+    doc, err = _legajos_documento_si_acceso(documento_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    bucket = _get_storage_bucket()
+    if not bucket:
+        return jsonify({"ok": False, "error": "Storage no configurado."}), 501
+    path = str(doc.get("storage_path") or "").strip()
+    if not path:
+        return jsonify({"ok": False, "error": "Documento sin ruta de almacenamiento."}), 500
+    try:
+        blob = bucket.blob(path)
+        url = blob.generate_signed_url(expiration=timedelta(minutes=15), method="GET")
+        _legajos_audit(
+            legajos_service.LEGAJOS_AUDIT_DOCUMENTO_DESCARGAR,
+            doc.get("company_id") or "",
+            {
+                "documento_id": documento_id,
+                "empleado_id": doc.get("empleado_id"),
+                "filename": doc.get("filename"),
+            },
+        )
+        return jsonify({"ok": True, "url": url, "filename": doc.get("filename") or "archivo"})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@flask_app.delete("/api/legajos/documentos/<documento_id>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para eliminar documentos de legajo.",
+)
+def api_legajos_documento_delete(documento_id):
+    doc, err = _legajos_documento_si_acceso(documento_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    ok, deleted, msg = legajos_service.delete_documento_record(chatbot.db, documento_id)
+    if not ok:
+        return jsonify({"ok": False, "error": msg or "No se pudo eliminar."}), 400
+    cid_del = str((deleted or {}).get("company_id") or "").strip().lower()
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_DOCUMENTO_ELIMINAR,
+        cid_del,
+        {
+            "documento_id": documento_id,
+            "empleado_id": (deleted or {}).get("empleado_id"),
+            "filename": (deleted or {}).get("filename"),
+        },
+    )
+    path = str((deleted or {}).get("storage_path") or "").strip()
+    if path:
+        try:
+            bucket = _get_storage_bucket()
+            if bucket:
+                bucket.blob(path).delete()
+        except Exception:
+            pass
+    return jsonify({"ok": True})
+
+
 def _normalize_phones_for_comunicado(raw_list):
     """Convierte una lista de entradas (números, con espacios/comas) en una lista de números E.164.
     Números argentinos de 10 dígitos (ej. 3515416836) se convierten a +5493515416836."""
@@ -3357,6 +3955,7 @@ def comunicados_page():
 
 
 COMUNICADOS_CONTACTOS_COLLECTION = "comunicados_contactos"
+COMUNICADOS_PROGRAMADOS_COLLECTION = "comunicados_programados"
 
 
 def _get_comunicados_contactos(company_id):
@@ -3564,6 +4163,136 @@ def api_comunicados_contactos_bulk_remove():
             contactos_new.append(c)
     doc_ref.set({"contactos": contactos_new}, merge=True)
     return jsonify({"ok": True, "removed": removed, "contactos": _get_comunicados_contactos(cid)})
+
+
+@flask_app.post("/api/comunicados/programar")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos para enviar comunicados.",
+)
+def api_comunicados_programar():
+    """Guarda un comunicado para enviarse en una fecha/hora futura."""
+    data = request.get_json(silent=True) or {}
+    company_id = _normalize_company_id(data.get("company_id") or "")
+    scheduled_at_str = str(data.get("scheduled_at") or "").strip()
+    if not scheduled_at_str:
+        return jsonify({"ok": False, "error": "Falta 'scheduled_at'."}), 400
+    try:
+        # Acepta ISO 8601 con o sin timezone; si no tiene TZ asume UTC
+        scheduled_at_str_fixed = scheduled_at_str
+        if "T" in scheduled_at_str and "+" not in scheduled_at_str and not scheduled_at_str.endswith("Z"):
+            scheduled_at_str_fixed = scheduled_at_str + "Z"
+        scheduled_at = datetime.fromisoformat(scheduled_at_str_fixed.replace("Z", "+00:00"))
+        if scheduled_at.tzinfo is None:
+            scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Formato de fecha inválido. Usá ISO 8601."}), 400
+    if scheduled_at <= datetime.now(timezone.utc):
+        return jsonify({"ok": False, "error": "La fecha programada debe ser en el futuro."}), 400
+
+    destinatarios_raw = data.get("destinatarios")
+    if isinstance(destinatarios_raw, list):
+        phones = _normalize_phones_for_comunicado(destinatarios_raw)
+    elif isinstance(destinatarios_raw, str):
+        phones = _normalize_phones_for_comunicado([destinatarios_raw])
+    else:
+        phones = []
+    if not phones:
+        return jsonify({"ok": False, "error": "No hay destinatarios válidos."}), 400
+
+    mensaje = str(data.get("mensaje") or "").strip()
+    imagen_url = str(data.get("imagen_url") or "").strip()
+    media_urls = [imagen_url] if imagen_url else []
+    if not mensaje and not media_urls:
+        return jsonify({"ok": False, "error": "Falta el mensaje o imagen."}), 400
+
+    whatsapp_label = str(data.get("whatsapp_label") or "").strip()
+    # Resolver número de WA
+    whatsapp_phone = str(data.get("whatsapp_phone") or "").strip()
+    if not whatsapp_phone and company_id:
+        company = _get_company(company_id, include_inactive=False)
+        if company:
+            nums = company.get("whatsapp_numbers") or []
+            if whatsapp_label and nums:
+                for line in nums:
+                    if (str(line.get("label") or "")).strip().lower() == whatsapp_label.lower():
+                        whatsapp_phone = (line.get("phone") or "").strip()
+                        break
+            if not whatsapp_phone and nums:
+                whatsapp_phone = (nums[0].get("phone") or "").strip()
+    if not whatsapp_phone:
+        whatsapp_phone = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    if not whatsapp_phone:
+        return jsonify({"ok": False, "error": "WhatsApp no configurado."}), 503
+
+    user = _current_rrhh_user()
+    doc = {
+        "company_id": company_id,
+        "scheduled_at": scheduled_at.isoformat(),
+        "mensaje": mensaje,
+        "media_urls": media_urls,
+        "destinatarios": phones,
+        "whatsapp_phone": whatsapp_phone,
+        "whatsapp_label": whatsapp_label,
+        "estado": "pendiente",
+        "created_at": _utc_now().isoformat(),
+        "created_by": (user or {}).get("username", ""),
+        "result": None,
+    }
+    if chatbot.db:
+        ref = chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document()
+        ref.set(doc)
+        doc["id"] = ref.id
+    return jsonify({"ok": True, "comunicado": doc})
+
+
+@flask_app.get("/api/comunicados/programados")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos.",
+)
+def api_comunicados_programados_list():
+    """Lista comunicados programados (pendientes y recientes) de la empresa."""
+    company_id = _normalize_company_id(request.args.get("company_id") or "")
+    if not company_id or not chatbot.db:
+        return jsonify({"ok": True, "comunicados": []})
+    try:
+        docs = (
+            chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION)
+            .where("company_id", "==", company_id)
+            .order_by("scheduled_at", direction="DESCENDING")
+            .limit(50)
+            .stream()
+        )
+        result = []
+        for d in docs:
+            item = d.to_dict() or {}
+            item["id"] = d.id
+            result.append(item)
+    except Exception as exc:
+        logging.warning(f"api_comunicados_programados_list: {exc}")
+        result = []
+    return jsonify({"ok": True, "comunicados": result})
+
+
+@flask_app.delete("/api/comunicados/programados/<comunicado_id>")
+@rrhh_permission_required(
+    auth_rrhh.PERM_COMUNICADOS_SEND,
+    message="No tenés permisos.",
+)
+def api_comunicados_programados_cancel(comunicado_id):
+    """Cancela un comunicado pendiente."""
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Sin base de datos."}), 503
+    ref = chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(comunicado_id)
+    doc = ref.get()
+    if not doc.exists:
+        return jsonify({"ok": False, "error": "No encontrado."}), 404
+    data = doc.to_dict() or {}
+    if data.get("estado") != "pendiente":
+        return jsonify({"ok": False, "error": f"No se puede cancelar: estado '{data.get('estado')}'."}), 400
+    ref.update({"estado": "cancelado"})
+    return jsonify({"ok": True})
 
 
 @flask_app.post("/api/comunicados/enviar")
@@ -4205,6 +4934,209 @@ def webhook_n8n_sync_knowledge():
     })
 
 
+@flask_app.post("/webhook/n8n/procesar-comunicados")
+def webhook_n8n_procesar_comunicados():
+    """
+    Webhook para N8N: procesa y envía comunicados programados pendientes cuya fecha ya llegó.
+    Llamar cada 5 minutos desde un Schedule Trigger de N8N.
+
+    Auth: header X-Webhook-Secret con el valor de N8N_WEBHOOK_SECRET.
+    """
+    expected_secret = os.getenv("N8N_WEBHOOK_SECRET", "").strip()
+    if not expected_secret:
+        return jsonify({"ok": False, "error": "N8N_WEBHOOK_SECRET no configurado."}), 503
+    if (request.headers.get("X-Webhook-Secret") or "").strip() != expected_secret:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+
+    now_iso = _utc_now().isoformat()
+    try:
+        docs = list(
+            chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION)
+            .where("estado", "==", "pendiente")
+            .where("scheduled_at", "<=", now_iso)
+            .stream()
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    try:
+        from whatsapp_broadcast import broadcast_messages
+        broadcast_available = True
+    except ImportError:
+        broadcast_available = False
+
+    processed = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        doc_id = doc.id
+        phones = data.get("destinatarios") or []
+        mensaje = data.get("mensaje") or ""
+        media_urls = data.get("media_urls") or []
+        whatsapp_phone = data.get("whatsapp_phone") or os.getenv("TWILIO_WHATSAPP_FROM", "")
+
+        if not phones or (not mensaje and not media_urls):
+            chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(doc_id).update({
+                "estado": "error",
+                "result": {"error": "Datos incompletos"}
+            })
+            processed.append({"id": doc_id, "estado": "error"})
+            continue
+
+        # Marcar como enviando para evitar doble procesamiento
+        chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(doc_id).update({"estado": "enviando"})
+
+        if not broadcast_available:
+            chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(doc_id).update({
+                "estado": "error",
+                "result": {"error": "Módulo de envío no disponible"}
+            })
+            processed.append({"id": doc_id, "estado": "error"})
+            continue
+
+        try:
+            result = broadcast_messages(
+                phone_list=phones,
+                body_text=mensaje or None,
+                phone_number_id=whatsapp_phone,
+                media_url=media_urls if media_urls else None,
+            )
+            chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(doc_id).update({
+                "estado": "enviado",
+                "sent_at": _utc_now().isoformat(),
+                "result": {
+                    "sent": result.get("sent", 0),
+                    "failed": result.get("failed", 0),
+                    "total": result.get("total", 0),
+                }
+            })
+            processed.append({"id": doc_id, "estado": "enviado", **result})
+        except Exception as exc:
+            chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(doc_id).update({
+                "estado": "error",
+                "result": {"error": str(exc)}
+            })
+            processed.append({"id": doc_id, "estado": "error", "error": str(exc)})
+
+    return jsonify({"ok": True, "procesados": len(processed), "detalle": processed})
+
+
+@flask_app.post("/webhook/n8n/reporte-semanal")
+def webhook_n8n_reporte_semanal():
+    """
+    Webhook para N8N: genera y envía el reporte semanal de handoffs por empresa.
+    Envía un email separado a cada empresa que tenga 'Email empresa' configurado.
+
+    Auth: header X-Webhook-Secret con el valor de N8N_WEBHOOK_SECRET.
+    Body JSON: { "days": 7 }
+    """
+    expected_secret = os.getenv("N8N_WEBHOOK_SECRET", "").strip()
+    if not expected_secret:
+        return jsonify({"ok": False, "error": "N8N_WEBHOOK_SECRET no configurado."}), 503
+    if (request.headers.get("X-Webhook-Secret") or "").strip() != expected_secret:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+
+    data = request.get_json(silent=True) or {}
+    days = max(1, min(int(data.get("days") or 7), 90))
+
+    desde = _utc_now() - timedelta(days=days)
+    fecha_desde = desde.strftime("%d/%m/%Y")
+    fecha_hasta = _utc_now().strftime("%d/%m/%Y")
+
+    # Consultar todos los handoffs del período
+    try:
+        docs = chatbot.db.collection("rrhh_handoffs").where("created_at", ">=", desde).stream()
+        handoffs = [d.to_dict() for d in docs]
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+    # Agrupar handoffs por empresa
+    by_company: dict = {}
+    for h in handoffs:
+        cid = str(h.get("company_id") or "default").strip()
+        by_company.setdefault(cid, []).append(h)
+
+    # Cargar empresas con email configurado
+    companies = _list_companies(include_inactive=True)
+    company_map = {str(c.get("company_id") or "").strip(): c for c in companies if c.get("company_id")}
+
+    sent = []
+    errors = []
+
+    for cid, items in by_company.items():
+        company = company_map.get(cid) or {}
+        dest_email = str(company.get("company_email") or "").strip()
+        if not dest_email:
+            continue
+
+        company_name = company.get("company_name") or cid
+        total = len(items)
+        cerradas = sum(1 for h in items if h.get("estado") == HANDOFF_STATUS_CLOSED)
+        pendientes = sum(1 for h in items if h.get("estado") == HANDOFF_STATUS_PENDING)
+        en_atencion = sum(1 for h in items if h.get("estado") == HANDOFF_STATUS_ACTIVE)
+
+        por_area: dict = {}
+        por_dia: dict = {}
+        for h in items:
+            area = (h.get("area") or "Sin área").strip()
+            por_area[area] = por_area.get(area, 0) + 1
+            created = h.get("created_at")
+            if created:
+                try:
+                    dia = created.strftime("%d/%m/%Y") if hasattr(created, "strftime") else str(created)[:10]
+                    por_dia[dia] = por_dia.get(dia, 0) + 1
+                except Exception:
+                    pass
+
+        def fmt_tabla(filas):
+            if not filas:
+                return "  (sin datos)"
+            ancho = max(len(str(f[0])) for f in filas)
+            return "\n".join(f"  {str(f[0]).ljust(ancho)}  {f[1]}" for f in filas)
+
+        lineas = [
+            f"Reporte semanal — {fecha_desde} al {fecha_hasta}",
+            f"Empresa: {company_name}",
+            "=" * 50,
+            "",
+            f"Total de consultas: {total}",
+            f"  Cerradas:    {cerradas}",
+            f"  Pendientes:  {pendientes}",
+            f"  En atención: {en_atencion}",
+            "",
+            "Por área:",
+            fmt_tabla(sorted(por_area.items(), key=lambda x: -x[1])),
+        ]
+        if por_dia:
+            lineas += [
+                "",
+                "Por día:",
+                fmt_tabla(sorted(por_dia.items())),
+            ]
+        lineas += ["", "Ver detalles: https://debo-chat.web.app/?m=rrhh"]
+        body = "\n".join(lineas)
+        subject = f"[{company_name}] Reporte semanal de consultas RRHH — {fecha_desde} al {fecha_hasta}"
+
+        ok, err = _send_email(dest_email, subject, body)
+        if ok:
+            sent.append(cid)
+        else:
+            errors.append({"company_id": cid, "error": err})
+            logging.warning(f"reporte-semanal: error enviando a {dest_email}: {err}")
+
+    return jsonify({
+        "ok": True,
+        "days": days,
+        "total_handoffs": len(handoffs),
+        "sent_to": sent,
+        "errors": errors,
+    })
+
+
 @flask_app.get("/webhook/twilio/whatsapp")
 def webhook_twilio_whatsapp_get():
     """Twilio a veces valida la URL con GET. Respondemos TwiML vacío."""
@@ -4796,6 +5728,7 @@ def configuracion_editar_empresa_api(company_id):
             data.get("whatsapp_numbers") if "whatsapp_numbers" in data else (current.get("whatsapp_numbers") or [])
         ),
         "drive_folder_id": str(data.get("drive_folder_id", current.get("drive_folder_id") or "") or "").strip()[:128] or None,
+        "handoff_notify_email": str(data.get("handoff_notify_email", current.get("handoff_notify_email") or "") or "").strip()[:200] or None,
     }
     th = data.get("temas_habilitados")
     if isinstance(th, list):
@@ -6152,6 +7085,41 @@ def _upload_file_to_storage(prefix_path: str):
             blob.make_public()
             url = blob.public_url
         return url, None
+    except Exception as e:
+        return None, str(e)
+
+
+def _upload_legajo_file_to_storage(company_id: str, empleado_id: str):
+    """Sube el archivo multipart a legajos_uploads/{company}/{empleado_id}/… y devuelve metadatos (sin URL pública)."""
+    bucket = _get_storage_bucket()
+    if not bucket:
+        return None, "Storage no configurado (Firebase Storage)."
+    file_storage = request.files.get("file")
+    if not file_storage or not file_storage.filename:
+        return None, "No se envió ningún archivo."
+    raw = file_storage.read()
+    if len(raw) > UPLOAD_MAX_BYTES:
+        return None, f"El archivo supera el límite de {UPLOAD_MAX_BYTES // (1024*1024)} MB."
+    ext = (file_storage.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in UPLOAD_ALLOWED_EXTENSIONS:
+        return None, f"Tipo no permitido. Permitidos: {', '.join(UPLOAD_ALLOWED_EXTENSIONS)}."
+    content_type = file_storage.content_type or ("application/pdf" if ext == "pdf" else "image/jpeg")
+    safe_name = "".join(c for c in file_storage.filename if c.isalnum() or c in "._- ").strip() or "archivo"
+    cid = _normalize_company_id(company_id) or str(company_id or "").strip().lower()
+    eid = str(empleado_id or "").strip()
+    path = f"legajos_uploads/{cid}/{eid}/{uuid.uuid4().hex}_{safe_name}"
+    try:
+        blob = bucket.blob(path)
+        blob.upload_from_string(raw, content_type=content_type)
+        return (
+            {
+                "storage_path": path,
+                "filename": safe_name,
+                "content_type": content_type,
+                "size_bytes": len(raw),
+            },
+            None,
+        )
     except Exception as e:
         return None, str(e)
 

@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Legajos digitales</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='rrhh.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='legajos.css') }}" />
+  </head>
+  <body>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem("rrhh_panel_theme");
+          if (stored === "dark" || stored === "light") {
+            document.documentElement.setAttribute("data-theme", stored);
+          } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="application/json" id="legajos-config">
+      {{ {"can_manage": can_manage_legajos, "company_id": selected_company_id or "" } | tojson }}
+    </script>
+    <main class="rrhh-wrapper legajos-page">
+      <header class="rrhh-header">
+        <div>
+          <h1>Legajos digitales</h1>
+          <p>Colaboradores y documentación. El <strong>ID</strong> en base es <code>empresa_DNI</code> (ej. <code>bacar_30123456</code>).</p>
+          {% if auth_enabled and rrhh_user %}
+          <p class="subtle">Sesión: {{ rrhh_user.display_name }} ({{ rrhh_user.username }})</p>
+          {% endif %}
+        </div>
+        <div class="header-actions">
+          {% if auth_enabled %}
+          <form class="logout-form" method="post" action="/logout">
+            <button type="submit">Cerrar sesión</button>
+          </form>
+          {% endif %}
+          <button type="button" class="btn-legajos-secondary" id="legajos-refresh">Actualizar</button>
+        </div>
+      </header>
+
+      <section class="legajos-toolbar">
+        {% if available_companies and available_companies|length > 1 %}
+        <label class="legajos-field">
+          Empresa
+          <select id="legajos-company">
+            {% for c in available_companies %}
+            <option value="{{ c.company_id }}" {% if c.company_id == selected_company_id %}selected{% endif %}>
+              {{ c.company_name or c.company_id }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        {% endif %}
+        <label class="legajos-field legajos-field-grow">
+          Buscar
+          <input type="search" id="legajos-search" placeholder="Nombre, DNI, email, legajo…" autocomplete="off" />
+        </label>
+        <div class="legajos-toolbar-actions">
+          {% if can_manage_legajos %}
+          <button type="button" class="btn-legajos-primary" id="legajos-btn-nuevo">Nuevo colaborador</button>
+          <button type="button" class="btn-legajos-secondary" id="legajos-btn-import">Importar</button>
+          <input type="file" id="legajos-import-file" accept=".csv,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden />
+          {% endif %}
+          <button type="button" class="btn-legajos-secondary" id="legajos-btn-export" title="Descarga Excel (.xlsx), mismas columnas que el ejemplo de importación">
+            Exportar Excel
+          </button>
+          {% if can_manage_legajos %}
+          <button type="button" class="btn-legajos-secondary" id="legajos-btn-ejemplo" title="Plantilla .xlsx con columnas (Excel)">
+            Ejemplo importación
+          </button>
+          {% endif %}
+        </div>
+      </section>
+
+      {% if can_manage_legajos %}
+      <div id="legajos-modal-empleado" class="legajos-modal" role="dialog" aria-modal="true" aria-labelledby="legajos-modal-empleado-title" hidden>
+        <div class="legajos-modal-backdrop" data-legajos-modal-close></div>
+        <div class="legajos-modal-box">
+          <input type="hidden" id="legajos-modal-empleado-id" value="" />
+          <div class="legajos-modal-head">
+            <h3 id="legajos-modal-empleado-title">Nuevo colaborador</h3>
+            <button type="button" class="legajos-modal-close" aria-label="Cerrar" data-legajos-modal-close>&times;</button>
+          </div>
+          <div class="legajos-modal-body">
+            <p id="legajos-modal-hint" class="legajos-hint">DNI solo números (6–16 dígitos). El ID en base será <code>empresa_DNI</code>. Email y legajo opcionales.</p>
+            <p id="legajos-modal-id-meta" class="legajos-hint legajos-modal-id-meta" hidden></p>
+            <div class="legajos-modal-fields">
+              <label class="legajos-modal-field"><span>DNI *</span><input type="text" id="legajos-modal-dni" inputmode="numeric" autocomplete="off" /></label>
+              <label class="legajos-modal-field"><span>Nombre completo *</span><input type="text" id="legajos-modal-nombre" autocomplete="name" /></label>
+              <label class="legajos-modal-field"><span>Email</span><input type="email" id="legajos-modal-email" autocomplete="email" /></label>
+              <label class="legajos-modal-field"><span>Legajo</span><input type="text" id="legajos-modal-legajo" autocomplete="off" /></label>
+              <label class="legajos-modal-field"><span>Sucursal</span><input type="text" id="legajos-modal-sucursal" autocomplete="off" /></label>
+              <label class="legajos-modal-field"><span>Área</span><input type="text" id="legajos-modal-area" autocomplete="off" /></label>
+              <label class="legajos-modal-field legajos-modal-field--full"><span>Notas</span><input type="text" id="legajos-modal-notas" autocomplete="off" /></label>
+            </div>
+            <p id="legajos-modal-status" class="legajos-status" role="status"></p>
+          </div>
+          <div class="legajos-modal-actions">
+            <button type="button" class="btn-legajos-primary" id="legajos-modal-submit">Agregar</button>
+            <button type="button" class="btn-legajos-secondary" data-legajos-modal-close>Cancelar</button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <p id="legajos-status" class="legajos-status" role="status"></p>
+
+      <div class="legajos-split">
+        <section class="legajos-panel legajos-list-panel">
+          <h2 class="legajos-panel-title">Colaboradores</h2>
+          <div class="legajos-table-wrap">
+            <table class="legajos-table legajos-table-main">
+              <thead>
+                <tr>
+                  <th>DNI</th>
+                  <th>Nombre</th>
+                  <th>Email</th>
+                  <th>Legajo</th>
+                  <th>Sucursal</th>
+                  <th>Área</th>
+                  <th>Notas</th>
+                  {% if can_manage_legajos %}<th class="legajos-col-acciones">Acciones</th>{% endif %}
+                </tr>
+              </thead>
+              <tbody id="legajos-tbody">
+                <tr><td colspan="{% if can_manage_legajos %}8{% else %}7{% endif %}" class="legajos-empty">Cargando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section class="legajos-panel legajos-detail-panel" id="legajos-detail" hidden>
+          <h2 class="legajos-panel-title" id="legajos-detail-title">Documentos</h2>
+          <p class="legajos-detail-meta" id="legajos-detail-meta"></p>
+          {% if can_manage_legajos %}
+          <form class="legajos-upload-form" id="legajos-upload-form">
+            <label class="legajos-field">
+              Tipo
+              <select name="tipo_documento" id="legajos-tipo">
+                <option value="contrato">Contrato</option>
+                <option value="dni">DNI / identificación</option>
+                <option value="certificado">Certificado</option>
+                <option value="evaluacion">Evaluación</option>
+                <option value="otro" selected>Otro</option>
+              </select>
+            </label>
+            <label class="legajos-field">
+              Archivo
+              <input type="file" id="legajos-file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" required />
+            </label>
+            <button type="submit" class="btn-legajos-primary">Subir</button>
+          </form>
+          {% endif %}
+          <div class="legajos-table-wrap legajos-docs-wrap">
+            <table class="legajos-table">
+              <thead>
+                <tr>
+                  <th>Documento</th>
+                  <th>Tipo</th>
+                  <th>Fecha</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="legajos-docs-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="legajos-panel legajos-audit-panel">
+        <div class="legajos-audit-head">
+          <h2 class="legajos-panel-title" style="margin:0;">Actividad reciente</h2>
+          <button type="button" class="btn-legajos-secondary" id="legajos-audit-refresh">Actualizar</button>
+        </div>
+        <p class="legajos-hint">Altas, ediciones, bajas, importaciones (Excel o CSV), documentos.</p>
+        <div class="legajos-table-wrap">
+          <table class="legajos-table legajos-audit-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Usuario</th>
+                <th>Acción</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody id="legajos-audit-tbody">
+              <tr><td colspan="4" class="legajos-empty">Cargando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function() {
+        var cfg = { can_manage: false, company_id: "" };
+        try {
+          cfg = JSON.parse(document.getElementById("legajos-config").textContent || "{}");
+        } catch (e) {}
+
+        var tbody = document.getElementById("legajos-tbody");
+        var docsTbody = document.getElementById("legajos-docs-tbody");
+        var statusEl = document.getElementById("legajos-status");
+        var searchEl = document.getElementById("legajos-search");
+        var companySel = document.getElementById("legajos-company");
+        var detail = document.getElementById("legajos-detail");
+        var detailTitle = document.getElementById("legajos-detail-title");
+        var detailMeta = document.getElementById("legajos-detail-meta");
+        var refreshBtn = document.getElementById("legajos-refresh");
+        var auditTbody = document.getElementById("legajos-audit-tbody");
+        var auditRefresh = document.getElementById("legajos-audit-refresh");
+        var btnExport = document.getElementById("legajos-btn-export");
+        var btnNuevo = document.getElementById("legajos-btn-nuevo");
+        var btnImport = document.getElementById("legajos-btn-import");
+        var btnEjemplo = document.getElementById("legajos-btn-ejemplo");
+        var importFile = document.getElementById("legajos-import-file");
+        var modalEmpleado = document.getElementById("legajos-modal-empleado");
+        var modalStatus = document.getElementById("legajos-modal-status");
+        var btnModalSubmit = document.getElementById("legajos-modal-submit");
+        var modalHint = document.getElementById("legajos-modal-hint");
+        var modalIdMeta = document.getElementById("legajos-modal-id-meta");
+        var modalTitle = document.getElementById("legajos-modal-empleado-title");
+        var modalEmpleadoId = document.getElementById("legajos-modal-empleado-id");
+        var modalModeCreate = true;
+        var selectedId = null;
+        var selectedEmp = null;
+        var searchTimer = null;
+        var lastEmpleados = [];
+
+        var actionLabels = {
+          empleado_crear: "Alta colaborador",
+          empleado_editar: "Edición de colaborador",
+          empleado_eliminar: "Baja de colaborador",
+          empleado_importar: "Importación colaboradores",
+          documento_subir: "Subida de archivo",
+          documento_descargar: "Descarga de archivo",
+          documento_eliminar: "Eliminación de archivo"
+        };
+
+        function formatAuditDetails(d) {
+          if (!d || typeof d !== "object") return "—";
+          try {
+            var parts = [];
+            Object.keys(d).forEach(function(k) {
+              parts.push(k + ": " + String(d[k]));
+            });
+            return parts.length ? parts.join(" · ") : "—";
+          } catch (e) {
+            return "—";
+          }
+        }
+
+        async function loadAuditoria() {
+          if (!auditTbody) return;
+          try {
+            var res = await fetch("/api/legajos/auditoria?limit=100", { credentials: "same-origin", cache: "no-store" });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              auditTbody.innerHTML = '<tr><td colspan="4" class="legajos-empty">' + escapeHtml(data.error || "Sin datos") + "</td></tr>";
+              return;
+            }
+            var evs = data.eventos || [];
+            auditTbody.innerHTML = "";
+            if (!evs.length) {
+              auditTbody.innerHTML = '<tr><td colspan="4" class="legajos-empty">Sin actividad registrada aún.</td></tr>';
+              return;
+            }
+            evs.forEach(function(ev) {
+              var tr = document.createElement("tr");
+              var acc = actionLabels[ev.action] || ev.action || "—";
+              tr.innerHTML =
+                "<td>" + escapeHtml(formatLegajosLocalDateTime(ev.at) || ev.at || "") + "</td>" +
+                "<td>" + escapeHtml(ev.username || "") + "</td>" +
+                "<td>" + escapeHtml(acc) + "</td>" +
+                "<td class=\"legajos-audit-detail\">" + escapeHtml(formatAuditDetails(ev.details)) + "</td>";
+              auditTbody.appendChild(tr);
+            });
+          } catch (e) {
+            if (auditTbody) auditTbody.innerHTML = '<tr><td colspan="4" class="legajos-empty">Error al cargar auditoría.</td></tr>';
+          }
+        }
+
+        function setStatus(msg, isErr) {
+          if (!statusEl) return;
+          statusEl.textContent = msg || "";
+          statusEl.classList.toggle("legajos-status--error", !!isErr);
+        }
+
+        function loginRedirect() {
+          window.location.href = "/login?next=" + encodeURIComponent("/legajos");
+        }
+
+        async function postJson(url, body) {
+          var res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(body || {}),
+          });
+          if (res.status === 401) {
+            loginRedirect();
+            return null;
+          }
+          return res;
+        }
+
+        async function patchJson(url, body) {
+          var res = await fetch(url, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(body || {}),
+          });
+          if (res.status === 401) {
+            loginRedirect();
+            return null;
+          }
+          return res;
+        }
+
+        async function onCompanyChange() {
+          if (!companySel) return;
+          var cid = (companySel.value || "").trim();
+          var res = await postJson("/api/legajos/empresa/seleccionar", { company_id: cid });
+          if (!res) return;
+          var data = await res.json().catch(function() { return {}; });
+          if (!data.ok) {
+            setStatus(data.error || "No se pudo cambiar de empresa", true);
+            return;
+          }
+          cfg.company_id = cid;
+          selectedId = null;
+          selectedEmp = null;
+          if (detail) detail.hidden = true;
+          loadEmpleados();
+        }
+
+        function escapeHtml(s) {
+          var d = document.createElement("div");
+          d.textContent = s == null ? "" : String(s);
+          return d.innerHTML;
+        }
+
+        /** Convierte ISO UTC del servidor a fecha/hora local del navegador (ej. Argentina UTC-3). */
+        function formatLegajosLocalDateTime(isoStr) {
+          if (isoStr == null || isoStr === "") return "";
+          var d = new Date(isoStr);
+          if (Number.isNaN(d.getTime())) return String(isoStr);
+          try {
+            return d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "medium" });
+          } catch (e) {
+            return String(isoStr);
+          }
+        }
+
+        function buildEmpleadoMetaLine(emp) {
+          if (!emp) return "";
+          var parts = [];
+          if (emp.dni) parts.push("DNI " + String(emp.dni));
+          if (emp.legajo_numero) parts.push("Legajo " + String(emp.legajo_numero));
+          if (emp.email) parts.push(String(emp.email));
+          if (emp.sucursal) parts.push(String(emp.sucursal));
+          if (emp.area) parts.push(String(emp.area));
+          return parts.length ? parts.join(" · ") : "";
+        }
+
+        var HINT_NUEVO = "DNI solo números (6–16 dígitos). El ID en base será <code>empresa_DNI</code>. Email y legajo opcionales.";
+        var HINT_EDITAR = "El DNI y el ID de Firestore no se modifican. Podés actualizar el resto de los datos.";
+
+        function clearModalFields() {
+          ["legajos-modal-dni", "legajos-modal-nombre", "legajos-modal-email", "legajos-modal-legajo", "legajos-modal-sucursal", "legajos-modal-area", "legajos-modal-notas"].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.value = "";
+          });
+          if (modalEmpleadoId) modalEmpleadoId.value = "";
+        }
+
+        function openModalNuevo() {
+          if (!modalEmpleado) return;
+          modalModeCreate = true;
+          clearModalFields();
+          if (modalTitle) modalTitle.textContent = "Nuevo colaborador";
+          if (modalHint) modalHint.innerHTML = HINT_NUEVO;
+          if (modalIdMeta) {
+            modalIdMeta.hidden = true;
+            modalIdMeta.textContent = "";
+          }
+          if (btnModalSubmit) btnModalSubmit.textContent = "Agregar";
+          var dniInp = document.getElementById("legajos-modal-dni");
+          if (dniInp) {
+            dniInp.removeAttribute("readonly");
+            dniInp.removeAttribute("aria-readonly");
+          }
+          if (modalStatus) {
+            modalStatus.textContent = "";
+            modalStatus.classList.remove("legajos-status--error");
+          }
+          modalEmpleado.hidden = false;
+          modalEmpleado.removeAttribute("hidden");
+          if (dniInp) dniInp.focus();
+        }
+
+        function openModalEditar(emp) {
+          if (!modalEmpleado || !emp) return;
+          modalModeCreate = false;
+          if (modalEmpleadoId) modalEmpleadoId.value = emp.id || "";
+          if (modalTitle) modalTitle.textContent = "Editar colaborador";
+          if (modalHint) modalHint.innerHTML = HINT_EDITAR;
+          if (modalIdMeta) {
+            modalIdMeta.hidden = false;
+            modalIdMeta.textContent = "ID Firestore: " + (emp.id || "") + (emp.dni ? " · DNI " + emp.dni : "");
+          }
+          if (btnModalSubmit) btnModalSubmit.textContent = "Guardar cambios";
+          var dniInp = document.getElementById("legajos-modal-dni");
+          if (dniInp) {
+            dniInp.value = emp.dni || "";
+            dniInp.setAttribute("readonly", "readonly");
+            dniInp.setAttribute("aria-readonly", "true");
+          }
+          var setv = function(id, v) {
+            var el = document.getElementById(id);
+            if (el) el.value = v != null ? String(v) : "";
+          };
+          setv("legajos-modal-nombre", emp.nombre_completo);
+          setv("legajos-modal-email", emp.email);
+          setv("legajos-modal-legajo", emp.legajo_numero);
+          setv("legajos-modal-sucursal", emp.sucursal);
+          setv("legajos-modal-area", emp.area);
+          setv("legajos-modal-notas", emp.notas);
+          if (modalStatus) {
+            modalStatus.textContent = "";
+            modalStatus.classList.remove("legajos-status--error");
+          }
+          modalEmpleado.hidden = false;
+          modalEmpleado.removeAttribute("hidden");
+          var nom = document.getElementById("legajos-modal-nombre");
+          if (nom) nom.focus();
+        }
+
+        function closeModalEmpleado() {
+          if (!modalEmpleado) return;
+          modalEmpleado.hidden = true;
+          modalEmpleado.setAttribute("hidden", "");
+        }
+
+        function renderRows(empleados) {
+          if (!tbody) return;
+          var colspan = cfg.can_manage ? "8" : "7";
+          tbody.innerHTML = "";
+          if (!empleados || !empleados.length) {
+            var tr = document.createElement("tr");
+            tr.innerHTML = '<td colspan="' + colspan + '" class="legajos-empty">No hay colaboradores.' + (cfg.can_manage ? " Usá <strong>Nuevo colaborador</strong> o <strong>Importar</strong>." : "") + "</td>";
+            tbody.appendChild(tr);
+            return;
+          }
+          empleados.forEach(function(emp) {
+            var tr = document.createElement("tr");
+            tr.dataset.id = emp.id;
+            tr.innerHTML =
+              "<td class=\"legajos-mono legajos-cell-dni\">" + escapeHtml(emp.dni || "") + "</td>" +
+              "<td>" + escapeHtml(emp.nombre_completo || "") + "</td>" +
+              "<td>" + escapeHtml(emp.email || "") + "</td>" +
+              "<td>" + escapeHtml(emp.legajo_numero || "") + "</td>" +
+              "<td>" + escapeHtml(emp.sucursal || "") + "</td>" +
+              "<td>" + escapeHtml(emp.area || "") + "</td>" +
+              "<td>" + escapeHtml(emp.notas || "") + "</td>" +
+              (cfg.can_manage
+                ? "<td class=\"legajos-actions-cell\"><button type=\"button\" class=\"btn-legajos-secondary legajos-edit-row\">Editar</button> <button type=\"button\" class=\"btn-legajos-danger legajos-del-row\">Eliminar</button></td>"
+                : "");
+            if (cfg.can_manage) {
+              tr.querySelector(".legajos-edit-row").addEventListener("click", function(ev) {
+                ev.stopPropagation();
+                openModalEditar(emp);
+              });
+              tr.querySelector(".legajos-del-row").addEventListener("click", function(ev) {
+                ev.stopPropagation();
+                deleteEmpleado(emp.id, emp.nombre_completo || emp.id);
+              });
+            }
+            tr.addEventListener("click", function(ev) {
+              if (ev.target.closest("button") || ev.target.closest("input")) return;
+              selectEmpleado(emp.id, emp);
+            });
+            tbody.appendChild(tr);
+          });
+        }
+
+        async function deleteEmpleado(eid, label) {
+          if (!eid || !cfg.can_manage) return;
+          if (!window.confirm("¿Eliminar al colaborador " + (label || eid) + " y sus documentos registrados?")) return;
+          try {
+            var res = await fetch("/api/legajos/empleados/" + encodeURIComponent(eid), { method: "DELETE", credentials: "same-origin" });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "No se pudo eliminar", true);
+              return;
+            }
+            if (selectedId === eid) {
+              selectedId = null;
+              selectedEmp = null;
+              if (detail) detail.hidden = true;
+            }
+            setStatus("Colaborador eliminado.");
+            await loadEmpleados();
+            loadAuditoria();
+          } catch (e) {
+            setStatus("Error de red.", true);
+          }
+        }
+
+        async function loadEmpleados() {
+          setStatus("Cargando…");
+          var q = (searchEl && searchEl.value) ? searchEl.value.trim() : "";
+          var url = "/api/legajos/empleados?" + new URLSearchParams({ q: q });
+          try {
+            var res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            if (res.status === 403) {
+              setStatus("Sin permiso para ver legajos.", true);
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "Error al cargar", true);
+              return;
+            }
+            lastEmpleados = data.empleados || [];
+            renderRows(lastEmpleados);
+            setStatus("");
+            highlightSelectedRow();
+            loadAuditoria();
+          } catch (e) {
+            setStatus("Error de red.", true);
+          }
+        }
+
+        function highlightSelectedRow() {
+          if (!tbody) return;
+          tbody.querySelectorAll("tr[data-id]").forEach(function(r) {
+            r.classList.toggle("legajos-row--active", r.dataset.id === selectedId);
+          });
+        }
+
+        async function selectEmpleado(id, emp) {
+          selectedId = id;
+          selectedEmp = emp || selectedEmp;
+          highlightSelectedRow();
+          if (!detail) return;
+          detail.hidden = false;
+          if (detailTitle) detailTitle.textContent = "Documentos — " + (emp.nombre_completo || id);
+          if (detailMeta) {
+            detailMeta.textContent = buildEmpleadoMetaLine(emp);
+          }
+          setStatus("Cargando documentos…");
+          try {
+            var res = await fetch("/api/legajos/empleados/" + encodeURIComponent(id) + "/documentos", {
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "Error", true);
+              return;
+            }
+            if (data.empleado) {
+              selectedEmp = data.empleado;
+              emp = data.empleado;
+              if (detailMeta) {
+                detailMeta.textContent = buildEmpleadoMetaLine(emp);
+              }
+            }
+            renderDocs(data.documentos || []);
+            setStatus("");
+          } catch (e) {
+            setStatus("Error de red.", true);
+          }
+        }
+
+        function renderDocs(docs) {
+          if (!docsTbody) return;
+          docsTbody.innerHTML = "";
+          if (!docs.length) {
+            var tr = document.createElement("tr");
+            tr.innerHTML = '<td colspan="4" class="legajos-empty">Sin archivos aún.</td>';
+            docsTbody.appendChild(tr);
+            return;
+          }
+          docs.forEach(function(d) {
+            var tr = document.createElement("tr");
+            var nameCell = escapeHtml(d.filename || "");
+            var tipo = escapeHtml(d.tipo_documento || "");
+            var fecha = escapeHtml(formatLegajosLocalDateTime(d.uploaded_at) || d.uploaded_at || "");
+            var actions = '<button type="button" class="btn-link legajos-dl" data-id="' + escapeHtml(d.id) + '">Descargar</button>';
+            if (cfg.can_manage) {
+              actions += ' <button type="button" class="btn-link legajos-del" data-id="' + escapeHtml(d.id) + '">Eliminar</button>';
+            }
+            tr.innerHTML = "<td>" + nameCell + "</td><td>" + tipo + "</td><td>" + fecha + "</td><td class=\"legajos-actions\">" + actions + "</td>";
+            docsTbody.appendChild(tr);
+          });
+          docsTbody.querySelectorAll(".legajos-dl").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+              downloadDoc(btn.getAttribute("data-id"));
+            });
+          });
+          docsTbody.querySelectorAll(".legajos-del").forEach(function(btn) {
+            btn.addEventListener("click", function() {
+              deleteDoc(btn.getAttribute("data-id"));
+            });
+          });
+        }
+
+        async function downloadDoc(docId) {
+          if (!docId) return;
+          try {
+            var res = await fetch("/api/legajos/documentos/" + encodeURIComponent(docId) + "/link", {
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok || !data.url) {
+              setStatus(data.error || "No se pudo generar el enlace de descarga.", true);
+              return;
+            }
+            window.open(data.url, "_blank", "noopener,noreferrer");
+            setStatus("");
+            loadAuditoria();
+          } catch (e) {
+            setStatus("Error de red.", true);
+          }
+        }
+
+        async function deleteDoc(docId) {
+          if (!docId || !cfg.can_manage) return;
+          if (!window.confirm("¿Eliminar este documento del legajo?")) return;
+          try {
+            var res = await fetch("/api/legajos/documentos/" + encodeURIComponent(docId), {
+              method: "DELETE",
+              credentials: "same-origin",
+            });
+            if (res.status === 401) {
+              loginRedirect();
+              return;
+            }
+            var data = await res.json();
+            if (!data.ok) {
+              setStatus(data.error || "No se pudo eliminar.", true);
+              return;
+            }
+            if (selectedId && selectedEmp) selectEmpleado(selectedId, selectedEmp);
+            loadAuditoria();
+          } catch (e) {
+            setStatus("Error de red.", true);
+          }
+        }
+
+        if (companySel) companySel.addEventListener("change", onCompanyChange);
+        if (searchEl) {
+          searchEl.addEventListener("input", function() {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(loadEmpleados, 350);
+          });
+        }
+        if (refreshBtn) refreshBtn.addEventListener("click", function() { loadEmpleados(); loadAuditoria(); });
+        if (auditRefresh) auditRefresh.addEventListener("click", loadAuditoria);
+
+        if (btnExport) {
+          btnExport.addEventListener("click", async function() {
+            var q = (searchEl && searchEl.value) ? searchEl.value.trim() : "";
+            var cid = cfg.company_id || (companySel && companySel.value) || "";
+            var u = "/api/legajos/empleados/export?company_id=" + encodeURIComponent(cid);
+            if (q) u += "&q=" + encodeURIComponent(q);
+            setStatus("Generando Excel…");
+            try {
+              var res = await fetch(u, { credentials: "same-origin", cache: "no-store" });
+              if (res.status === 401) {
+                loginRedirect();
+                return;
+              }
+              if (!res.ok) {
+                setStatus("No se pudo exportar.", true);
+                return;
+              }
+              var blob = await res.blob();
+              var disp = res.headers.get("Content-Disposition") || "";
+              var fn = "legajos_export.xlsx";
+              var m = /filename="([^"]+)"/.exec(disp);
+              if (m) fn = m[1];
+              var a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = fn;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(a.href);
+              setStatus("Excel descargado (mismo formato que el ejemplo de importación).");
+            } catch (e) {
+              setStatus("Error al exportar.", true);
+            }
+          });
+        }
+
+        if (cfg.can_manage && modalEmpleado) {
+          modalEmpleado.querySelectorAll("[data-legajos-modal-close]").forEach(function(el) {
+            el.addEventListener("click", function(ev) {
+              if (el.classList.contains("legajos-modal-backdrop") && ev.target !== el) return;
+              closeModalEmpleado();
+            });
+          });
+          modalEmpleado.querySelector(".legajos-modal-box").addEventListener("click", function(ev) { ev.stopPropagation(); });
+          document.addEventListener("keydown", function(ev) {
+            if (ev.key === "Escape" && modalEmpleado && !modalEmpleado.hidden) closeModalEmpleado();
+          });
+        }
+
+        if (btnNuevo && cfg.can_manage) {
+          btnNuevo.addEventListener("click", openModalNuevo);
+        }
+
+        if (btnModalSubmit && cfg.can_manage) {
+          btnModalSubmit.addEventListener("click", async function() {
+            var dni = (document.getElementById("legajos-modal-dni") || {}).value || "";
+            var nombre = (document.getElementById("legajos-modal-nombre") || {}).value || "";
+            var email = (document.getElementById("legajos-modal-email") || {}).value || "";
+            var legajo = (document.getElementById("legajos-modal-legajo") || {}).value || "";
+            var sucursal = (document.getElementById("legajos-modal-sucursal") || {}).value || "";
+            var area = (document.getElementById("legajos-modal-area") || {}).value || "";
+            var notas = (document.getElementById("legajos-modal-notas") || {}).value || "";
+            if (!nombre.trim()) {
+              if (modalStatus) {
+                modalStatus.textContent = "Completá el nombre.";
+                modalStatus.classList.add("legajos-status--error");
+              }
+              return;
+            }
+            if (modalModeCreate && !dni.trim()) {
+              if (modalStatus) {
+                modalStatus.textContent = "Completá DNI y nombre.";
+                modalStatus.classList.add("legajos-status--error");
+              }
+              return;
+            }
+            if (modalStatus) {
+              modalStatus.textContent = "Guardando…";
+              modalStatus.classList.remove("legajos-status--error");
+            }
+            if (modalModeCreate) {
+              var bodyCreate = {
+                company_id: cfg.company_id || (companySel && companySel.value) || "",
+                dni: dni.trim(),
+                nombre_completo: nombre.trim(),
+                email: email.trim(),
+                legajo_numero: legajo.trim(),
+                sucursal: sucursal.trim(),
+                area: area.trim(),
+                notas: notas.trim(),
+              };
+              var resC = await postJson("/api/legajos/empleados", bodyCreate);
+              if (!resC) return;
+              var dataC = await resC.json().catch(function() { return {}; });
+              if (!dataC.ok) {
+                if (modalStatus) {
+                  modalStatus.textContent = dataC.error || "Error";
+                  modalStatus.classList.add("legajos-status--error");
+                }
+                return;
+              }
+              clearModalFields();
+              if (modalStatus) {
+                modalStatus.textContent = "Colaborador agregado.";
+                modalStatus.classList.remove("legajos-status--error");
+              }
+              closeModalEmpleado();
+              await loadEmpleados();
+              if (dataC.empleado && dataC.empleado.id) selectEmpleado(dataC.empleado.id, dataC.empleado);
+              return;
+            }
+            var eid = (modalEmpleadoId && modalEmpleadoId.value) ? modalEmpleadoId.value.trim() : "";
+            if (!eid) {
+              if (modalStatus) {
+                modalStatus.textContent = "Falta identificador.";
+                modalStatus.classList.add("legajos-status--error");
+              }
+              return;
+            }
+            var bodyPatch = {
+              nombre_completo: nombre.trim(),
+              email: email.trim(),
+              legajo_numero: legajo.trim(),
+              sucursal: sucursal.trim(),
+              area: area.trim(),
+              notas: notas.trim(),
+            };
+            var resP = await patchJson("/api/legajos/empleados/" + encodeURIComponent(eid), bodyPatch);
+            if (!resP) return;
+            var dataP = await resP.json().catch(function() { return {}; });
+            if (!dataP.ok) {
+              if (modalStatus) {
+                modalStatus.textContent = dataP.error || "Error";
+                modalStatus.classList.add("legajos-status--error");
+              }
+              return;
+            }
+            if (modalStatus) {
+              modalStatus.textContent = "Cambios guardados.";
+              modalStatus.classList.remove("legajos-status--error");
+            }
+            closeModalEmpleado();
+            setStatus("Guardado.");
+            await loadEmpleados();
+            loadAuditoria();
+            if (dataP.empleado && selectedId === eid) {
+              selectedEmp = dataP.empleado;
+              selectEmpleado(eid, dataP.empleado);
+            }
+          });
+        }
+
+        if (btnImport && importFile && cfg.can_manage) {
+          btnImport.addEventListener("click", function() { importFile.click(); });
+        }
+
+        if (importFile && cfg.can_manage) {
+          importFile.addEventListener("change", async function() {
+            var f = importFile.files && importFile.files[0];
+            importFile.value = "";
+            if (!f) return;
+            var cid = cfg.company_id || (companySel && companySel.value) || "";
+            var fd = new FormData();
+            fd.append("file", f);
+            fd.append("company_id", cid);
+            setStatus("Importando…");
+            try {
+              var res = await fetch("/api/legajos/empleados/import", {
+                method: "POST",
+                body: fd,
+                credentials: "same-origin",
+              });
+              if (res.status === 401) {
+                loginRedirect();
+                return;
+              }
+              var data = await res.json().catch(function() { return {}; });
+              if (!data.ok) {
+                setStatus(data.error || "Error al importar", true);
+                return;
+              }
+              var parts = [];
+              parts.push("Creados: " + (data.created != null ? data.created : 0));
+              parts.push("Omitidos (duplicado): " + (data.skipped_duplicate != null ? data.skipped_duplicate : 0));
+              var errs = data.errors || [];
+              if (errs.length) parts.push("Errores en líneas: " + errs.slice(0, 5).map(function(e) { return e.line; }).join(", ") + (errs.length > 5 ? "…" : ""));
+              setStatus(parts.join(" · "));
+              await loadEmpleados();
+              loadAuditoria();
+            } catch (e) {
+              setStatus("Error de red al importar.", true);
+            }
+          });
+        }
+
+        if (btnEjemplo && cfg.can_manage) {
+          btnEjemplo.addEventListener("click", async function() {
+            setStatus("Descargando ejemplo…");
+            try {
+              var res = await fetch("/api/legajos/empleados/ejemplo-importacion", {
+                credentials: "same-origin",
+                cache: "no-store",
+              });
+              if (res.status === 401) {
+                loginRedirect();
+                return;
+              }
+              if (!res.ok) {
+                var errJ = await res.json().catch(function() { return {}; });
+                setStatus((errJ && errJ.error) || "No se pudo descargar el ejemplo.", true);
+                return;
+              }
+              var blob = await res.blob();
+              var disp = res.headers.get("Content-Disposition") || "";
+              var fn = "legajos_colaboradores_ejemplo.xlsx";
+              var m = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disp);
+              if (m && m[1]) fn = m[1].replace(/['"]/g, "").trim();
+              var a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = fn;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(a.href);
+              setStatus("Ejemplo Excel descargado (abrilo en Excel; columnas separadas).");
+            } catch (e) {
+              setStatus("Error al descargar el ejemplo.", true);
+            }
+          });
+        }
+
+        var uploadForm = document.getElementById("legajos-upload-form");
+        if (uploadForm && cfg.can_manage) {
+          uploadForm.addEventListener("submit", async function(ev) {
+            ev.preventDefault();
+            if (!selectedId) return;
+            var fileInput = document.getElementById("legajos-file");
+            var tipo = document.getElementById("legajos-tipo");
+            if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+              setStatus("Elegí un archivo.", true);
+              return;
+            }
+            var fd = new FormData();
+            fd.append("file", fileInput.files[0]);
+            fd.append("tipo_documento", (tipo && tipo.value) || "otro");
+            setStatus("Subiendo…");
+            try {
+              var res = await fetch("/api/legajos/empleados/" + encodeURIComponent(selectedId) + "/documentos", {
+                method: "POST",
+                body: fd,
+                credentials: "same-origin",
+              });
+              if (res.status === 401) {
+                loginRedirect();
+                return;
+              }
+              var data = await res.json();
+              if (!data.ok) {
+                setStatus(data.error || "Error al subir", true);
+                return;
+              }
+              fileInput.value = "";
+              setStatus("Archivo subido.");
+              if (selectedEmp) selectEmpleado(selectedId, selectedEmp);
+              loadAuditoria();
+            } catch (e) {
+              setStatus("Error de red.", true);
+            }
+          });
+        }
+
+        loadEmpleados();
+      })();
+    </script>
+  </body>
+</html>

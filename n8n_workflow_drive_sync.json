@@ -1,0 +1,98 @@
+{
+  "name": "ChatBot KB - Auto-Sync desde Drive",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "⏰ Disparador — cada 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "Ejecuta el workflow automáticamente cada 15 minutos.\nPara cambiar la frecuencia, editá el campo 'minutesInterval'."
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// EMPRESAS CONFIGURADAS\n// Para agregar una empresa nueva: copiá una línea y completá\n//   company_id → ID de la empresa en el sistema ChatBot\n//   folder_id  → ID de la carpeta en Google Drive\n//                (copialo desde la URL de Drive: /folders/ESTE_ID)\n// ============================================================\nconst empresas = [\n  {\n    company_id: 'test2',\n    folder_id:  '181SrJKfO0gBhhSQ8ZpyVPMwXffB2AfaR',\n    nombre:     'Test 2'\n  },\n  {\n    company_id: 'test3',\n    folder_id:  '16PNA3gAgvtoamLgdhkLn3BQ8i_erJFmy',\n    nombre:     'Test 3'\n  },\n  // { company_id: 'nueva-empresa', folder_id: 'ID_CARPETA_DRIVE', nombre: 'Nombre visible' },\n];\n\nreturn empresas.map(e => ({ json: e }));"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000002",
+      "name": "📋 Empresas a sincronizar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "Lista de empresas con su carpeta de Drive.\nCada empresa genera un item separado que se procesa en paralelo.\n\nPara AGREGAR una empresa: descomentá la última línea y completá los datos.\nEl folder_id lo encontrás en la URL de Google Drive al abrir la carpeta."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://chatbot-rrhh-528225147242.southamerica-east1.run.app/webhook/n8n/sync-knowledge",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "265356307c3d7ab43397f1787960e8efa305ccbb0300d230b73740dd6a36638b"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "company_id",
+              "value": "={{ $json.company_id }}"
+            },
+            {
+              "name": "folder_id",
+              "value": "={{ $json.folder_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000003",
+      "name": "🔄 Sincronizar KB en ChatBot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Llama al endpoint del ChatBot para cada empresa.\nEl ChatBot lee todos los archivos de la carpeta Drive,\nextrae preguntas y respuestas, actualiza Firestore\ny regenera automáticamente el menú de temas."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Registrar resultado de cada empresa\nconst resultados = $input.all().map(item => {\n  const r = item.json;\n  const estado = r.ok ? '✅ OK' : '❌ ERROR';\n  const detalle = r.ok\n    ? `${r.entries_count || 0} entradas actualizadas`\n    : (r.error || 'sin detalle');\n  return {\n    json: {\n      estado,\n      empresa: r.company_id || '',\n      detalle,\n      mensaje: r.message || r.error || '',\n      timestamp: new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }),\n    }\n  };\n});\n\nreturn resultados;"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000004",
+      "name": "📊 Resultado del sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Muestra el resultado por empresa en los logs de ejecución.\nPodés ver el historial en la pestaña 'Executions'.\n\nCampos: estado (OK/ERROR), empresa, cantidad de entradas actualizadas, timestamp."
+    }
+  ],
+  "connections": {
+    "⏰ Disparador — cada 15 min": {
+      "main": [[{ "node": "📋 Empresas a sincronizar", "type": "main", "index": 0 }]]
+    },
+    "📋 Empresas a sincronizar": {
+      "main": [[{ "node": "🔄 Sincronizar KB en ChatBot", "type": "main", "index": 0 }]]
+    },
+    "🔄 Sincronizar KB en ChatBot": {
+      "main": [[{ "node": "📊 Resultado del sync", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "tags": []
+}

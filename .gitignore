@@ -7,3 +7,6 @@ rrhh_roles.json
 venv/
 __pycache__/
 *.csv
+.firebase/
+debug.log
+deploy.log

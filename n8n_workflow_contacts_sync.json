@@ -1,0 +1,103 @@
+{
+  "name": "ChatBot Contactos - Sync desde Google Sheets",
+  "nodes": [
+    {
+      "id": "node-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24,
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-sheets",
+      "name": "Leer Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [460, 300],
+      "parameters": {
+        "operation": "getAllRows",
+        "documentId": {
+          "__rl": true,
+          "value": "REEMPLAZAR_CON_ID_DE_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REEMPLAZAR_CON_ID_CREDENCIAL",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "id": "node-code",
+      "name": "Preparar contactos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "parameters": {
+        "jsCode": "// Columnas esperadas en la planilla:\n// nombre | telefono | legajo (opcional) | company_id\n// Filtra filas sin telefono y normaliza los datos\n\nconst contacts = [];\n\nfor (const item of $input.all()) {\n  const row = item.json;\n  const telefono = String(row.telefono || row.Telefono || row.TELEFONO || '').trim();\n  if (!telefono) continue;\n\n  contacts.push({\n    nombre: String(row.nombre || row.Nombre || row.NOMBRE || 'Sin nombre').trim(),\n    telefono: telefono,\n    legajo: String(row.legajo || row.Legajo || row.LEGAJO || '').trim() || null,\n    company_id: String(row.company_id || row.empresa || row.Empresa || '').trim() || null\n  });\n}\n\n// Agrupar por empresa (company_id)\nconst byCompany = {};\nfor (const c of contacts) {\n  const cid = c.company_id || 'default';\n  if (!byCompany[cid]) byCompany[cid] = [];\n  byCompany[cid].push({ nombre: c.nombre, telefono: c.telefono, legajo: c.legajo });\n}\n\n// Devolver un item por empresa\nreturn Object.entries(byCompany).map(([company_id, contacts]) => ({\n  json: { company_id, contacts }\n}));"
+      }
+    },
+    {
+      "id": "node-http",
+      "name": "Enviar al ChatBot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://chatbot-rrhh-528225147242.southamerica-east1.run.app/webhook/n8n/sync-contacts",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{"node": "Leer Google Sheets", "type": "main", "index": 0}]]
+    },
+    "Leer Google Sheets": {
+      "main": [[{"node": "Preparar contactos", "type": "main", "index": 0}]]
+    },
+    "Preparar contactos": {
+      "main": [[{"node": "Enviar al ChatBot", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

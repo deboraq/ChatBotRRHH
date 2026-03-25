@@ -30,6 +30,8 @@ PERM_CONFIG_MANAGE = "configuracion_gestionar"
 PERM_STATS_VIEW = "estadisticas_ver"
 PERM_PREFERENCES_MANAGE = "preferencias_gestionar"
 PERM_COMUNICADOS_SEND = "comunicados_enviar"
+PERM_LEGAJOS_VIEW = "legajos_ver"
+PERM_LEGAJOS_MANAGE = "legajos_gestionar"
 
 PERMISSIONS_CATALOG = {
     PERM_CONVERSATIONS_VIEW: "Ver conversaciones",
@@ -41,6 +43,8 @@ PERMISSIONS_CATALOG = {
     PERM_STATS_VIEW: "Ver estadísticas",
     PERM_PREFERENCES_MANAGE: "Gestionar preferencias (empresa activa, autocierre, reglas del chat)",
     PERM_COMUNICADOS_SEND: "Enviar comunicados por WhatsApp",
+    PERM_LEGAJOS_VIEW: "Ver legajos digitales",
+    PERM_LEGAJOS_MANAGE: "Subir, editar o eliminar documentos de legajo",
 }
 
 DEFAULT_ROLE_DEFINITIONS = {

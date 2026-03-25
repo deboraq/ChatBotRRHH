@@ -96,6 +96,13 @@
             <button id="btn-nueva-conversacion" type="button" class="btn btn-primary">Enviar mensaje a...</button>
           </div>
           <div id="queue-status" class="subtle"></div>
+          <input
+            id="conv-search"
+            type="search"
+            placeholder="Buscar por nombre o número..."
+            autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:0.4rem 0.6rem;margin-bottom:0.5rem;border:1px solid var(--border-color,#d1d5db);border-radius:6px;font-size:0.88rem;background:var(--input-bg,#fff);color:var(--text-color,#111);"
+          />
           <div id="conversation-list" class="conversation-list"></div>
         </aside>
 
@@ -285,6 +292,14 @@
       let companyAreas = [];
       let selectedAreaNames = [];
       let selectedAgentFilter = "";
+      let convSearchText = "";
+      const convSearchEl = document.getElementById("conv-search");
+      if (convSearchEl) {
+        convSearchEl.addEventListener("input", () => {
+          convSearchText = convSearchEl.value.toLowerCase().trim();
+          renderConversations();
+        });
+      }
       const agentFilterEl = document.getElementById("rrhh-agent-filter");
       if (agentFilterEl) {
         agentFilterEl.addEventListener("change", () => {
@@ -630,9 +645,17 @@
 
       function renderConversations() {
         conversationListEl.innerHTML = "";
-        const filtered = selectedAgentFilter
+        let filtered = selectedAgentFilter
           ? conversations.filter((c) => (c.rrhh_agente_id || "").toLowerCase() === selectedAgentFilter.toLowerCase())
           : conversations;
+        if (convSearchText) {
+          filtered = filtered.filter((c) => {
+            const name = (c.colaborador_nombre || "").toLowerCase();
+            const phone = (c.colaborador_telefono || "").toLowerCase();
+            const msg = (c.ultima_consulta || "").toLowerCase();
+            return name.includes(convSearchText) || phone.includes(convSearchText) || msg.includes(convSearchText);
+          });
+        }
         if (!filtered.length) {
           conversationListEl.innerHTML = "<p class='subtle'>No hay conversaciones para mostrar.</p>";
           return;
