@@ -76,6 +76,9 @@ def send_one(
     text = (body or "").strip()
     if not text and template_params:
         text = " ".join(str(p or "").strip() for p in template_params)
+    # Normalizar: acepta string, lista de strings, o None
+    if isinstance(media_url, str):
+        media_url = [media_url] if media_url.strip() else []
     urls = [u.strip() for u in (media_url or []) if isinstance(u, str) and u.strip()]
     if not text and not urls:
         return False
