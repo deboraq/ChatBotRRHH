@@ -5490,7 +5490,15 @@ def login_submit():
                 },
             }
         )
-    return redirect(next_path)
+    import json as _json
+    _module_map = {
+        "/rrhh": "rrhh", "/historial": "historial", "/configuracion": "configuracion",
+        "/estadisticas": "estadisticas", "/comunicados": "comunicados",
+        "/legajos": "legajos", "/preferencias": "preferencias",
+    }
+    _module = _module_map.get(next_path)
+    _top_url = f"/?m={_module}" if _module else next_path
+    return f'<script>window.top.location.href = {_json.dumps(_top_url)};</script>', 200, {"Content-Type": "text/html"}
 
 
 @flask_app.route("/logout", methods=["GET", "POST"])

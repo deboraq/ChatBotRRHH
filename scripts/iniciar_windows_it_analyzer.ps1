@@ -7,7 +7,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-Location $PSScriptRoot
+$ProjectRoot = Split-Path $PSScriptRoot -Parent
+Set-Location $ProjectRoot
 
 # Soporta ambos nombres de entorno: .venv y venv.
 $venvDir = $null
@@ -23,7 +24,7 @@ else {
     py -3 -m venv $venvDir
 }
 
-$activate = Join-Path $PSScriptRoot "$venvDir\Scripts\Activate.ps1"
+$activate = Join-Path $ProjectRoot "$venvDir\Scripts\Activate.ps1"
 if (-not (Test-Path $activate)) {
     throw "No se encontro $venvDir\Scripts\Activate.ps1"
 }
@@ -41,7 +42,7 @@ $env:RRHH_ADMIN_PASSWORD = $AdminPassword
 $env:GOOGLE_CLOUD_PROJECT = $ProjectId
 $env:FIREBASE_PROJECT_ID = $ProjectId
 
-$credAbsolutePath = Join-Path $PSScriptRoot $CredPath
+$credAbsolutePath = Join-Path $ProjectRoot $CredPath
 if (Test-Path $credAbsolutePath) {
     $env:FIREBASE_CREDENTIALS = (Resolve-Path $credAbsolutePath).Path
     Write-Host "Usando FIREBASE_CREDENTIALS=$env:FIREBASE_CREDENTIALS" -ForegroundColor Green
