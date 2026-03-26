@@ -3228,9 +3228,10 @@ def home():
     hr_display = (settings.get("hr_team_name") or "Atención").strip()
     if hr_display.upper() == "RRHH":
         hr_display = "Atención"
-    # Mostrar siempre todos los módulos en el sidebar; al hacer clic en uno protegido se redirige a login si hace falta.
     user = _current_rrhh_user()
-    show_all = _auth_enabled() and user is None
+    if _auth_enabled() and user is None:
+        return redirect(url_for("login_page", next=_request_path_with_query()))
+    show_all = False
     _allowed_modules = {
         "chat",
         "rrhh",
