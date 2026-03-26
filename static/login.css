@@ -97,3 +97,37 @@ body {
   text-decoration: none;
   font-weight: 600;
 }
+
+html[data-theme="dark"] body {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .login-card {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .login-card p {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .login-card input,
+html[data-theme="dark"] .login-card select {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .error {
+  background: #450a0a;
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+
+html[data-theme="dark"] .success {
+  background: #052e16;
+  border-color: #166534;
+  color: #86efac;
+}
