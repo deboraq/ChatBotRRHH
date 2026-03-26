@@ -5505,9 +5505,17 @@ def login_submit():
 @flask_app.route("/logout", methods=["GET", "POST"])
 def logout_page():
     session.clear()
-    redirect_target = "login_page" if _auth_enabled() else "rrhh_page"
-    response = redirect(url_for(redirect_target))
     session_cookie_name = flask_app.config.get("SESSION_COOKIE_NAME", "session")
+    target_url = url_for("login_page") if _auth_enabled() else url_for("rrhh_page")
+    if request.method == "POST" and not request.is_json:
+        resp = make_response(
+            f'<script>window.top.location.href = {__import__("json").dumps(target_url)};</script>',
+            200,
+        )
+        resp.content_type = "text/html"
+        resp.delete_cookie(session_cookie_name)
+        return resp
+    response = redirect(target_url)
     response.delete_cookie(session_cookie_name)
     return response
 
