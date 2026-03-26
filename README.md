@@ -94,18 +94,35 @@ Plataforma integral de atención a colaboradores vía web y WhatsApp, con panel 
 ## Estructura del proyecto
 
 ```
-web_chat.py          # App Flask principal (rutas, lógica de negocio)
-app.py               # Motor del chatbot (IA, respuestas, KB)
-auth_rrhh.py         # Autenticación y roles RRHH
-twilio_whatsapp.py   # Integración WhatsApp via Twilio
+# Backend
+web_chat.py           # App Flask principal (rutas, lógica de negocio)
+app.py                # Motor del chatbot (IA, respuestas, KB)
+auth_rrhh.py          # Autenticación y roles RRHH
+twilio_whatsapp.py    # Integración WhatsApp via Twilio
 whatsapp_broadcast.py # Envío masivo por WhatsApp
-stats_service.py     # Métricas y estadísticas
-legajos_service.py   # Gestión de legajos digitales
-templates/           # Jinja2: index, rrhh, historial, configuracion, comunicados, etc.
-static/              # CSS, JS, imágenes
-docs/                # Documentación técnica extendida
-Dockerfile           # Para Cloud Run
-firebase.json        # Configuración Firebase Hosting
+stats_service.py      # Métricas y estadísticas
+legajos_service.py    # Gestión de legajos digitales
+firebase_config.py    # Configuración Firebase
+
+# Frontend
+templates/            # Jinja2: index, rrhh, historial, configuracion, comunicados, etc.
+static/               # CSS, JS, íconos
+
+# Infraestructura
+Dockerfile            # Imagen para Cloud Run
+firebase.json         # Firebase Hosting + rewrites
+firestore.rules       # Reglas de seguridad Firestore
+storage.rules         # Reglas de seguridad Storage
+
+# Automatizaciones N8N
+n8n/                  # Workflows exportados (importar en N8N para activar)
+
+# Scripts de desarrollo y deploy (Windows)
+scripts/              # PS1: iniciar local, deploy a Cloud Run + Firebase
+
+# Documentación y tests
+docs/                 # Guías técnicas de configuración e integración
+tests/                # Tests unitarios e integración
 ```
 
 ---
@@ -175,6 +192,13 @@ gcloud run deploy chatbot-rrhh \
 firebase deploy --only hosting:debo-chat
 ```
 
+O desde Windows con un solo comando:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\scripts\deploy_firebase_cloudrun.ps1 -ProjectId "it-analyzer" -UseHosting -HostingSite "debo-chat"
+```
+
 > Siempre usar `--only hosting:debo-chat`. No usar `firebase deploy --only hosting` (despliega todos los sitios).
 
 URLs:
@@ -188,7 +212,7 @@ URLs:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\iniciar_windows_it_analyzer.ps1
+.\scripts\iniciar_windows_it_analyzer.ps1
 ```
 
 O manualmente:
