@@ -33,11 +33,17 @@
           "parameters": [
             {
               "name": "X-Webhook-Secret",
-              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+              "value": "REEMPLAZAR_CON_N8N_WEBHOOK_SECRET"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
-        "sendBody": false,
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
         "options": {
           "timeout": 60000
         }
