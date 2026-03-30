@@ -7,12 +7,94 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 LEGAJOS_EMPLEADOS_COLLECTION = "legajos_empleados"
 LEGAJOS_DOCUMENTOS_COLLECTION = "legajos_documentos"
 LEGAJOS_AUDITORIA_COLLECTION = "legajos_auditoria"
+LEGAJOS_CONVENIOS_COLLECTION = "legajos_convenios"
+LEGAJOS_CARPETAS_COLLECTION = "legajos_carpetas"
+
+# Lista maestra de todos los tipos de documento posibles.
+ALL_TIPOS_DOCUMENTO: list[tuple[str, str]] = [
+    ("recibos", "Recibos de sueldo"),
+    ("ropa_uniformes", "Ropa / Uniformes"),
+    ("vacaciones", "Vacaciones"),
+    ("datos_personales", "Datos personales"),
+    ("sanciones", "Sanciones disciplinarias"),
+    ("notificaciones", "Notificaciones"),
+    ("cert_art", "Certificados ART"),
+    ("cert_medico", "Certificados médicos"),
+    ("cert_escolar", "Certificados escolares"),
+    ("carpeta_medica", "Carpeta médica"),
+    ("capacitaciones", "Capacitaciones"),
+    ("afjp_afip", "AFJP / AFIP"),
+    ("otro", "Otro"),
+]
+
+CONVENIOS: dict[str, str] = {
+    "comercio": "Comercio",
+    "camioneros": "Camioneros",
+    "bancos": "Bancos",
+    "seguridad": "Seguridad privada",
+}
+
+# Tipos de documento disponibles por convenio.
+# Seguridad privada: sanciones a confirmar con la empresa (marcado con nota).
+_TIPOS_COMUNES = [
+    ("recibos", "Recibos de sueldo"),
+    ("ropa_uniformes", "Ropa / Uniformes"),
+    ("vacaciones", "Vacaciones"),
+    ("datos_personales", "Datos personales"),
+]
+TIPOS_DOCUMENTO_POR_CONVENIO: dict[str, list[tuple[str, str]]] = {
+    "comercio": [
+        *_TIPOS_COMUNES,
+        ("sanciones", "Sanciones disciplinarias"),
+        ("notificaciones", "Notificaciones"),
+        ("cert_art", "Certificados ART"),
+        ("otro", "Otro"),
+    ],
+    "camioneros": [
+        *_TIPOS_COMUNES,
+        ("sanciones", "Sanciones disciplinarias"),
+        ("notificaciones", "Notificaciones"),
+        ("cert_medico", "Certificados médicos"),
+        ("cert_art", "Certificados ART"),
+        ("cert_escolar", "Certificados escolares"),
+        ("capacitaciones", "Capacitaciones"),
+        ("afjp_afip", "AFJP / AFIP"),
+        ("otro", "Otro"),
+    ],
+    "bancos": [
+        *_TIPOS_COMUNES,
+        ("sanciones", "Sanciones disciplinarias"),
+        ("notificaciones", "Notificaciones"),
+        ("carpeta_medica", "Carpeta médica"),
+        ("cert_escolar", "Certificados escolares"),
+        ("otro", "Otro"),
+    ],
+    "seguridad": [
+        *_TIPOS_COMUNES,
+        ("cert_art", "Certificados ART"),
+        ("otro", "Otro"),
+    ],
+    # Sin convenio asignado: tipos genéricos
+    "": [
+        *_TIPOS_COMUNES,
+        ("sanciones", "Sanciones disciplinarias"),
+        ("notificaciones", "Notificaciones"),
+        ("cert_art", "Certificados ART"),
+        ("cert_medico", "Certificados médicos"),
+        ("cert_escolar", "Certificados escolares"),
+        ("carpeta_medica", "Carpeta médica"),
+        ("capacitaciones", "Capacitaciones"),
+        ("afjp_afip", "AFJP / AFIP"),
+        ("otro", "Otro"),
+    ],
+}
 
 # Acciones registradas en auditoría (campo action)
 LEGAJOS_AUDIT_EMPLEADO_CREAR = "empleado_crear"
@@ -64,8 +146,9 @@ def list_empleados(
     db,
     company_id: str,
     search: str | None = None,
+    activo: bool | None = True,
 ) -> list[dict]:
-    """Lista empleados de una empresa. Orden local por legajo y nombre."""
+    """Lista empleados de una empresa. activo=True solo activos, False solo inactivos, None todos."""
     if not db or not company_id:
         return []
     cid = str(company_id).strip().lower()
@@ -74,6 +157,8 @@ def list_empleados(
     try:
         for snap in db.collection(LEGAJOS_EMPLEADOS_COLLECTION).where("company_id", "==", cid).stream():
             row = empleado_from_snap(snap)
+            if activo is not None and row.get("activo", True) != activo:
+                continue
             if q:
                 leg = (row.get("legajo_numero") or "").lower()
                 nom = (row.get("nombre_completo") or "").lower()
@@ -105,6 +190,8 @@ def empleado_from_snap(doc_snap) -> dict:
         "notas": data.get("notas") or "",
         "dni": data.get("dni") or "",
         "email": data.get("email") or "",
+        "convenio": data.get("convenio") or "",
+        "activo": data.get("activo", True),
         "created_at": _serialize_ts(data.get("created_at")),
         "created_by": data.get("created_by") or "",
         "updated_at": _serialize_ts(data.get("updated_at")),
@@ -165,6 +252,7 @@ def create_empleado(
     area: str = "",
     notas: str = "",
     email: str = "",
+    convenio: str = "",
 ) -> tuple[bool, dict | None, str]:
     """Crea colaborador. ID en Firestore = {empresa}_{dni}. DNI obligatorio (6–16 dígitos). Legajo opcional."""
     if not db:
@@ -194,6 +282,8 @@ def create_empleado(
         "notas": str(notas or "").strip(),
         "dni": dni_digits,
         "email": str(email or "").strip().lower(),
+        "convenio": str(convenio or "").strip(),
+        "activo": True,
         "created_at": now,
         "created_by": str(created_by or "").strip(),
         "updated_at": now,
@@ -219,6 +309,7 @@ def update_empleado(
     area: str = "",
     notas: str = "",
     email: str = "",
+    convenio: str = "",
 ) -> tuple[bool, dict | None, str]:
     """Actualiza datos. El DNI no se modifica (el ID del documento es fijo). Legajo vacío permitido."""
     if not db or not str(empleado_id or "").strip():
@@ -248,6 +339,7 @@ def update_empleado(
                 "area": str(area or "").strip(),
                 "notas": str(notas or "").strip(),
                 "email": str(email or "").strip().lower(),
+                "convenio": str(convenio or "").strip(),
                 "updated_at": now,
                 "updated_by": str(updated_by or "").strip(),
             }
@@ -258,28 +350,48 @@ def update_empleado(
         return False, None, str(exc)
 
 
+def set_empleado_activo(db, empleado_id: str, activo: bool) -> tuple[bool, dict | None, str]:
+    """Activa o desactiva un colaborador (no elimina sus datos ni archivos)."""
+    if not db or not str(empleado_id or "").strip():
+        return False, None, "ID inválido."
+    eid = str(empleado_id).strip()
+    try:
+        ref = db.collection(LEGAJOS_EMPLEADOS_COLLECTION).document(eid)
+        snap = ref.get()
+        if not snap.exists:
+            return False, None, "Colaborador no encontrado."
+        ref.update({"activo": bool(activo), "updated_at": _utc_now()})
+        snap = ref.get()
+        return True, empleado_from_snap(snap), ""
+    except Exception as exc:
+        return False, None, str(exc)
+
+
+def empleado_tiene_documentos(db, empleado_id: str) -> bool:
+    if not db or not empleado_id:
+        return False
+    eid = str(empleado_id).strip()
+    try:
+        snaps = list(db.collection(LEGAJOS_DOCUMENTOS_COLLECTION).where("empleado_id", "==", eid).limit(1).stream())
+        return len(snaps) > 0
+    except Exception:
+        return False
+
+
 def delete_empleado_completo(db, empleado_id: str) -> tuple[bool, list[str], str]:
-    """Elimina el colaborador y los metadatos de sus documentos. Devuelve rutas en Storage a borrar."""
+    """Elimina el colaborador solo si no tiene documentos. Devuelve rutas en Storage a borrar."""
     if not db or not str(empleado_id or "").strip():
         return False, [], "ID inválido."
     eid = str(empleado_id).strip()
-    paths: list[str] = []
     try:
-        for snap in (
-            db.collection(LEGAJOS_DOCUMENTOS_COLLECTION).where("empleado_id", "==", eid).stream()
-        ):
-            doc_id = snap.id
-            row = documento_from_snap(snap)
-            p = str(row.get("storage_path") or "").strip()
-            if p:
-                paths.append(p)
-            db.collection(LEGAJOS_DOCUMENTOS_COLLECTION).document(doc_id).delete()
+        if empleado_tiene_documentos(db, eid):
+            return False, [], "No se puede eliminar: el colaborador tiene documentos. Desactivalo en cambio."
         ref = db.collection(LEGAJOS_EMPLEADOS_COLLECTION).document(eid)
         snap_e = ref.get()
         if not snap_e.exists:
             return False, [], "Colaborador no encontrado."
         ref.delete()
-        return True, paths, ""
+        return True, [], ""
     except Exception as exc:
         return False, [], str(exc)
 
@@ -888,3 +1000,212 @@ def import_empleados_desde_filas(
                 errors.append({"line": line_no, "error": msg or "Error al crear."})
 
     return {"created": created, "skipped_duplicate": skipped, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# Convenios por empresa
+# ---------------------------------------------------------------------------
+
+def _convenio_from_snap(snap) -> dict:
+    d = snap.to_dict() or {}
+    return {
+        "id": snap.id,
+        "company_id": d.get("company_id", ""),
+        "nombre": d.get("nombre", ""),
+        "tipos_documento": d.get("tipos_documento", []),
+    }
+
+
+def list_convenios(db, company_id: str) -> list[dict]:
+    if not db or not company_id:
+        return []
+    cid = str(company_id).strip().lower()
+    out: list[dict] = []
+    try:
+        for snap in db.collection(LEGAJOS_CONVENIOS_COLLECTION).where("company_id", "==", cid).stream():
+            out.append(_convenio_from_snap(snap))
+    except Exception:
+        pass
+    return sorted(out, key=lambda x: x["nombre"].lower())
+
+
+def get_convenio(db, convenio_id: str) -> dict | None:
+    if not db or not convenio_id:
+        return None
+    try:
+        snap = db.collection(LEGAJOS_CONVENIOS_COLLECTION).document(convenio_id).get()
+        if snap.exists:
+            return _convenio_from_snap(snap)
+    except Exception:
+        pass
+    return None
+
+
+def create_convenio(
+    db,
+    company_id: str,
+    nombre: str,
+    tipos_documento: list[str],
+) -> tuple[bool, dict | None, str]:
+    if not db:
+        return False, None, "Sin base de datos."
+    cid = str(company_id or "").strip().lower()
+    nombre = str(nombre or "").strip()
+    if not cid:
+        return False, None, "Falta empresa."
+    if not nombre:
+        return False, None, "El nombre del convenio es obligatorio."
+    tipos = [str(t).strip() for t in (tipos_documento or []) if str(t).strip()]
+    try:
+        ref = db.collection(LEGAJOS_CONVENIOS_COLLECTION).document()
+        data = {"company_id": cid, "nombre": nombre, "tipos_documento": tipos, "created_at": _utc_now()}
+        ref.set(data)
+        row = {"id": ref.id, "company_id": cid, "nombre": nombre, "tipos_documento": tipos}
+        return True, row, ""
+    except Exception as e:
+        return False, None, str(e)
+
+
+def update_convenio(
+    db,
+    convenio_id: str,
+    nombre: str,
+    tipos_documento: list[str],
+) -> tuple[bool, dict | None, str]:
+    if not db or not convenio_id:
+        return False, None, "Falta ID de convenio."
+    nombre = str(nombre or "").strip()
+    if not nombre:
+        return False, None, "El nombre del convenio es obligatorio."
+    tipos = [str(t).strip() for t in (tipos_documento or []) if str(t).strip()]
+    try:
+        ref = db.collection(LEGAJOS_CONVENIOS_COLLECTION).document(convenio_id)
+        snap = ref.get()
+        if not snap.exists:
+            return False, None, "Convenio no encontrado."
+        ref.update({"nombre": nombre, "tipos_documento": tipos})
+        row = _convenio_from_snap(snap)
+        row["nombre"] = nombre
+        row["tipos_documento"] = tipos
+        return True, row, ""
+    except Exception as e:
+        return False, None, str(e)
+
+
+def delete_convenio(db, convenio_id: str) -> tuple[bool, str]:
+    if not db or not convenio_id:
+        return False, "Falta ID de convenio."
+    try:
+        ref = db.collection(LEGAJOS_CONVENIOS_COLLECTION).document(convenio_id)
+        if not ref.get().exists:
+            return False, "Convenio no encontrado."
+        ref.delete()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+# ---------------------------------------------------------------------------
+# Carpetas disponibles por empresa
+# ---------------------------------------------------------------------------
+
+def _slugify_label(label: str) -> str:
+    s = label.lower().strip()
+    for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ü","u"),("ñ","n")]:
+        s = s.replace(a, b)
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return (s or "carpeta")[:50]
+
+
+def _carpeta_from_snap(snap) -> dict:
+    d = snap.to_dict() or {}
+    return {
+        "id": snap.id,
+        "company_id": d.get("company_id", ""),
+        "code": d.get("code", ""),
+        "label": d.get("label", ""),
+        "orden": d.get("orden", 0),
+    }
+
+
+def list_carpetas(db, company_id: str) -> list[dict]:
+    """Carpetas configuradas para la empresa. Si no hay, devuelve la lista por defecto."""
+    if not db or not company_id:
+        return [{"id": "", "company_id": "", "code": c, "label": l, "orden": i} for i, (c, l) in enumerate(ALL_TIPOS_DOCUMENTO)]
+    cid = str(company_id).strip().lower()
+    out: list[dict] = []
+    try:
+        for snap in db.collection(LEGAJOS_CARPETAS_COLLECTION).where("company_id", "==", cid).stream():
+            out.append(_carpeta_from_snap(snap))
+    except Exception:
+        pass
+    if not out:
+        return [{"id": "", "company_id": cid, "code": c, "label": l, "orden": i} for i, (c, l) in enumerate(ALL_TIPOS_DOCUMENTO)]
+    return sorted(out, key=lambda x: (x["orden"], x["label"].lower()))
+
+
+def has_custom_carpetas(db, company_id: str) -> bool:
+    if not db or not company_id:
+        return False
+    cid = str(company_id).strip().lower()
+    try:
+        snaps = list(db.collection(LEGAJOS_CARPETAS_COLLECTION).where("company_id", "==", cid).limit(1).stream())
+        return len(snaps) > 0
+    except Exception:
+        return False
+
+
+def create_carpeta(db, company_id: str, label: str) -> tuple[bool, dict | None, str]:
+    if not db:
+        return False, None, "Sin base de datos."
+    cid = str(company_id or "").strip().lower()
+    label = str(label or "").strip()
+    if not cid:
+        return False, None, "Falta empresa."
+    if not label:
+        return False, None, "El nombre de la carpeta es obligatorio."
+    code = _slugify_label(label)
+    # Verificar que no exista ya ese code en la empresa
+    try:
+        existing = list(db.collection(LEGAJOS_CARPETAS_COLLECTION).where("company_id", "==", cid).where("code", "==", code).limit(1).stream())
+        if existing:
+            return False, None, f'Ya existe una carpeta con el código "{code}".'
+        # Obtener el máximo orden actual
+        all_snaps = list(db.collection(LEGAJOS_CARPETAS_COLLECTION).where("company_id", "==", cid).stream())
+        orden = len(all_snaps)
+        ref = db.collection(LEGAJOS_CARPETAS_COLLECTION).document()
+        data = {"company_id": cid, "code": code, "label": label, "orden": orden, "created_at": _utc_now()}
+        ref.set(data)
+        row = {"id": ref.id, "company_id": cid, "code": code, "label": label, "orden": orden}
+        return True, row, ""
+    except Exception as e:
+        return False, None, str(e)
+
+
+def delete_carpeta(db, carpeta_id: str) -> tuple[bool, str]:
+    if not db or not carpeta_id:
+        return False, "Falta ID de carpeta."
+    try:
+        ref = db.collection(LEGAJOS_CARPETAS_COLLECTION).document(carpeta_id)
+        if not ref.get().exists:
+            return False, "Carpeta no encontrada."
+        ref.delete()
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def init_carpetas_from_default(db, company_id: str) -> bool:
+    """Inicializa las carpetas de una empresa con la lista por defecto."""
+    if not db or not company_id:
+        return False
+    cid = str(company_id).strip().lower()
+    if has_custom_carpetas(db, cid):
+        return False
+    try:
+        for i, (code, label) in enumerate(ALL_TIPOS_DOCUMENTO):
+            ref = db.collection(LEGAJOS_CARPETAS_COLLECTION).document()
+            ref.set({"company_id": cid, "code": code, "label": label, "orden": i, "created_at": _utc_now()})
+        return True
+    except Exception:
+        return False

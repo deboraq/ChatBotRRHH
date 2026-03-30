@@ -21,7 +21,7 @@
       })();
     </script>
     <script type="application/json" id="legajos-config">
-      {{ {"can_manage": can_manage_legajos, "company_id": selected_company_id or "" } | tojson }}
+      {{ {"can_manage": can_manage_legajos, "company_id": selected_company_id or "", "all_tipos_documento": all_tipos_documento } | tojson }}
     </script>
     <main class="rrhh-wrapper legajos-page">
       <header class="rrhh-header">
@@ -94,6 +94,12 @@
               <label class="legajos-modal-field"><span>Legajo</span><input type="text" id="legajos-modal-legajo" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Sucursal</span><input type="text" id="legajos-modal-sucursal" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Área</span><input type="text" id="legajos-modal-area" autocomplete="off" /></label>
+              <label class="legajos-modal-field">
+                <span>Convenio</span>
+                <select id="legajos-modal-convenio">
+                  <option value="">Sin convenio</option>
+                </select>
+              </label>
               <label class="legajos-modal-field legajos-modal-field--full"><span>Notas</span><input type="text" id="legajos-modal-notas" autocomplete="off" /></label>
             </div>
             <p id="legajos-modal-status" class="legajos-status" role="status"></p>
@@ -110,7 +116,16 @@
 
       <div class="legajos-split">
         <section class="legajos-panel legajos-list-panel">
-          <h2 class="legajos-panel-title">Colaboradores</h2>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+            <h2 class="legajos-panel-title" style="margin:0;">Colaboradores</h2>
+            {% if can_manage_legajos %}
+            <div class="legajos-activo-filter" id="legajos-activo-filter" style="display:flex;gap:4px;">
+              <button type="button" class="btn-legajos-secondary legajos-filter-btn legajos-filter-btn--active" data-activo="true">Activos</button>
+              <button type="button" class="btn-legajos-secondary legajos-filter-btn" data-activo="all">Todos</button>
+              <button type="button" class="btn-legajos-secondary legajos-filter-btn" data-activo="false">Inactivos</button>
+            </div>
+            {% endif %}
+          </div>
           <div class="legajos-table-wrap">
             <table class="legajos-table legajos-table-main">
               <thead>
@@ -122,11 +137,12 @@
                   <th>Sucursal</th>
                   <th>Área</th>
                   <th>Notas</th>
+                  <th>Estado</th>
                   {% if can_manage_legajos %}<th class="legajos-col-acciones">Acciones</th>{% endif %}
                 </tr>
               </thead>
               <tbody id="legajos-tbody">
-                <tr><td colspan="{% if can_manage_legajos %}8{% else %}7{% endif %}" class="legajos-empty">Cargando…</td></tr>
+                <tr><td colspan="{% if can_manage_legajos %}9{% else %}8{% endif %}" class="legajos-empty">Cargando…</td></tr>
               </tbody>
             </table>
           </div>
@@ -137,13 +153,9 @@
           {% if can_manage_legajos %}
           <form class="legajos-upload-form" id="legajos-upload-form">
             <label class="legajos-field">
-              Tipo
+              Carpeta
               <select name="tipo_documento" id="legajos-tipo">
-                <option value="contrato">Contrato</option>
-                <option value="dni">DNI / identificación</option>
-                <option value="certificado">Certificado</option>
-                <option value="evaluacion">Evaluación</option>
-                <option value="otro" selected>Otro</option>
+                <option value="otro">Otro</option>
               </select>
             </label>
             <label class="legajos-field legajos-field--file">
@@ -193,10 +205,18 @@
             Carpeta
             <select id="legajos-doc-tipo" aria-label="Filtrar búsqueda por tipo de documento">
               <option value="">Todas</option>
-              <option value="contrato">Contrato</option>
-              <option value="dni">DNI / identificación</option>
-              <option value="certificado">Certificado</option>
-              <option value="evaluacion">Evaluación</option>
+              <option value="recibos">Recibos de sueldo</option>
+              <option value="ropa_uniformes">Ropa / Uniformes</option>
+              <option value="vacaciones">Vacaciones</option>
+              <option value="datos_personales">Datos personales</option>
+              <option value="sanciones">Sanciones disciplinarias</option>
+              <option value="notificaciones">Notificaciones</option>
+              <option value="cert_art">Certificados ART</option>
+              <option value="cert_medico">Certificados médicos</option>
+              <option value="cert_escolar">Certificados escolares</option>
+              <option value="carpeta_medica">Carpeta médica</option>
+              <option value="capacitaciones">Capacitaciones</option>
+              <option value="afjp_afip">AFJP / AFIP</option>
               <option value="otro">Otro</option>
             </select>
           </label>
@@ -328,12 +348,21 @@
         var selectedEmp = null;
         var searchTimer = null;
         var lastEmpleados = [];
+        var activoFilter = "true";
 
         var DOC_TIPO_LABELS = {
-          contrato: "Contrato",
-          dni: "DNI / identificación",
-          certificado: "Certificado",
-          evaluacion: "Evaluación",
+          recibos: "Recibos de sueldo",
+          ropa_uniformes: "Ropa / Uniformes",
+          vacaciones: "Vacaciones",
+          datos_personales: "Datos personales",
+          sanciones: "Sanciones disciplinarias",
+          notificaciones: "Notificaciones",
+          cert_art: "Certificados ART",
+          cert_medico: "Certificados médicos",
+          cert_escolar: "Certificados escolares",
+          carpeta_medica: "Carpeta médica",
+          capacitaciones: "Capacitaciones",
+          afjp_afip: "AFJP / AFIP",
           otro: "Otro",
         };
 
@@ -353,7 +382,7 @@
           o0.textContent = "Todas";
           sel.appendChild(o0);
           var seen = {};
-          ["contrato", "dni", "certificado", "evaluacion", "otro"].forEach(function(key) {
+          Object.keys(DOC_TIPO_LABELS).forEach(function(key) {
             seen[key] = true;
             var o = document.createElement("option");
             o.value = key;
@@ -746,6 +775,8 @@
           selectedEmp = null;
           if (detail) detail.hidden = true;
           await loadAuditUserOptions();
+          loadCarpetasForCompany(cid);
+          loadConveniosForCompany(cid);
           loadEmpleados();
         }
 
@@ -782,7 +813,7 @@
         var HINT_EDITAR = "El DNI y el ID de Firestore no se modifican. Podés actualizar el resto de los datos.";
 
         function clearModalFields() {
-          ["legajos-modal-dni", "legajos-modal-nombre", "legajos-modal-email", "legajos-modal-legajo", "legajos-modal-sucursal", "legajos-modal-area", "legajos-modal-notas"].forEach(function(id) {
+          ["legajos-modal-dni", "legajos-modal-nombre", "legajos-modal-email", "legajos-modal-legajo", "legajos-modal-sucursal", "legajos-modal-area", "legajos-modal-convenio", "legajos-modal-notas"].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.value = "";
           });
@@ -840,6 +871,7 @@
           setv("legajos-modal-legajo", emp.legajo_numero);
           setv("legajos-modal-sucursal", emp.sucursal);
           setv("legajos-modal-area", emp.area);
+          setv("legajos-modal-convenio", emp.convenio);
           setv("legajos-modal-notas", emp.notas);
           if (modalStatus) {
             modalStatus.textContent = "";
@@ -857,9 +889,84 @@
           modalEmpleado.setAttribute("hidden", "");
         }
 
+        // Carpetas y convenios cargados desde la API para la empresa activa.
+        var loadedCarpetas = cfg.all_tipos_documento || [["otro","Otro"]];
+        var loadedConvenios = [];
+
+        async function loadCarpetasForCompany(company_id) {
+          if (!company_id) { loadedCarpetas = cfg.all_tipos_documento || [["otro","Otro"]]; _updateDocTipoLabels(); return; }
+          try {
+            var res = await fetch("/api/legajos/carpetas?" + new URLSearchParams({ company_id: company_id }), { credentials: "same-origin", cache: "no-store" });
+            if (!res.ok) return;
+            var data = await res.json();
+            if (data.ok && data.carpetas && data.carpetas.length) {
+              loadedCarpetas = data.carpetas.map(function(c) { return [c.code, c.label]; });
+            } else {
+              loadedCarpetas = cfg.all_tipos_documento || [["otro","Otro"]];
+            }
+          } catch (e) {}
+          _updateDocTipoLabels();
+        }
+
+        function _updateDocTipoLabels() {
+          loadedCarpetas.forEach(function(pair) { DOC_TIPO_LABELS[pair[0]] = pair[1]; });
+          rebuildLegajosDocTipoSelect([]);
+        }
+
+        async function loadConveniosForCompany(company_id) {
+          if (!company_id) { loadedConvenios = []; _refreshConvenioModalSelect(); return; }
+          try {
+            var res = await fetch("/api/legajos/convenios?" + new URLSearchParams({ company_id: company_id }), {
+              credentials: "same-origin", cache: "no-store",
+            });
+            if (!res.ok) { loadedConvenios = []; _refreshConvenioModalSelect(); return; }
+            var data = await res.json();
+            loadedConvenios = data.convenios || [];
+          } catch (e) {
+            loadedConvenios = [];
+          }
+          _refreshConvenioModalSelect();
+        }
+
+        function _refreshConvenioModalSelect() {
+          var sel = document.getElementById("legajos-modal-convenio");
+          if (!sel) return;
+          var prev = sel.value;
+          sel.innerHTML = '<option value="">Sin convenio</option>';
+          loadedConvenios.forEach(function(c) {
+            var o = document.createElement("option");
+            o.value = c.id;
+            o.textContent = c.nombre;
+            sel.appendChild(o);
+          });
+          if (prev) sel.value = prev;
+        }
+
+        function populateTipoSelectForConvenio(convenioId) {
+          var sel = document.getElementById("legajos-tipo");
+          if (!sel) return;
+          var prev = sel.value;
+          var conv = loadedConvenios.find(function(c) { return c.id === convenioId; });
+          var tipos;
+          if (conv && conv.tipos_documento && conv.tipos_documento.length) {
+            tipos = conv.tipos_documento.map(function(code) { return [code, DOC_TIPO_LABELS[code] || code]; });
+          } else {
+            tipos = loadedCarpetas;
+          }
+          sel.innerHTML = "";
+          tipos.forEach(function(pair) {
+            var o = document.createElement("option");
+            o.value = pair[0];
+            o.textContent = pair[1];
+            sel.appendChild(o);
+          });
+          var stillValid = Array.from(sel.options).some(function(o) { return o.value === prev; });
+          if (stillValid) sel.value = prev;
+        }
+
         function renderRows(empleados) {
           if (!tbody) return;
-          var colspan = cfg.can_manage ? "8" : "7";
+          var colspan = cfg.can_manage ? "9" : "8";
           tbody.innerHTML = "";
           if (!empleados || !empleados.length) {
             var tr = document.createElement("tr");
@@ -868,8 +975,13 @@
             return;
           }
           empleados.forEach(function(emp) {
+            var activo = emp.activo !== false;
             var tr = document.createElement("tr");
             tr.dataset.id = emp.id;
+            if (!activo) tr.classList.add("legajos-row--inactivo");
+            var estadoBadge = activo
+              ? '<span class="legajos-badge legajos-badge--activo">Activo</span>'
+              : '<span class="legajos-badge legajos-badge--inactivo">Inactivo</span>';
             tr.innerHTML =
               "<td class=\"legajos-mono legajos-cell-dni\">" + escapeHtml(emp.dni || "") + "</td>" +
               "<td>" + escapeHtml(emp.nombre_completo || "") + "</td>" +
@@ -878,17 +990,18 @@
               "<td>" + escapeHtml(emp.sucursal || "") + "</td>" +
               "<td>" + escapeHtml(emp.area || "") + "</td>" +
               "<td>" + escapeHtml(emp.notas || "") + "</td>" +
+              "<td>" + estadoBadge + "</td>" +
               (cfg.can_manage
-                ? "<td class=\"legajos-actions-cell\"><button type=\"button\" class=\"btn-legajos-secondary legajos-edit-row\">Editar</button> <button type=\"button\" class=\"btn-legajos-danger legajos-del-row\">Eliminar</button></td>"
+                ? "<td class=\"legajos-actions-cell\"><button type=\"button\" class=\"btn-legajos-secondary legajos-edit-row\">Editar</button> <button type=\"button\" class=\"" + (activo ? "btn-legajos-danger" : "btn-legajos-success") + " legajos-toggle-row\">" + (activo ? "Desactivar" : "Activar") + "</button></td>"
                 : "");
             if (cfg.can_manage) {
               tr.querySelector(".legajos-edit-row").addEventListener("click", function(ev) {
                 ev.stopPropagation();
                 openModalEditar(emp);
               });
-              tr.querySelector(".legajos-del-row").addEventListener("click", function(ev) {
+              tr.querySelector(".legajos-toggle-row").addEventListener("click", function(ev) {
                 ev.stopPropagation();
-                deleteEmpleado(emp.id, emp.nombre_completo || emp.id);
+                toggleEstadoEmpleado(emp.id, activo, emp.nombre_completo || emp.id);
               });
             }
             tr.addEventListener("click", function(ev) {
@@ -899,26 +1012,24 @@
           });
         }
 
-        async function deleteEmpleado(eid, label) {
+        async function toggleEstadoEmpleado(eid, currentActivo, label) {
           if (!eid || !cfg.can_manage) return;
-          if (!window.confirm("¿Eliminar al colaborador " + (label || eid) + " y sus documentos registrados?")) return;
+          var action = currentActivo ? "desactivar" : "activar";
+          if (!window.confirm("¿" + (currentActivo ? "Desactivar" : "Activar") + " al colaborador " + (label || eid) + "?")) return;
           try {
-            var res = await fetch("/api/legajos/empleados/" + encodeURIComponent(eid), { method: "DELETE", credentials: "same-origin" });
-            if (res.status === 401) {
-              loginRedirect();
-              return;
-            }
+            var res = await fetch("/api/legajos/empleados/" + encodeURIComponent(eid) + "/estado", {
+              method: "PATCH",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ activo: !currentActivo }),
+            });
+            if (res.status === 401) { loginRedirect(); return; }
             var data = await res.json();
             if (!data.ok) {
-              setStatus(data.error || "No se pudo eliminar", true);
+              setStatus(data.error || "No se pudo " + action, true);
               return;
             }
-            if (selectedId === eid) {
-              selectedId = null;
-              selectedEmp = null;
-              if (detail) detail.hidden = true;
-            }
-            setStatus("Colaborador eliminado.");
+            setStatus("Colaborador " + (data.activo ? "activado" : "desactivado") + ".");
             await loadEmpleados();
             loadAuditoria();
           } catch (e) {
@@ -929,7 +1040,9 @@
         async function loadEmpleados() {
           setStatus("Cargando…");
           var q = (searchEl && searchEl.value) ? searchEl.value.trim() : "";
-          var url = "/api/legajos/empleados?" + new URLSearchParams({ q: q });
+          var params = { q: q, activo: activoFilter };
+          if (cfg.company_id) params.company_id = cfg.company_id;
+          var url = "/api/legajos/empleados?" + new URLSearchParams(params);
           try {
             var res = await fetch(url, { credentials: "same-origin", cache: "no-store" });
             if (res.status === 401) {
@@ -999,6 +1112,7 @@
                 detailMeta.textContent = buildEmpleadoMetaLine(emp);
               }
             }
+            populateTipoSelectForConvenio(emp.convenio || "");
             renderDocs(data.documentos || []);
             setStatus("");
           } catch (e) {
@@ -1089,6 +1203,14 @@
         }
 
         if (companySel) companySel.addEventListener("change", onCompanyChange);
+        document.querySelectorAll(".legajos-filter-btn").forEach(function(btn) {
+          btn.addEventListener("click", function() {
+            activoFilter = this.dataset.activo;
+            document.querySelectorAll(".legajos-filter-btn").forEach(function(b) { b.classList.remove("legajos-filter-btn--active"); });
+            this.classList.add("legajos-filter-btn--active");
+            loadEmpleados();
+          });
+        });
         if (searchEl) {
           searchEl.addEventListener("input", function() {
             clearTimeout(searchTimer);
@@ -1237,6 +1359,7 @@
             var sucursal = (document.getElementById("legajos-modal-sucursal") || {}).value || "";
             var area = (document.getElementById("legajos-modal-area") || {}).value || "";
             var notas = (document.getElementById("legajos-modal-notas") || {}).value || "";
+            var convenio = (document.getElementById("legajos-modal-convenio") || {}).value || "";
             if (!nombre.trim()) {
               if (modalStatus) {
                 modalStatus.textContent = "Completá el nombre.";
@@ -1264,6 +1387,7 @@
                 legajo_numero: legajo.trim(),
                 sucursal: sucursal.trim(),
                 area: area.trim(),
+                convenio: convenio.trim(),
                 notas: notas.trim(),
               };
               var resC = await postJson("/api/legajos/empleados", bodyCreate);
@@ -1300,6 +1424,7 @@
               legajo_numero: legajo.trim(),
               sucursal: sucursal.trim(),
               area: area.trim(),
+              convenio: convenio.trim(),
               notas: notas.trim(),
             };
             var resP = await patchJson("/api/legajos/empleados/" + encodeURIComponent(eid), bodyPatch);
@@ -1466,6 +1591,10 @@
 
         (async function boot() {
           await loadAuditUserOptions();
+          if (cfg.company_id) {
+            loadCarpetasForCompany(cfg.company_id);
+            loadConveniosForCompany(cfg.company_id);
+          }
           await loadEmpleados();
         })();
       })();

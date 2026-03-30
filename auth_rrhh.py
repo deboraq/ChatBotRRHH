@@ -39,12 +39,12 @@ PERMISSIONS_CATALOG = {
     PERM_HISTORY_VIEW: "Ver historial completo",
     PERM_USERS_MANAGE: "Crear y editar usuarios",
     PERM_ROLES_MANAGE: "Crear y editar roles/permisos",
-    PERM_CONFIG_MANAGE: "Gestionar configuración (empresas, sucursales, áreas)",
+    PERM_CONFIG_MANAGE: "Gestionar configuración (empresas, sucursales, áreas, convenios, carpetas)",
     PERM_STATS_VIEW: "Ver estadísticas",
     PERM_PREFERENCES_MANAGE: "Gestionar preferencias (empresa activa, autocierre, reglas del chat)",
     PERM_COMUNICADOS_SEND: "Enviar comunicados por WhatsApp",
     PERM_LEGAJOS_VIEW: "Ver legajos digitales",
-    PERM_LEGAJOS_MANAGE: "Subir, editar o eliminar documentos de legajo",
+    PERM_LEGAJOS_MANAGE: "Gestionar colaboradores y documentos de legajo (alta, baja, activar/desactivar, subir/eliminar archivos)",
 }
 
 DEFAULT_ROLE_DEFINITIONS = {
@@ -792,9 +792,20 @@ def authenticate(username, password):
 def list_file_users(path=None):
     source = path or users_file_path()
     users = _load_users_from_file(source)
+    seen = set()
     rows = []
     for entry in users:
-        rows.append(_public_user_payload(entry, fallback_username=entry.get("username")))
+        payload = _public_user_payload(entry, fallback_username=entry.get("username"))
+        payload["from_env"] = False
+        seen.add(payload["username"].lower())
+        rows.append(payload)
+    # Include env-based admin so they appear in the list (read-only)
+    for entry in _load_admin_user_from_env():
+        key = str(entry.get("username") or "").strip().lower()
+        if key and key not in seen:
+            payload = _public_user_payload(entry, fallback_username=entry.get("username"))
+            payload["from_env"] = True
+            rows.append(payload)
     rows.sort(key=lambda row: row["username"].lower())
     return rows
 

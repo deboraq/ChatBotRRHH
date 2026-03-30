@@ -99,6 +99,21 @@
           <p id="kpi-rrhh-atencion">0</p>
           <small>Click para ver conversaciones</small>
         </article>
+        <article class="kpi-card actionable" id="card-comunicados" data-drilldown="comunicados">
+          <h3>Comunicados enviados</h3>
+          <p id="kpi-comunicados">0</p>
+          <small>Click para ver historial</small>
+        </article>
+        <article class="kpi-card actionable" id="card-com-dest" data-drilldown="comunicados">
+          <h3>Destinatarios alcanzados</h3>
+          <p id="kpi-com-dest">0</p>
+          <small>Total de envíos exitosos</small>
+        </article>
+        <article class="kpi-card actionable" id="card-legajos" data-drilldown="legajos">
+          <h3>Colaboradores activos</h3>
+          <p id="kpi-legajos-activos">0</p>
+          <small>Click para ver desglose</small>
+        </article>
       </section>
 
       <section class="charts-grid">
@@ -150,6 +165,9 @@
       const pendientesEl = document.getElementById("kpi-pendientes");
       const rrhhAbiertasEl = document.getElementById("kpi-rrhh-abiertas");
       const rrhhAtencionEl = document.getElementById("kpi-rrhh-atencion");
+      const comunicadosEl = document.getElementById("kpi-comunicados");
+      const comDestEl = document.getElementById("kpi-com-dest");
+      const legajosActivosEl = document.getElementById("kpi-legajos-activos");
       const topTemasBody = document.getElementById("top-temas-body");
       const refreshBtn = document.getElementById("btn-refresh");
       const detailTitleEl = document.getElementById("detail-title");
@@ -468,6 +486,40 @@
           return;
         }
 
+        if (activeDetail.type === "comunicados") {
+          setDetailTable(
+            "Historial de comunicados enviados",
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Mensaje", key: "mensaje" },
+              { label: "Destinatarios", key: "destinatarios" },
+              { label: "Enviados", key: "enviados" },
+              { label: "Fallidos", key: "fallidos" },
+              { label: "Estado", key: "estado" },
+              { label: "Creado por", key: "creado_por" },
+            ],
+            detail.comunicados_recientes || [],
+            "No hay comunicados enviados aún."
+          );
+          return;
+        }
+
+        if (activeDetail.type === "legajos") {
+          setDetailTable(
+            "Desglose de colaboradores",
+            [
+              { label: "Estado", key: "estado" },
+              { label: "Cantidad", key: "cantidad" },
+            ],
+            [
+              { estado: "Activos", cantidad: kpis.legajos_activos ?? 0 },
+              { estado: "Inactivos", cantidad: kpis.legajos_inactivos ?? 0 },
+              { estado: "Total", cantidad: kpis.legajos_total ?? 0 },
+            ]
+          );
+          return;
+        }
+
         if (activeDetail.type === "tema" && activeDetail.value) {
           const tema = activeDetail.value.toLowerCase();
           const rows = detail.feedback_reciente.filter(
@@ -683,6 +735,9 @@
           pendientesEl.textContent = data.kpis.total_pendientes;
           rrhhAbiertasEl.textContent = data.kpis.rrhh_abiertas ?? 0;
           rrhhAtencionEl.textContent = data.kpis.rrhh_en_atencion ?? 0;
+          if (comunicadosEl) comunicadosEl.textContent = data.kpis.comunicados_total ?? 0;
+          if (comDestEl) comDestEl.textContent = data.kpis.comunicados_destinatarios ?? 0;
+          if (legajosActivosEl) legajosActivosEl.textContent = (data.kpis.legajos_activos ?? 0) + " / " + (data.kpis.legajos_total ?? 0);
           renderTopTemas(data.top_temas);
           renderLineChart(data.series_7_dias);
           renderPieChart(data.pendientes_por_sentimiento);

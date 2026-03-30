@@ -3411,6 +3411,7 @@ def configuracion_page():
         general_settings=settings,
         companies=companies,
         selected_company_id=company.get("company_id"),
+        all_tipos_documento=legajos_service.ALL_TIPOS_DOCUMENTO,
     )
 
 
@@ -3447,6 +3448,7 @@ def legajos_page():
         available_companies=available_companies,
         selected_company_id=company.get("company_id"),
         selected_company_name=company.get("company_name"),
+        all_tipos_documento=legajos_service.ALL_TIPOS_DOCUMENTO,
     )
 
 
@@ -3560,7 +3562,14 @@ def api_legajos_empleados_list():
     if err:
         return jsonify({"ok": False, "error": err, "empleados": []}), 400
     q = (request.args.get("q") or request.args.get("search") or "").strip()
-    items = legajos_service.list_empleados(chatbot.db, cid, search=q or None)
+    activo_param = request.args.get("activo", "true").strip().lower()
+    if activo_param == "all":
+        activo_filter = None
+    elif activo_param == "false":
+        activo_filter = False
+    else:
+        activo_filter = True
+    items = legajos_service.list_empleados(chatbot.db, cid, search=q or None, activo=activo_filter)
     return jsonify({"ok": True, "empleados": items, "company_id": cid})
 
 
@@ -3635,6 +3644,7 @@ def api_legajos_empleados_create():
         area=str(data.get("area") or "").strip(),
         notas=str(data.get("notas") or "").strip(),
         email=str(data.get("email") or "").strip(),
+        convenio=str(data.get("convenio") or "").strip(),
     )
     if not ok:
         return jsonify({"ok": False, "error": msg or "No se pudo crear el colaborador."}), 400
@@ -3674,6 +3684,29 @@ def api_legajos_empleado_delete(empleado_id):
         {"empleado_id": empleado_id, "dni": emp.get("dni")},
     )
     return jsonify({"ok": True})
+
+
+@flask_app.patch("/api/legajos/empleados/<empleado_id>/estado")
+@rrhh_permission_required(
+    auth_rrhh.PERM_LEGAJOS_MANAGE,
+    message="Sin permiso para editar colaboradores.",
+)
+def api_legajos_empleado_estado(empleado_id):
+    if not chatbot.db:
+        return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
+    emp, err = _legajos_empleado_si_acceso(empleado_id)
+    if err:
+        return jsonify({"ok": False, "error": err}), 404
+    body = request.get_json(silent=True) or {}
+    activo = bool(body.get("activo", True))
+    legajos_service.set_empleado_activo(chatbot.db, empleado_id, activo)
+    cid = str(emp.get("company_id") or "").strip().lower()
+    _legajos_audit(
+        legajos_service.LEGAJOS_AUDIT_EMPLEADO_EDITAR,
+        cid,
+        {"empleado_id": empleado_id, "dni": emp.get("dni"), "activo": activo},
+    )
+    return jsonify({"ok": True, "activo": activo})
 
 
 @flask_app.get("/api/legajos/empleados/<empleado_id>")
@@ -3720,6 +3753,7 @@ def api_legajos_empleado_patch(empleado_id):
         area=_patch_str("area", emp.get("area")),
         notas=_patch_str("notas", emp.get("notas")),
         email=_patch_str("email", emp.get("email")),
+        convenio=_patch_str("convenio", emp.get("convenio")),
     )
     if not ok:
         return jsonify({"ok": False, "error": msg or "No se pudo actualizar."}), 400
@@ -4010,7 +4044,7 @@ def api_legajos_documento_link(documento_id):
         return jsonify({"ok": False, "error": "Documento sin ruta de almacenamiento."}), 500
     try:
         blob = bucket.blob(path)
-        url = blob.generate_signed_url(expiration=timedelta(minutes=15), method="GET")
+        url = _generate_signed_url(blob, expiration_minutes=15)
         _legajos_audit(
             legajos_service.LEGAJOS_AUDIT_DOCUMENTO_DESCARGAR,
             doc.get("company_id") or "",
@@ -4055,6 +4089,109 @@ def api_legajos_documento_delete(documento_id):
                 bucket.blob(path).delete()
         except Exception:
             pass
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/legajos/carpetas")
+def api_legajos_carpetas_list():
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    cid = request.args.get("company_id", "").strip().lower()
+    if not cid:
+        return jsonify({"ok": False, "error": "Falta company_id"}), 400
+    carpetas = legajos_service.list_carpetas(chatbot.db, cid)
+    return jsonify({"ok": True, "carpetas": carpetas, "is_custom": legajos_service.has_custom_carpetas(chatbot.db, cid)})
+
+
+@flask_app.post("/api/legajos/carpetas")
+def api_legajos_carpetas_create():
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    data = request.get_json(silent=True) or {}
+    cid = str(data.get("company_id") or "").strip().lower()
+    label = str(data.get("label") or "").strip()
+    ok, row, msg = legajos_service.create_carpeta(chatbot.db, cid, label)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify({"ok": True, "carpeta": row})
+
+
+@flask_app.post("/api/legajos/carpetas/init-default")
+def api_legajos_carpetas_init_default():
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    data = request.get_json(silent=True) or {}
+    cid = str(data.get("company_id") or "").strip().lower()
+    if not cid:
+        return jsonify({"ok": False, "error": "Falta company_id"}), 400
+    legajos_service.init_carpetas_from_default(chatbot.db, cid)
+    carpetas = legajos_service.list_carpetas(chatbot.db, cid)
+    return jsonify({"ok": True, "carpetas": carpetas})
+
+
+@flask_app.delete("/api/legajos/carpetas/<carpeta_id>")
+def api_legajos_carpetas_delete(carpeta_id):
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    ok, msg = legajos_service.delete_carpeta(chatbot.db, carpeta_id)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/legajos/convenios")
+def api_legajos_convenios_list():
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    cid = request.args.get("company_id", "").strip().lower()
+    if not cid:
+        return jsonify({"ok": False, "error": "Falta company_id"}), 400
+    convenios = legajos_service.list_convenios(chatbot.db, cid)
+    return jsonify({"ok": True, "convenios": convenios})
+
+
+@flask_app.post("/api/legajos/convenios")
+def api_legajos_convenios_create():
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    data = request.get_json(silent=True) or {}
+    cid = str(data.get("company_id") or "").strip().lower()
+    nombre = str(data.get("nombre") or "").strip()
+    tipos = data.get("tipos_documento") or []
+    ok, row, msg = legajos_service.create_convenio(chatbot.db, cid, nombre, tipos)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify({"ok": True, "convenio": row})
+
+
+@flask_app.patch("/api/legajos/convenios/<convenio_id>")
+def api_legajos_convenios_update(convenio_id):
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    data = request.get_json(silent=True) or {}
+    nombre = str(data.get("nombre") or "").strip()
+    tipos = data.get("tipos_documento") or []
+    ok, row, msg = legajos_service.update_convenio(chatbot.db, convenio_id, nombre, tipos)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify({"ok": True, "convenio": row})
+
+
+@flask_app.delete("/api/legajos/convenios/<convenio_id>")
+def api_legajos_convenios_delete(convenio_id):
+    user = _current_rrhh_user()
+    if _auth_enabled() and user is None:
+        return jsonify({"ok": False, "error": "No autenticado"}), 401
+    ok, msg = legajos_service.delete_convenio(chatbot.db, convenio_id)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
     return jsonify({"ok": True})
 
 
@@ -4110,6 +4247,24 @@ def comunicados_page():
 
 COMUNICADOS_CONTACTOS_COLLECTION = "comunicados_contactos"
 COMUNICADOS_PROGRAMADOS_COLLECTION = "comunicados_programados"
+COMUNICADOS_AUDITORIA_COLLECTION = "comunicados_auditoria"
+
+
+def _comunicados_audit(action: str, company_id: str, details: dict):
+    """Registra una acción de comunicados en Firestore para auditoría."""
+    if not chatbot.db:
+        return
+    try:
+        username = (session.get("rrhh_username") or "sistema")
+        chatbot.db.collection(COMUNICADOS_AUDITORIA_COLLECTION).add({
+            "action": action,
+            "company_id": str(company_id or "").strip().lower(),
+            "username": username,
+            "details": details or {},
+            "at": datetime.now(timezone.utc),
+        })
+    except Exception as e:
+        logging.debug("comunicados_audit error: %s", e)
 
 
 def _get_comunicados_contactos(company_id):
@@ -4228,6 +4383,7 @@ def api_comunicados_contactos_add():
         return jsonify({"ok": False, "error": "El teléfono es obligatorio."}), 400
     result = _add_comunicado_contacto(company_id, nombre or "Sin nombre", telefono, legajo=legajo, upsert=upsert)
     if result in ("created", "updated"):
+        _comunicados_audit("contacto_" + result, company_id, {"nombre": nombre, "telefono": telefono, "legajo": legajo})
         return jsonify({"ok": True, "result": result, "contactos": _get_comunicados_contactos(company_id)})
     if result == "exists":
         return jsonify({"ok": False, "error": f"Ya existe un contacto con el número {telefono}.", "exists": True}), 409
@@ -4279,6 +4435,7 @@ def api_comunicados_contactos_remove():
     if not company_id or not telefono:
         return jsonify({"ok": False, "error": "Faltan company_id o teléfono."}), 400
     if _remove_comunicado_contacto(company_id, telefono):
+        _comunicados_audit("contacto_eliminado", company_id, {"telefono": telefono})
         return jsonify({"ok": True, "contactos": _get_comunicados_contactos(company_id)})
     return jsonify({"ok": False, "error": "No se encontró el contacto o no se pudo eliminar."}), 404
 
@@ -4316,6 +4473,8 @@ def api_comunicados_contactos_bulk_remove():
         else:
             contactos_new.append(c)
     doc_ref.set({"contactos": contactos_new}, merge=True)
+    if removed:
+        _comunicados_audit("contacto_bulk_eliminado", cid, {"cantidad": removed, "telefonos": telefonos[:20]})
     return jsonify({"ok": True, "removed": removed, "contactos": _get_comunicados_contactos(cid)})
 
 
@@ -6413,20 +6572,28 @@ def _extraer_temas_de_knowledge(entries):
                     matched = True
                     break
         if not matched:
-            # Extraer primera palabra significativa (>=5 letras) de la pregunta como tema
-            for w in pregunta_norm.split():
-                if len(w) >= 5 and w not in {"cuant", "donde", "como", "cuales", "puedo", "sobre",
-                                              "cuanta", "tengo", "hacer", "pedir", "quien", "queda"}:
-                    if w not in temas_encontrados:
-                        temas_encontrados.append(w)
+            # Extraer primera palabra significativa (>=4 letras) de pregunta o respuesta
+            _STOPWORDS = {"cuant", "donde", "como", "cuales", "puedo", "sobre", "cuanta",
+                          "tengo", "hacer", "pedir", "quien", "queda", "cual", "para",
+                          "esta", "este", "sido", "sera", "tipo", "toda", "todo", "otra", "otro",
+                          "debo", "debe", "deben", "hay", "que"}
+            for texto_fb in (pregunta_norm, respuesta_norm):
+                found_fb = False
+                for w in texto_fb.split():
+                    if len(w) >= 4 and w not in _STOPWORDS:
+                        if w not in temas_encontrados:
+                            temas_encontrados.append(w)
+                        found_fb = True
+                        break
+                if found_fb:
                     break
     return temas_encontrados[:12]
 
 
 def _auto_update_temas_from_knowledge(company_id, entries):
-    """Actualiza temas_habilitados de la empresa a partir de las preguntas de la KB."""
+    """Actualiza temas_habilitados de la empresa a partir de las preguntas de la KB. Retorna la lista de temas."""
     if not entries or not company_id:
-        return
+        return []
     try:
         temas_clean = _extraer_temas_de_knowledge(entries)
         if temas_clean and chatbot.db:
@@ -6435,8 +6602,10 @@ def _auto_update_temas_from_knowledge(company_id, entries):
             for ck in ("companies_active", "companies_all"):
                 _cache_set(ck, None)
             logging.info(f"Auto-temas para {company_id}: {temas_clean}")
+        return temas_clean
     except Exception as exc:
         logging.warning(f"_auto_update_temas_from_knowledge falló: {exc}")
+    return []
 
 
 @flask_app.post("/api/configuracion/knowledge/sync-from-drive")
@@ -6476,13 +6645,16 @@ def configuracion_knowledge_regenerar_temas():
     entries = chatbot.obtener_knowledge_empresa(company_id)
     if not entries:
         return jsonify({"ok": False, "error": "La empresa no tiene base de conocimiento cargada."}), 404
-    _auto_update_temas_from_knowledge(company_id, entries)
+    temas = _auto_update_temas_from_knowledge(company_id, entries)
     _cache_del("companies_active", "companies_all")
-    company = _get_company(company_id, include_inactive=True)
-    temas = (company or {}).get("temas_habilitados") or []
     # Diagnóstico: qué pregunta tiene cada entrada
     entradas_debug = [{"pregunta": e.get("pregunta", "")[:80], "resp_preview": (e.get("respuesta") or "")[:60]} for e in entries]
-    return jsonify({"ok": True, "temas": temas, "entradas": entradas_debug, "message": f"Se generaron {len(temas)} temas del menú a partir de {len(entries)} entradas."})
+    if temas:
+        msg = f"Se generaron {len(temas)} temas: {', '.join(temas[:6])}."
+    else:
+        preguntas_preview = "; ".join(e.get("pregunta", "")[:40] for e in entries[:3])
+        msg = f"No se detectaron temas en {len(entries)} entradas. Preguntas: {preguntas_preview}"
+    return jsonify({"ok": True, "temas": temas, "entradas_debug": entradas_debug, "message": msg})
 
 
 @flask_app.post("/api/configuracion/conversaciones/autocierre/ejecutar")
@@ -7167,6 +7339,48 @@ def _get_storage_bucket():
         return None
 
 
+def _generate_signed_url(blob, expiration_minutes: int = 15) -> str:
+    """Genera un signed URL compatible con Cloud Run (sin clave privada).
+
+    En Cloud Run las credenciales de Compute Engine no tienen clave privada,
+    por lo que se usa el token de acceso + service_account_email para que
+    la biblioteca llame al API de IAM signBlob en su lugar.
+    """
+    from datetime import timedelta
+    exp = timedelta(minutes=expiration_minutes)
+    try:
+        return blob.generate_signed_url(expiration=exp, method="GET", version="v4")
+    except Exception:
+        pass
+    # Fallback IAM-based signing (Cloud Run / GCE)
+    try:
+        import google.auth
+        import google.auth.transport.requests as _gtr
+        import urllib.request as _ur
+        credentials, _ = google.auth.default()
+        auth_req = _gtr.Request()
+        credentials.refresh(auth_req)
+        # Intentar obtener el email de la service account
+        sa_email = getattr(credentials, "service_account_email", None)
+        if not sa_email:
+            meta_req = _ur.Request(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+                headers={"Metadata-Flavor": "Google"},
+            )
+            sa_email = _ur.urlopen(meta_req, timeout=5).read().decode()
+        return blob.generate_signed_url(
+            expiration=exp,
+            method="GET",
+            version="v4",
+            service_account_email=sa_email,
+            access_token=credentials.token,
+        )
+    except Exception:
+        # Último recurso: URL pública (sin expiración)
+        blob.make_public()
+        return blob.public_url
+
+
 def _proxy_twilio_media(url_decoded):
     """Descarga un recurso de Twilio (MediaUrl) con auth y lo devuelve. Solo permite URLs de api.twilio.com."""
     url_decoded = (url_decoded or "").strip()
@@ -7249,11 +7463,7 @@ def _upload_file_to_storage(prefix_path: str):
     try:
         blob = bucket.blob(path)
         blob.upload_from_string(raw, content_type=content_type)
-        try:
-            url = blob.generate_signed_url(expiration=timedelta(days=7), method="GET")
-        except Exception:
-            blob.make_public()
-            url = blob.public_url
+        url = _generate_signed_url(blob, expiration_minutes=60 * 24 * 7)
         return url, None
     except Exception as e:
         return None, str(e)
