@@ -2683,6 +2683,12 @@
         if (valueToSet) sel.value = valueToSet;
         const hid = document.getElementById("knowledge-company-id");
         if (hid) hid.value = sel.value || "";
+        // Rellenar carpeta Drive con el valor guardado para la empresa seleccionada
+        const folderInputInit = document.getElementById("knowledge-drive-folder-id");
+        if (folderInputInit && sel.value) {
+          const coInit = (companies || []).find((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(sel.value));
+          folderInputInit.value = (coInit?.drive_folder_id || "").trim();
+        }
         if (!sel.dataset.listenerAttached) {
           sel.dataset.listenerAttached = "1";
           sel.addEventListener("change", () => {
