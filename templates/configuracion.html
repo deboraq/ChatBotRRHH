@@ -3800,6 +3800,13 @@
               if (!d.ok) throw new Error(d.error || "Error al sincronizar.");
               if (statusEl) statusEl.textContent = d.message || `Sincronizadas ${d.count} entradas.`;
               showToast(d.message || `Drive sincronizado (${d.count} entradas)`);
+              // Actualizar campo con el folder_id guardado y reflejarlo en la lista de empresas
+              if (d.folder_id) {
+                const folderInputEl = document.getElementById("knowledge-drive-folder-id");
+                if (folderInputEl) folderInputEl.value = d.folder_id;
+                const co = (companies || []).find((c) => normalizeCompanyId(c.company_id) === normalizeCompanyId(companyId));
+                if (co) co.drive_folder_id = d.folder_id;
+              }
               refreshKnowledgeCountForSelected();
             } catch (err) {
               if (statusEl) statusEl.textContent = `Error: ${getErrorMessage(err)}`;

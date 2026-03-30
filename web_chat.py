@@ -6622,15 +6622,25 @@ def configuracion_knowledge_sync_from_drive():
     if not _get_company(company_id, include_inactive=True):
         return jsonify({"ok": False, "error": "Empresa no encontrada."}), 404
     folder_id = str(data.get("folder_id") or "").strip()
+    company = _get_company(company_id, include_inactive=True)
+    saved_folder_id = (company.get("drive_folder_id") or "").strip()
     if not folder_id:
-        company = _get_company(company_id, include_inactive=True)
-        folder_id = (company.get("drive_folder_id") or "").strip()
+        folder_id = saved_folder_id
     if not folder_id:
         return jsonify({"ok": False, "error": "Indicá folder_id en el cuerpo o configurá 'Carpeta Drive' en la empresa."}), 400
+    # Si el folder_id fue ingresado manualmente y difiere del guardado, guardarlo en la empresa
+    if folder_id != saved_folder_id and chatbot.db:
+        try:
+            chatbot.db.collection(COMPANIES_COLLECTION).document(company_id).set(
+                {"drive_folder_id": folder_id}, merge=True
+            )
+            _cache_del("companies_active", "companies_all")
+        except Exception as exc:
+            logging.warning(f"No se pudo guardar drive_folder_id en empresa {company_id}: {exc}")
     count, err = _sync_knowledge_from_drive(company_id, folder_id)
     if err:
         return jsonify({"ok": False, "error": err}), 400
-    return jsonify({"ok": True, "count": count, "message": f"Se sincronizaron {count} preguntas/respuestas desde Drive."})
+    return jsonify({"ok": True, "count": count, "folder_id": folder_id, "message": f"Se sincronizaron {count} preguntas/respuestas desde Drive."})
 
 
 @flask_app.post("/api/configuracion/knowledge/regenerar-temas")
@@ -6651,7 +6661,7 @@ def configuracion_knowledge_regenerar_temas():
     # Diagnóstico: qué pregunta tiene cada entrada
     entradas_debug = [{"pregunta": e.get("pregunta", "")[:80], "resp_preview": (e.get("respuesta") or "")[:60]} for e in entries]
     if temas:
-        msg = f"Se generaron {len(temas)} temas: {', '.join(temas[:6])}."
+        msg = f"Se generaron {len(temas)} temas: {', '.join(temas)}."
     else:
         preguntas_preview = "; ".join(e.get("pregunta", "")[:40] for e in entries[:3])
         msg = f"No se detectaron temas en {len(entries)} entradas. Preguntas: {preguntas_preview}"
