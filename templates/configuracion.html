@@ -168,6 +168,7 @@
             <button type="button" data-section-target="areas">Áreas</button>
             <button type="button" data-section-target="knowledge">Base de conocimiento</button>
             <button type="button" data-section-target="contactos">Contactos</button>
+            <button type="button" data-section-target="convenios">Convenios</button>
             {% endif %}
             {% if can_manage_users %}
             <button type="button" data-section-target="usuarios">Usuarios</button>
@@ -458,7 +459,6 @@
                     <th>Área</th>
                     <th>Rol</th>
                     <th title="Empresa / Sucursal">Emp./Suc.</th>
-                    <th>Permisos</th>
                     <th>Acción</th>
                   </tr>
                 </thead>
@@ -680,6 +680,77 @@
               </div>
             </div>
           </section>
+          <section class="panel convenios-panel config-section" data-section-key="convenios">
+            <h2>Convenios laborales</h2>
+            <p class="subtle">Configurá los convenios de cada empresa y las carpetas de documentos habilitadas para cada uno.</p>
+            <div class="areas-company-select-wrap">
+              <label for="convenios-company-select" class="areas-company-label">Empresa</label>
+              <select id="convenios-company-select" aria-label="Empresa para gestionar convenios">
+                <option value="">Seleccionar empresa</option>
+              </select>
+            </div>
+            <div style="margin-bottom:1rem;">
+              <button type="button" id="btn-add-convenio" class="btn btn-primary" disabled>Agregar convenio</button>
+            </div>
+            <div class="areas-table-wrap">
+              <table class="config-table" style="width:100%;">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Carpetas habilitadas</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="convenios-body">
+                  <tr><td colspan="3" class="subtle" style="padding:1rem 0;">Seleccioná una empresa.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p id="convenios-status" class="subtle"></p>
+
+            <hr style="margin:1.5rem 0;border:none;border-top:1px solid var(--border,#e5e7eb);" />
+            <h3 style="font-size:1rem;margin:0 0 0.25rem;">Carpetas disponibles</h3>
+            <p class="subtle" style="margin:0 0 0.75rem;">Estas son las carpetas que aparecen al configurar convenios y al subir documentos. Si nunca modificaste esta lista, se usan las carpetas por defecto.</p>
+            <div style="display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;margin-bottom:0.75rem;">
+              <input type="text" id="carpeta-nueva-label" placeholder="Nombre de la nueva carpeta" style="padding:6px 10px;min-width:220px;" />
+              <button type="button" id="btn-add-carpeta" class="btn btn-primary" disabled>Agregar carpeta</button>
+              <button type="button" id="btn-init-carpetas" class="btn ghost" disabled style="font-size:0.85rem;">Cargar carpetas por defecto</button>
+            </div>
+            <div id="carpetas-list-wrap">
+              <table class="config-table" style="width:100%;">
+                <thead><tr><th>Nombre</th><th>Acción</th></tr></thead>
+                <tbody id="carpetas-body"><tr><td colspan="2" class="subtle" style="padding:0.5rem 0;">Seleccioná una empresa.</td></tr></tbody>
+              </table>
+            </div>
+            <p id="carpetas-status" class="subtle"></p>
+          </section>
+
+          <!-- Modal convenio -->
+          <div id="convenio-modal" class="config-modal" role="dialog" aria-labelledby="convenio-modal-title" aria-modal="true" hidden>
+            <div class="config-modal-backdrop"></div>
+            <div class="config-modal-box" style="max-width:520px;width:95vw;">
+              <div class="config-modal-head">
+                <h3 id="convenio-modal-title">Agregar convenio</h3>
+                <button type="button" class="config-modal-close" id="convenio-modal-close" aria-label="Cerrar">&times;</button>
+              </div>
+              <form id="convenio-modal-form" style="display:flex;flex-direction:column;gap:0.9rem;">
+                <input type="hidden" id="convenio-modal-id" value="" />
+                <label class="field" style="display:flex;flex-direction:column;gap:0.3rem;">
+                  Nombre del convenio <span class="required">*</span>
+                  <input id="convenio-modal-nombre" type="text" placeholder="ej: Comercio, Camioneros, Bancos" required />
+                </label>
+                <fieldset style="border:1px solid var(--border,#e5e7eb);border-radius:8px;padding:0.75rem 1rem;margin:0;">
+                  <legend style="font-size:0.9rem;font-weight:600;padding:0 0.25rem;">Carpetas habilitadas</legend>
+                  <div id="convenio-modal-tipos" style="display:flex;flex-direction:column;gap:0.25rem;margin-top:0.5rem;max-height:280px;overflow-y:auto;overflow-x:hidden;padding-right:0.25rem;"></div>
+                </fieldset>
+                <p id="convenio-modal-status" class="subtle" style="margin:0;min-height:1.2em;"></p>
+                <div class="config-modal-actions">
+                  <button type="button" class="btn ghost" id="convenio-modal-cancel">Cancelar</button>
+                  <button type="submit" id="convenio-modal-submit">Agregar</button>
+                </div>
+              </form>
+            </div>
+          </div>
           {% endif %}
 
           {% if not (can_manage_general or can_manage_users or can_manage_roles) %}
@@ -1992,7 +2063,7 @@
         if (!usersBodyEl) return;
         usersBodyEl.innerHTML = "";
         if (!users || users.length === 0) {
-          usersBodyEl.innerHTML = "<tr><td colspan='9'>Sin usuarios creados en archivo.</td></tr>";
+          usersBodyEl.innerHTML = "<tr><td colspan='9' class='subtle'>Sin usuarios creados en archivo.</td></tr>";
           return;
         }
 
@@ -2023,34 +2094,38 @@
           const tdAssignments = document.createElement("td");
           tdAssignments.textContent = assignmentsToSummary(user.assignments || []) || "—";
 
-          const tdPerms = document.createElement("td");
-          tdPerms.className = "permissions-cell";
-          tdPerms.textContent = permisosTexto(user.permissions);
-
           const tdAction = document.createElement("td");
           tdAction.className = "config-actions-cell";
 
-          const btnModify = document.createElement("button");
-          btnModify.type = "button";
-          btnModify.className = "role-update-btn";
-          btnModify.textContent = "Modificar";
-          btnModify.addEventListener("click", () => openUserModal("edit", user));
-          tdAction.appendChild(btnModify);
+          if (user.from_env) {
+            const envSpan = document.createElement("span");
+            envSpan.className = "subtle";
+            envSpan.style.fontSize = "0.8rem";
+            envSpan.textContent = "Variable de entorno";
+            tdAction.appendChild(envSpan);
+          } else {
+            const btnModify = document.createElement("button");
+            btnModify.type = "button";
+            btnModify.className = "role-update-btn";
+            btnModify.textContent = "Modificar";
+            btnModify.addEventListener("click", () => openUserModal("edit", user));
+            tdAction.appendChild(btnModify);
 
-          const btnDelete = document.createElement("button");
-          btnDelete.type = "button";
-          btnDelete.className = "role-update-btn danger";
-          btnDelete.style.marginLeft = "6px";
-          btnDelete.textContent = "Eliminar";
-          btnDelete.addEventListener("click", async () => {
-            try {
-              await eliminarUsuario(username);
-            } catch (error) {
-              setUsersStatus(`Error: ${getErrorMessage(error)}`, true);
-              showToast(getErrorMessage(error), true);
-            }
-          });
-          tdAction.appendChild(btnDelete);
+            const btnDelete = document.createElement("button");
+            btnDelete.type = "button";
+            btnDelete.className = "role-update-btn danger";
+            btnDelete.style.marginLeft = "6px";
+            btnDelete.textContent = "Eliminar";
+            btnDelete.addEventListener("click", async () => {
+              try {
+                await eliminarUsuario(username);
+              } catch (error) {
+                setUsersStatus(`Error: ${getErrorMessage(error)}`, true);
+                showToast(getErrorMessage(error), true);
+              }
+            });
+            tdAction.appendChild(btnDelete);
+          }
 
           tr.appendChild(tdUsername);
           tr.appendChild(tdName);
@@ -2059,7 +2134,6 @@
           tr.appendChild(tdArea);
           tr.appendChild(tdRole);
           tr.appendChild(tdAssignments);
-          tr.appendChild(tdPerms);
           tr.appendChild(tdAction);
           usersBodyEl.appendChild(tr);
         });
@@ -3066,10 +3140,12 @@
           companies = mergeCompaniesPreservingAreasAndBranches(data.companies);
           refreshCompanySelectors();
         }
-        const userCount = (data.users || []).length;
+        const allUsers = data.users || [];
+        const fileUserCount = allUsers.filter(u => !u.from_env).length;
+        const userCount = allUsers.length;
         if (usersFileEl) {
           usersFileEl.textContent = data.users_file
-            ? `Fuente: archivo local · ${userCount} usuario(s)`
+            ? `Fuente: archivo local · ${fileUserCount} usuario(s) + ${userCount - fileUserCount} de entorno`
             : `${userCount} usuario(s)`;
         }
         _usersData = data.users || [];
@@ -3733,6 +3809,9 @@
               if (r.status === 401) { window.location.href = `/login?next=${encodeURIComponent("/configuracion")}`; return; }
               const d = await r.json();
               if (!d.ok) throw new Error(d.error || "Error al regenerar.");
+              if ((d.temas || []).length === 0 && d.entradas_debug) {
+                console.warn("[KB] 0 temas generados. Entradas procesadas:", d.entradas_debug);
+              }
               if (statusEl) statusEl.textContent = d.message || `Temas generados: ${(d.temas || []).join(", ")}`;
               showToast(d.message || `Temas del menú actualizados: ${(d.temas || []).join(", ")}`);
             } catch (err) {
@@ -4035,6 +4114,297 @@
           btn.addEventListener("click", () => { setTimeout(cargarContactos, 50); });
         });
         if (contactosCompanySelect && contactosCompanySelect.value) cargarContactos();
+      }
+
+      // =====================================================================
+      // CONVENIOS + CARPETAS
+      // =====================================================================
+      if (canManageGeneral) {
+        const DEFAULT_TIPOS = {{ all_tipos_documento | tojson }};
+        let companyTipos = DEFAULT_TIPOS; // se actualiza al cargar carpetas de la empresa
+        let companyTiposMap = Object.fromEntries(DEFAULT_TIPOS.map(([c, l]) => [c, l]));
+
+        const conveniosCompanySel = document.getElementById("convenios-company-select");
+        const conveniosBody = document.getElementById("convenios-body");
+        const conveniosStatus = document.getElementById("convenios-status");
+        const btnAddConvenio = document.getElementById("btn-add-convenio");
+        const convenioModal = document.getElementById("convenio-modal");
+        const convenioModalForm = document.getElementById("convenio-modal-form");
+        const convenioModalTitle = document.getElementById("convenio-modal-title");
+        const convenioModalId = document.getElementById("convenio-modal-id");
+        const convenioModalNombre = document.getElementById("convenio-modal-nombre");
+        const convenioModalTipos = document.getElementById("convenio-modal-tipos");
+        const convenioModalStatus = document.getElementById("convenio-modal-status");
+        const convenioModalSubmit = document.getElementById("convenio-modal-submit");
+
+        // Poblar select de empresas
+        (function populateConveniosCompanies() {
+          const companies = {{ companies | tojson }};
+          companies.forEach((c) => {
+            const o = document.createElement("option");
+            o.value = c.company_id;
+            o.textContent = c.company_name;
+            conveniosCompanySel.appendChild(o);
+          });
+          const sel = {{ selected_company_id | tojson }};
+          if (sel) conveniosCompanySel.value = sel;
+        })();
+
+        function setConveniosStatus(msg, isErr) {
+          if (!conveniosStatus) return;
+          conveniosStatus.textContent = msg || "";
+          conveniosStatus.style.color = isErr ? "var(--danger, #dc2626)" : "";
+        }
+
+        async function loadCarpetas() {
+          const cid = conveniosCompanySel.value;
+          if (!cid) { companyTipos = DEFAULT_TIPOS; companyTiposMap = Object.fromEntries(DEFAULT_TIPOS.map(([c,l])=>[c,l])); renderCarpetas([], false); return; }
+          try {
+            const res = await fetch("/api/legajos/carpetas?" + new URLSearchParams({ company_id: cid }), { credentials: "same-origin" });
+            const data = await res.json();
+            if (data.ok) {
+              const pairs = (data.carpetas || []).map((c) => [c.code, c.label]);
+              companyTipos = pairs.length ? pairs : DEFAULT_TIPOS;
+              companyTiposMap = Object.fromEntries(companyTipos);
+              renderCarpetas(data.carpetas || [], data.is_custom || false);
+            }
+          } catch (e) {}
+        }
+
+        async function loadConvenios() {
+          const cid = conveniosCompanySel.value;
+          if (!cid) {
+            conveniosBody.innerHTML = '<tr><td colspan="3" class="subtle" style="padding:1rem 0;">Seleccioná una empresa.</td></tr>';
+            if (btnAddConvenio) btnAddConvenio.disabled = true;
+            return;
+          }
+          if (btnAddConvenio) btnAddConvenio.disabled = false;
+          conveniosBody.innerHTML = '<tr><td colspan="3" class="subtle" style="padding:0.5rem 0;">Cargando…</td></tr>';
+          try {
+            const res = await fetch("/api/legajos/convenios?" + new URLSearchParams({ company_id: cid }), { credentials: "same-origin" });
+            const data = await res.json();
+            if (!data.ok) { setConveniosStatus(data.error || "Error al cargar", true); return; }
+            renderConvenios(data.convenios || []);
+          } catch (e) {
+            setConveniosStatus("Error de red.", true);
+          }
+        }
+
+        async function loadAll() {
+          await loadCarpetas();
+          await loadConvenios();
+        }
+
+        function renderConvenios(list) {
+          conveniosBody.innerHTML = "";
+          if (!list.length) {
+            conveniosBody.innerHTML = '<tr><td colspan="3" class="subtle" style="padding:1rem 0;">Sin convenios. Usá "Agregar convenio".</td></tr>';
+            return;
+          }
+          list.forEach((conv) => {
+            const tr = document.createElement("tr");
+            const tiposLabels = (conv.tipos_documento || []).map((c) => companyTiposMap[c] || c).join(", ") || "—";
+            tr.innerHTML =
+              `<td>${escapeHtml(conv.nombre)}</td>` +
+              `<td style="font-size:0.85rem;color:var(--text-subtle,#6b7280);">${escapeHtml(tiposLabels)}</td>` +
+              `<td class="config-actions-cell">` +
+              `<button type="button" class="btn ghost btn-sm conv-edit">Editar</button> ` +
+              `<button type="button" class="btn ghost btn-sm danger conv-del">Eliminar</button>` +
+              `</td>`;
+            tr.querySelector(".conv-edit").addEventListener("click", () => openConvenioModal(conv));
+            tr.querySelector(".conv-del").addEventListener("click", () => deleteConvenio(conv));
+            conveniosBody.appendChild(tr);
+          });
+        }
+
+        function buildTiposCheckboxes(selectedCodes) {
+          convenioModalTipos.innerHTML = "";
+          companyTipos.forEach(([code, label]) => {
+            const id = "conv-tipo-" + code;
+            const wrap = document.createElement("label");
+            wrap.style.cssText = "display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.9rem;padding:2px 0;";
+            const chk = document.createElement("input");
+            chk.type = "checkbox";
+            chk.id = id;
+            chk.value = code;
+            chk.style.flexShrink = "0";
+            chk.checked = (selectedCodes || []).includes(code);
+            wrap.appendChild(chk);
+            wrap.appendChild(document.createTextNode(label));
+            convenioModalTipos.appendChild(wrap);
+          });
+        }
+
+        function openConvenioModal(conv) {
+          convenioModalId.value = conv ? (conv.id || "") : "";
+          convenioModalNombre.value = conv ? conv.nombre : "";
+          buildTiposCheckboxes(conv ? conv.tipos_documento : []);
+          convenioModalTitle.textContent = conv ? "Editar convenio" : "Agregar convenio";
+          convenioModalSubmit.textContent = conv ? "Guardar cambios" : "Agregar";
+          if (convenioModalStatus) convenioModalStatus.textContent = "";
+          convenioModal.hidden = false;
+          convenioModalNombre.focus();
+        }
+
+        function closeConvenioModal() { convenioModal.hidden = true; }
+
+        function getCheckedTipos() {
+          return companyTipos.map(([code]) => code).filter((code) => {
+            const el = document.getElementById("conv-tipo-" + code);
+            return el && el.checked;
+          });
+        }
+
+        async function deleteConvenio(conv) {
+          if (!confirm(`¿Eliminar el convenio "${conv.nombre}"?`)) return;
+          try {
+            const res = await fetch("/api/legajos/convenios/" + encodeURIComponent(conv.id), {
+              method: "DELETE", credentials: "same-origin",
+            });
+            const data = await res.json();
+            if (!data.ok) { setConveniosStatus(data.error || "Error al eliminar", true); return; }
+            setConveniosStatus("Convenio eliminado.");
+            loadConvenios();
+          } catch (e) {
+            setConveniosStatus("Error de red.", true);
+          }
+        }
+
+        // --- Botón "Todas / Ninguna" en modal ---
+        const btnTodasConvenio = document.createElement("button");
+        btnTodasConvenio.type = "button";
+        btnTodasConvenio.textContent = "Seleccionar todas";
+        btnTodasConvenio.className = "btn ghost";
+        btnTodasConvenio.style.cssText = "font-size:0.8rem;padding:3px 10px;margin-bottom:0.5rem;";
+        btnTodasConvenio.addEventListener("click", () => {
+          const checkboxes = convenioModalTipos.querySelectorAll("input[type=checkbox]");
+          const allChecked = Array.from(checkboxes).every((c) => c.checked);
+          checkboxes.forEach((c) => { c.checked = !allChecked; });
+          btnTodasConvenio.textContent = allChecked ? "Seleccionar todas" : "Deseleccionar todas";
+        });
+        if (convenioModalTipos) convenioModalTipos.parentElement.insertBefore(btnTodasConvenio, convenioModalTipos);
+
+        if (btnAddConvenio) btnAddConvenio.addEventListener("click", () => openConvenioModal(null));
+        if (document.getElementById("convenio-modal-close")) document.getElementById("convenio-modal-close").addEventListener("click", closeConvenioModal);
+        if (document.getElementById("convenio-modal-cancel")) document.getElementById("convenio-modal-cancel").addEventListener("click", closeConvenioModal);
+        convenioModal.querySelector(".config-modal-backdrop").addEventListener("click", closeConvenioModal);
+
+        convenioModalForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const nombre = convenioModalNombre.value.trim();
+          if (!nombre) { if (convenioModalStatus) convenioModalStatus.textContent = "El nombre es obligatorio."; return; }
+          const tipos = getCheckedTipos();
+          const cid = conveniosCompanySel.value;
+          const editId = convenioModalId.value;
+          if (convenioModalStatus) convenioModalStatus.textContent = "Guardando…";
+          try {
+            let res;
+            if (editId) {
+              res = await fetch("/api/legajos/convenios/" + encodeURIComponent(editId), {
+                method: "PATCH", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ nombre, tipos_documento: tipos }),
+              });
+            } else {
+              res = await fetch("/api/legajos/convenios", {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: cid, nombre, tipos_documento: tipos }),
+              });
+            }
+            const data = await res.json();
+            if (!data.ok) { if (convenioModalStatus) convenioModalStatus.textContent = data.error || "Error."; return; }
+            closeConvenioModal();
+            setConveniosStatus(editId ? "Convenio actualizado." : "Convenio creado.");
+            loadConvenios();
+          } catch (err) {
+            if (convenioModalStatus) convenioModalStatus.textContent = "Error de red.";
+          }
+        });
+
+        // --- Carpetas ---
+        const carpetasBody = document.getElementById("carpetas-body");
+        const carpetasStatus = document.getElementById("carpetas-status");
+        const carpetaNuevaLabel = document.getElementById("carpeta-nueva-label");
+        const btnAddCarpeta = document.getElementById("btn-add-carpeta");
+        const btnInitCarpetas = document.getElementById("btn-init-carpetas");
+
+        function setCarpetasStatus(msg, isErr) {
+          if (!carpetasStatus) return;
+          carpetasStatus.textContent = msg || "";
+          carpetasStatus.style.color = isErr ? "var(--danger,#dc2626)" : "";
+        }
+
+        function renderCarpetas(list, isCustom) {
+          if (!carpetasBody) return;
+          const hasCompany = !!conveniosCompanySel.value;
+          if (btnAddCarpeta) btnAddCarpeta.disabled = !hasCompany;
+          if (btnInitCarpetas) btnInitCarpetas.disabled = !hasCompany || isCustom;
+          carpetasBody.innerHTML = "";
+          list.forEach((c) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${escapeHtml(c.label)}</td>` +
+              (isCustom ? `<td><button type="button" class="btn ghost btn-sm danger carp-del" data-id="${escapeHtml(c.id)}">Eliminar</button></td>` : "<td></td>");
+            if (isCustom) {
+              tr.querySelector(".carp-del").addEventListener("click", async () => {
+                if (!confirm(`¿Eliminar la carpeta "${c.label}"?`)) return;
+                try {
+                  const res = await fetch("/api/legajos/carpetas/" + encodeURIComponent(c.id), { method: "DELETE", credentials: "same-origin" });
+                  const data = await res.json();
+                  if (!data.ok) { setCarpetasStatus(data.error || "Error.", true); return; }
+                  setCarpetasStatus("Carpeta eliminada.");
+                  await loadCarpetas();
+                } catch (err) { setCarpetasStatus("Error de red.", true); }
+              });
+            }
+            carpetasBody.appendChild(tr);
+          });
+          if (!list.length) carpetasBody.innerHTML = '<tr><td colspan="2" class="subtle">Sin carpetas.</td></tr>';
+        }
+
+        if (btnAddCarpeta) {
+          btnAddCarpeta.addEventListener("click", async () => {
+            const label = (carpetaNuevaLabel && carpetaNuevaLabel.value.trim()) || "";
+            if (!label) { setCarpetasStatus("Escribí el nombre de la carpeta.", true); return; }
+            const cid = conveniosCompanySel.value;
+            try {
+              const res = await fetch("/api/legajos/carpetas", {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: cid, label }),
+              });
+              const data = await res.json();
+              if (!data.ok) { setCarpetasStatus(data.error || "Error.", true); return; }
+              if (carpetaNuevaLabel) carpetaNuevaLabel.value = "";
+              setCarpetasStatus("Carpeta agregada.");
+              await loadCarpetas();
+            } catch (err) { setCarpetasStatus("Error de red.", true); }
+          });
+        }
+
+        if (btnInitCarpetas) {
+          btnInitCarpetas.addEventListener("click", async () => {
+            const cid = conveniosCompanySel.value;
+            if (!cid) return;
+            try {
+              const res = await fetch("/api/legajos/carpetas/init-default", {
+                method: "POST", credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ company_id: cid }),
+              });
+              const data = await res.json();
+              if (!data.ok) { setCarpetasStatus(data.error || "Error.", true); return; }
+              setCarpetasStatus("Carpetas por defecto cargadas. Ahora podés editar la lista.");
+              await loadCarpetas();
+            } catch (err) { setCarpetasStatus("Error de red.", true); }
+          });
+        }
+
+        if (conveniosCompanySel) conveniosCompanySel.addEventListener("change", loadAll);
+        document.querySelectorAll("[data-section-target='convenios']").forEach((btn) => {
+          btn.addEventListener("click", () => { setTimeout(loadAll, 50); });
+        });
+        if (conveniosCompanySel && conveniosCompanySel.value) loadAll();
       }
     </script>
   </body>
