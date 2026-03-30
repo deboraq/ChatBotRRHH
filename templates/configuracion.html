@@ -2211,8 +2211,20 @@
         const currentSelected = getModalAreas();
         modalAreasPanel.innerHTML = "";
         const companyId = normalizeCompanyId(modalCompany?.value || "");
-        const company = getCompanyById(companyId);
-        const areas = getAreasForCompanyUnion(company);
+        let areas;
+        if (companyId) {
+          areas = getAreasForCompanyUnion(getCompanyById(companyId));
+        } else {
+          // Sin restricción: unión de áreas de todas las empresas
+          const seen = new Set();
+          areas = [];
+          for (const c of (companies || [])) {
+            for (const a of getAreasForCompanyUnion(c)) {
+              const key = String(a).trim().toLowerCase();
+              if (key && !seen.has(key)) { seen.add(key); areas.push(String(a).trim()); }
+            }
+          }
+        }
 
         // "Todas las áreas" option at top
         const todasLabel = document.createElement("label");
