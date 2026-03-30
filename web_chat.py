@@ -6594,18 +6594,19 @@ def _auto_update_temas_from_knowledge(company_id, entries):
     """Actualiza temas_habilitados de la empresa a partir de las preguntas de la KB. Retorna la lista de temas."""
     if not entries or not company_id:
         return []
-    try:
-        temas_clean = _extraer_temas_de_knowledge(entries)
-        if temas_clean and chatbot.db:
+    temas_clean = _extraer_temas_de_knowledge(entries)
+    if temas_clean and chatbot.db:
+        try:
             cid_key = _normalize_company_id(company_id)
-            chatbot.db.collection(COMPANIES_COLLECTION).document(cid_key).update({"temas_habilitados": temas_clean})
+            chatbot.db.collection(COMPANIES_COLLECTION).document(cid_key).set(
+                {"temas_habilitados": temas_clean}, merge=True
+            )
             for ck in ("companies_active", "companies_all"):
                 _cache_set(ck, None)
             logging.info(f"Auto-temas para {company_id}: {temas_clean}")
-        return temas_clean
-    except Exception as exc:
-        logging.warning(f"_auto_update_temas_from_knowledge falló: {exc}")
-    return []
+        except Exception as exc:
+            logging.warning(f"_auto_update_temas_from_knowledge: error al guardar en Firestore: {exc}")
+    return temas_clean
 
 
 @flask_app.post("/api/configuracion/knowledge/sync-from-drive")
