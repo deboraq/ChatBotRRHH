@@ -5552,7 +5552,8 @@ def webhook_n8n_sync_knowledge():
     if not expected_secret:
         return jsonify({"ok": False, "error": "N8N_WEBHOOK_SECRET no configurado en el servidor."}), 503
     incoming_secret = (request.headers.get("X-Webhook-Secret") or "").strip()
-    if incoming_secret != expected_secret:
+    _valid_secrets = {s.strip() for s in expected_secret.split(",") if s.strip()}
+    if incoming_secret not in _valid_secrets:
         logging.warning("webhook_n8n_sync_knowledge: secret inválido desde %s", request.remote_addr)
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
 
@@ -5603,7 +5604,8 @@ def webhook_n8n_procesar_comunicados():
     expected_secret = os.getenv("N8N_WEBHOOK_SECRET", "").strip()
     if not expected_secret:
         return jsonify({"ok": False, "error": "N8N_WEBHOOK_SECRET no configurado."}), 503
-    if (request.headers.get("X-Webhook-Secret") or "").strip() != expected_secret:
+    _valid_secrets_pc = {s.strip() for s in expected_secret.split(",") if s.strip()}
+    if (request.headers.get("X-Webhook-Secret") or "").strip() not in _valid_secrets_pc:
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
     if not chatbot.db:
         return jsonify({"ok": False, "error": "Firestore no disponible."}), 503
@@ -5692,7 +5694,8 @@ def webhook_n8n_reporte_semanal():
     expected_secret = os.getenv("N8N_WEBHOOK_SECRET", "").strip()
     if not expected_secret:
         return jsonify({"ok": False, "error": "N8N_WEBHOOK_SECRET no configurado."}), 503
-    if (request.headers.get("X-Webhook-Secret") or "").strip() != expected_secret:
+    _valid_secrets_rs = {s.strip() for s in expected_secret.split(",") if s.strip()}
+    if (request.headers.get("X-Webhook-Secret") or "").strip() not in _valid_secrets_rs:
         return jsonify({"ok": False, "error": "Unauthorized"}), 401
 
     if not chatbot.db:
