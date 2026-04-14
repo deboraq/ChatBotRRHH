@@ -169,6 +169,7 @@
             <button type="button" data-section-target="knowledge">Base de conocimiento</button>
             <button type="button" data-section-target="contactos">Contactos</button>
             <button type="button" data-section-target="convenios">Convenios</button>
+            <button type="button" data-section-target="smtp">Email / SMTP</button>
             {% endif %}
             {% if can_manage_users %}
             <button type="button" data-section-target="usuarios">Usuarios</button>
@@ -258,6 +259,11 @@
                   Carpeta Drive (ID) (opcional)
                   <input id="modal-company-drive-folder-id" type="text" placeholder="ej: 16PNA3gAgvtoamLgdhkLn3BQ8i_erJFmy" />
                   <span class="subtle" style="display:block; margin-top:0.25rem;">Para sincronizar base de conocimiento desde Google Drive.</span>
+                </label>
+                <label class="field" style="grid-column: 1 / -1;">
+                  Email para notificaciones de handoff (opcional)
+                  <input id="modal-company-handoff-notify-email" type="email" placeholder="ej: rrhh@empresa.com" />
+                  <span class="subtle" style="display:block; margin-top:0.25rem;">Recibe un email cuando un colaborador pide hablar con un agente. Requiere SMTP configurado en el servidor.</span>
                 </label>
                 <div class="field whatsapp-numbers-block">
                   <p class="field-label" style="font-weight:600; margin:0 0 0.5rem 0;">Números de WhatsApp (por área/canal)</p>
@@ -725,6 +731,24 @@
             <p id="carpetas-status" class="subtle"></p>
           </section>
 
+          <section class="panel config-section" data-section-key="smtp" style="max-width:600px;">
+            <h2>Email / SMTP</h2>
+            <p class="subtle">Configuración del servidor de correo para notificaciones de handoff. Si las variables de entorno <code>SMTP_HOST</code> están configuradas en el servidor, se usan esas. Si no, completá aquí y se guardan en Firestore.</p>
+            <form id="smtp-settings-form" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem;">
+              <label class="field">Host SMTP <span class="subtle">(ej: smtp.gmail.com)</span><input id="smtp-host" type="text" placeholder="smtp.gmail.com" /></label>
+              <label class="field">Puerto <span class="subtle">(defecto: 587)</span><input id="smtp-port" type="number" placeholder="587" min="1" max="65535" /></label>
+              <label class="field">Usuario <span class="subtle">(ej: tu-cuenta@gmail.com)</span><input id="smtp-user" type="text" placeholder="tu-cuenta@gmail.com" /></label>
+              <label class="field">Contraseña <input id="smtp-password" type="password" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" /></label>
+              <label class="field">Email remitente <span class="subtle">(ej: no-reply@empresa.com)</span><input id="smtp-from" type="email" placeholder="no-reply@empresa.com" /></label>
+              <label class="field" style="flex-direction:row;align-items:center;gap:0.5rem;"><input id="smtp-use-tls" type="checkbox" checked style="width:auto;" /> Usar TLS (STARTTLS)</label>
+              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                <button type="submit" class="btn btn-primary" id="smtp-save-btn">Guardar configuración SMTP</button>
+                <button type="button" id="smtp-test-btn" class="btn ghost">Enviar email de prueba</button>
+              </div>
+              <p id="smtp-status" class="subtle" style="min-height:1.2em;"></p>
+            </form>
+          </section>
+
           <!-- Modal convenio -->
           <div id="convenio-modal" class="config-modal" role="dialog" aria-labelledby="convenio-modal-title" aria-modal="true" hidden>
             <div class="config-modal-backdrop"></div>
@@ -870,6 +894,7 @@
       const modalCompanyPhone = document.getElementById("modal-company-phone");
       const modalCompanyWebsite = document.getElementById("modal-company-website");
       const modalCompanyDriveFolderId = document.getElementById("modal-company-drive-folder-id");
+      const modalCompanyHandoffNotifyEmail = document.getElementById("modal-company-handoff-notify-email");
       const modalCompanyWhatsappList = document.getElementById("modal-company-whatsapp-list");
       const modalCompanyWhatsappAdd = document.getElementById("modal-company-whatsapp-add");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
@@ -2840,6 +2865,7 @@
         if (modalCompanyPhone) modalCompanyPhone.value = "";
         if (modalCompanyWebsite) modalCompanyWebsite.value = "";
         if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = "";
+        if (modalCompanyHandoffNotifyEmail) modalCompanyHandoffNotifyEmail.value = "";
         if (companyFormModalTitle) companyFormModalTitle.textContent = "Agregar empresa";
         if (companyFormSubmitBtn) companyFormSubmitBtn.textContent = "Agregar empresa";
         if (modalCompanyId) {
@@ -2860,6 +2886,7 @@
           if (modalCompanyPhone) modalCompanyPhone.value = company.company_phone || "";
           if (modalCompanyWebsite) modalCompanyWebsite.value = company.company_website || "";
           if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = company.drive_folder_id || "";
+          if (modalCompanyHandoffNotifyEmail) modalCompanyHandoffNotifyEmail.value = company.handoff_notify_email || "";
           if (companyFormModalTitle) companyFormModalTitle.textContent = "Modificar empresa";
           if (companyFormSubmitBtn) companyFormSubmitBtn.textContent = "Guardar";
           renderWhatsappNumbersList(company.whatsapp_numbers || []);
@@ -2986,6 +3013,7 @@
           company_phone: (modalCompanyPhone?.value || "").trim(),
           company_website: (modalCompanyWebsite?.value || "").trim(),
           drive_folder_id: (modalCompanyDriveFolderId?.value || "").trim() || null,
+          handoff_notify_email: (modalCompanyHandoffNotifyEmail?.value || "").trim() || null,
           branches: currentCompany && Array.isArray(currentCompany.branches) ? currentCompany.branches : [],
           whatsapp_numbers: getModalWhatsappNumbers(),
         };
@@ -4430,6 +4458,88 @@
           btn.addEventListener("click", () => { setTimeout(loadAll, 50); });
         });
         if (conveniosCompanySel && conveniosCompanySel.value) loadAll();
+      }
+
+      // ── SMTP Settings ────────────────────────────────────────────────────────
+      if (canManageGeneral) {
+        const smtpForm = document.getElementById("smtp-settings-form");
+        const smtpHost = document.getElementById("smtp-host");
+        const smtpPort = document.getElementById("smtp-port");
+        const smtpUser = document.getElementById("smtp-user");
+        const smtpPassword = document.getElementById("smtp-password");
+        const smtpFrom = document.getElementById("smtp-from");
+        const smtpUseTls = document.getElementById("smtp-use-tls");
+        const smtpStatus = document.getElementById("smtp-status");
+        const smtpTestBtn = document.getElementById("smtp-test-btn");
+
+        async function loadSmtpSettings() {
+          try {
+            const res = await fetch("/api/configuracion/smtp");
+            const data = await res.json();
+            if (data.ok) {
+              if (smtpHost) smtpHost.value = data.host || "";
+              if (smtpPort) smtpPort.value = data.port || 587;
+              if (smtpUser) smtpUser.value = data.username || "";
+              if (smtpFrom) smtpFrom.value = data.from_email || "";
+              if (smtpUseTls) smtpUseTls.checked = data.use_tls !== false;
+              if (smtpStatus) {
+                const src = data.source === "env" ? " (configurado en variables de entorno del servidor)" : "";
+                smtpStatus.textContent = data.host ? `SMTP configurado: ${data.host}${src}` : "SMTP no configurado.";
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (smtpForm) {
+          smtpForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            if (smtpStatus) smtpStatus.textContent = "Guardando…";
+            try {
+              const payload = {
+                host: smtpHost?.value.trim() || "",
+                port: parseInt(smtpPort?.value || "587") || 587,
+                username: smtpUser?.value.trim() || "",
+                password: smtpPassword?.value || "",
+                from_email: smtpFrom?.value.trim() || "",
+                use_tls: smtpUseTls?.checked !== false,
+              };
+              const res = await fetch("/api/configuracion/smtp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+              const data = await res.json();
+              if (smtpStatus) smtpStatus.textContent = data.ok ? "✅ Configuración guardada." : "❌ " + (data.error || "Error.");
+              if (data.ok && smtpPassword) smtpPassword.value = "";
+            } catch (err) {
+              if (smtpStatus) smtpStatus.textContent = "❌ Error de conexión.";
+            }
+          });
+        }
+
+        if (smtpTestBtn) {
+          smtpTestBtn.addEventListener("click", async () => {
+            const to = prompt("Ingresá el email donde querés recibir el test:");
+            if (!to || !to.trim()) return;
+            if (smtpStatus) smtpStatus.textContent = "Enviando test…";
+            try {
+              const res = await fetch("/api/configuracion/smtp/test", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ to: to.trim() }),
+              });
+              const data = await res.json();
+              if (smtpStatus) smtpStatus.textContent = data.ok ? "✅ " + (data.message || "Email enviado.") : "❌ " + (data.error || "Error.");
+            } catch (err) {
+              if (smtpStatus) smtpStatus.textContent = "❌ Error de conexión.";
+            }
+          });
+        }
+
+        document.querySelectorAll("[data-section-target='smtp']").forEach((btn) => {
+          btn.addEventListener("click", () => { setTimeout(loadSmtpSettings, 50); });
+        });
+        loadSmtpSettings();
       }
     </script>
   </body>

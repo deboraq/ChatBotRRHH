@@ -690,18 +690,53 @@ def _is_true_env(value, default=True):
     return raw in {"1", "true", "yes", "on", "si", "sí"}
 
 
+def _smtp_settings_from_firestore():
+    """Lee la configuración SMTP guardada en Firestore (rrhh_config/smtp)."""
+    try:
+        if chatbot.db:
+            doc = chatbot.db.collection("rrhh_config").document("smtp").get()
+            if doc.exists:
+                return doc.to_dict() or {}
+    except Exception:
+        pass
+    return {}
+
+
 def _smtp_settings():
     try:
         port = int(str(os.getenv("SMTP_PORT", "587")).strip() or "587")
     except Exception:
         port = 587
+    env_host = str(os.getenv("SMTP_HOST", "")).strip()
+    env_user = str(os.getenv("SMTP_USER", "")).strip()
+    env_pass = str(os.getenv("SMTP_PASSWORD", "")).strip()
+    env_from = str(os.getenv("SMTP_FROM", "")).strip()
+
+    # Si las env vars están configuradas (no son placeholders), usarlas
+    _placeholder_hosts = {"", "smtp.ejemplo.com", "smtp.example.com"}
+    if env_host and env_host not in _placeholder_hosts:
+        return {
+            "host": env_host,
+            "port": port,
+            "username": env_user,
+            "password": env_pass,
+            "from_email": env_from,
+            "use_tls": _is_true_env(os.getenv("SMTP_USE_TLS"), default=True),
+        }
+
+    # Fallback: leer de Firestore
+    fs = _smtp_settings_from_firestore()
+    try:
+        fs_port = int(str(fs.get("port", 587) or 587))
+    except Exception:
+        fs_port = 587
     return {
-        "host": str(os.getenv("SMTP_HOST", "")).strip(),
-        "port": port,
-        "username": str(os.getenv("SMTP_USER", "")).strip(),
-        "password": str(os.getenv("SMTP_PASSWORD", "")).strip(),
-        "from_email": str(os.getenv("SMTP_FROM", "")).strip(),
-        "use_tls": _is_true_env(os.getenv("SMTP_USE_TLS"), default=True),
+        "host": str(fs.get("host") or "").strip(),
+        "port": fs_port,
+        "username": str(fs.get("username") or "").strip(),
+        "password": str(fs.get("password") or "").strip(),
+        "from_email": str(fs.get("from_email") or "").strip(),
+        "use_tls": bool(fs.get("use_tls", True)),
     }
 
 
@@ -2737,7 +2772,7 @@ def _generar_resumen_conversacion(chat_session_id):
             norm = chatbot.normalizar_texto(texto)
             if norm not in _RESUMEN_IGNORAR and len(texto) > 3:
                 consultas.append(texto)
-            ultimo_bot_respondio = False
+                ultimo_bot_respondio = False  # sólo resetear para consultas reales
         elif remitente in ("bot", "asistente"):
             ultimo_bot_respondio = True
             ultimo_bot_texto = texto
@@ -4764,11 +4799,20 @@ def api_comunicados_enviar():
                         break
             if not phone_number_id and nums:
                 phone_number_id = (nums[0].get("phone") or "").strip()
-    if not phone_number_id:
+    # Detectar si phone_number_id es un ID numérico de Meta
+    _pid_raw = str(phone_number_id or "").strip()
+    _is_meta_pid_sync = bool(_pid_raw) and _pid_raw.isdigit() and len(_pid_raw) > 10
+    if not phone_number_id and not _is_meta_pid_sync:
         phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
     if not phone_number_id:
-        return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM o números por empresa)."}), 503
-    if not phone_number_id.startswith("whatsapp:"):
+        # Intentar usar META si está configurado
+        _meta_pid_fallback = _meta_phone_number_id()
+        if _meta_pid_fallback:
+            phone_number_id = _meta_pid_fallback
+            _is_meta_pid_sync = True
+        else:
+            return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM o META_PHONE_NUMBER_ID)."}), 503
+    if not _is_meta_pid_sync and not phone_number_id.startswith("whatsapp:"):
         try:
             from twilio_whatsapp import _format_to_whatsapp
             phone_number_id = _format_to_whatsapp(phone_number_id) or phone_number_id
@@ -4776,9 +4820,18 @@ def api_comunicados_enviar():
             pass
 
     try:
-        from whatsapp_broadcast import broadcast_messages
+        from whatsapp_broadcast import broadcast_messages, set_send_function as _wb_set_send
     except ImportError:
         return jsonify({"ok": False, "error": "Módulo de envío no disponible."}), 503
+
+    if _is_meta_pid_sync:
+        def _meta_send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
+            try:
+                return bool(_send_meta_whatsapp(phone, body or "", phone_number_id=phone_number_id))
+            except Exception as e:
+                logger.warning("broadcast meta: error a %s: %s", phone, e)
+                return False
+        _wb_set_send(_meta_send_fn)
 
     result = broadcast_messages(
         phone_list=phones,
@@ -4873,8 +4926,11 @@ def api_comunicados_enviar_stream():
             if not phone_number_id and nums:
                 phone_number_id = (nums[0].get("phone") or "").strip()
     if not phone_number_id:
-        phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
-    if not phone_number_id.startswith("whatsapp:"):
+        phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "") or _meta_phone_number_id() or ""
+        phone_number_id = phone_number_id.strip()
+    # Solo reformatear a whatsapp:+... si NO es un ID numérico de Meta
+    _pid_is_meta = str(phone_number_id).strip().isdigit() and len(str(phone_number_id).strip()) > 10
+    if not _pid_is_meta and not phone_number_id.startswith("whatsapp:"):
         try:
             from twilio_whatsapp import _format_to_whatsapp
             phone_number_id = _format_to_whatsapp(phone_number_id) or phone_number_id
@@ -4884,16 +4940,29 @@ def api_comunicados_enviar_stream():
     def generate():
         import json as _json2
         try:
-            from twilio_whatsapp import send_one as twilio_send_one
             import whatsapp_broadcast as wb
 
-            def _send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
-                try:
-                    result = twilio_send_one(phone, body=body, media_url=media_url[0] if isinstance(media_url, list) and media_url else (media_url or None), phone_number_id=phone_number_id)
-                    return bool(result)
-                except Exception as e:
-                    logger.warning("broadcast: error enviando a %s: %s", phone, e)
-                    return False
+            # Detectar si phone_number_id es un ID numérico de Meta (ej. "1078605635336424")
+            # vs un número Twilio (ej. "whatsapp:+14155238886")
+            _pid = str(phone_number_id or "").strip()
+            _is_meta_pid = bool(_pid) and _pid.isdigit() and len(_pid) > 10
+
+            if _is_meta_pid:
+                def _send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
+                    try:
+                        return bool(_send_meta_whatsapp(phone, body or "", phone_number_id=phone_number_id))
+                    except Exception as e:
+                        logger.warning("broadcast meta: error enviando a %s: %s", phone, e)
+                        return False
+            else:
+                from twilio_whatsapp import send_one as twilio_send_one
+                def _send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
+                    try:
+                        result = twilio_send_one(phone, body=body, media_url=media_url[0] if isinstance(media_url, list) and media_url else (media_url or None), phone_number_id=phone_number_id)
+                        return bool(result)
+                    except Exception as e:
+                        logger.warning("broadcast: error enviando a %s: %s", phone, e)
+                        return False
 
             wb.set_send_function(_send_fn)
 
@@ -6723,6 +6792,79 @@ def configuracion_editar_empresa_api(company_id):
     if _normalize_company_id(session.get("company_id")) == company.get("company_id"):
         _set_company_session(company.get("company_id"))
     return jsonify({"ok": True, "company": _company_for_api(company)})
+
+
+@flask_app.get("/api/configuracion/smtp")
+@rrhh_auth_required
+def configuracion_smtp_get():
+    if not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso.")
+    cfg = _smtp_settings()
+    return jsonify({
+        "ok": True,
+        "host": cfg["host"],
+        "port": cfg["port"],
+        "username": cfg["username"],
+        "from_email": cfg["from_email"],
+        "use_tls": cfg["use_tls"],
+        "has_password": bool(cfg["password"]),
+        "source": "env" if (cfg["host"] and cfg["host"] not in {"smtp.ejemplo.com", "smtp.example.com"} and os.getenv("SMTP_HOST", "").strip() == cfg["host"]) else "firestore",
+    })
+
+
+@flask_app.post("/api/configuracion/smtp")
+@rrhh_auth_required
+def configuracion_smtp_save():
+    if not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso.")
+    data = request.get_json(silent=True) or {}
+    host = str(data.get("host") or "").strip()[:200]
+    try:
+        port = int(str(data.get("port") or 587))
+    except Exception:
+        port = 587
+    username = str(data.get("username") or "").strip()[:200]
+    password = str(data.get("password") or "").strip()[:500]
+    from_email = str(data.get("from_email") or "").strip()[:200]
+    use_tls = bool(data.get("use_tls", True))
+    if not host:
+        return jsonify({"ok": False, "error": "Ingresá el host SMTP."}), 400
+    doc = {
+        "host": host,
+        "port": port,
+        "username": username,
+        "from_email": from_email,
+        "use_tls": use_tls,
+        "updated_at": _utc_now().isoformat(),
+    }
+    if password:
+        doc["password"] = password
+    elif not data.get("clear_password"):
+        # Mantener contraseña existente si no se envió una nueva
+        existing = _smtp_settings_from_firestore()
+        if existing.get("password"):
+            doc["password"] = existing["password"]
+    try:
+        if chatbot.db:
+            chatbot.db.collection("rrhh_config").document("smtp").set(doc, merge=False)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"No se pudo guardar: {exc}"}), 500
+    return jsonify({"ok": True, "message": "Configuración SMTP guardada."})
+
+
+@flask_app.post("/api/configuracion/smtp/test")
+@rrhh_auth_required
+def configuracion_smtp_test():
+    if not _can_manage_general_config():
+        return _forbidden_json_error("Sin permiso.")
+    data = request.get_json(silent=True) or {}
+    to_email = str(data.get("to") or "").strip()
+    if not to_email:
+        return jsonify({"ok": False, "error": "Ingresá un email de prueba."}), 400
+    ok, err = _send_email(to_email, "Test email - ChatBot RRHH", "Si llegó este mensaje, el SMTP está correctamente configurado.")
+    if ok:
+        return jsonify({"ok": True, "message": f"Email de prueba enviado a {to_email}."})
+    return jsonify({"ok": False, "error": err})
 
 
 @flask_app.delete("/api/configuracion/empresas/<company_id>")
