@@ -2767,7 +2767,7 @@ _RESUMEN_IGNORAR = {
     "quiero hablar con alguien", "hablar con un agente", "hablar con alguien",
 }
 
-def _generar_resumen_conversacion(chat_session_id):
+def _generar_resumen_conversacion(chat_session_id, mensaje_trigger=None):
     """Genera un resumen interpretativo de los temas consultados para mostrárselo al agente."""
     turnos = []
     try:
@@ -2786,8 +2786,11 @@ def _generar_resumen_conversacion(chat_session_id):
                  if str(h.get("conversation_id") or "") == str(chat_session_id or "")],
                 key=lambda x: _as_utc_naive(x.get("fecha")) or datetime.min,
             )
-    except Exception:
+    except Exception as _exc:
+        logging.warning("_generar_resumen: error consultando historial session=%s: %s", chat_session_id, _exc)
         turnos = []
+
+    logging.info("_generar_resumen: session_id=%r turnos_encontrados=%d", chat_session_id, len(turnos))
 
     if not turnos:
         return "Sin historial previo disponible."
@@ -2810,7 +2813,17 @@ def _generar_resumen_conversacion(chat_session_id):
             ultimo_bot_respondio = True
             ultimo_bot_texto = texto
 
+    logging.info("_generar_resumen: session_id=%r consultas_filtradas=%d remitentes=%s",
+                 chat_session_id, len(consultas),
+                 list({str(t.get("remitente") or "") for t in turnos}))
+
     if not consultas:
+        # Fallback: usar el mensaje que disparó el handoff si aporta información
+        if mensaje_trigger:
+            _mt = str(mensaje_trigger).strip()
+            _mt_norm = chatbot.normalizar_texto(_mt)
+            if _mt_norm not in _RESUMEN_IGNORAR and len(_mt) > 3:
+                return f"📋 Resumen de la consulta:\nÚltimo mensaje: \"{_mt}\""
         return "El colaborador solicitó hablar con un agente sin realizar consultas previas."
 
     # Deduplicar manteniendo orden
@@ -2902,7 +2915,7 @@ def _iniciar_handoff_rrhh(mensaje_usuario):
             f"{handoff_payload.get('colaborador_nombre') or handoff_payload.get('colaborador_telefono') or 'Usuario'}: {handoff_payload.get('ultima_consulta', 'Solicitud de atención')[:150]}",
         )
         # Generar resumen antes de notificar para incluirlo en el email
-        resumen = _generar_resumen_conversacion(chat_session_id)
+        resumen = _generar_resumen_conversacion(chat_session_id, mensaje_trigger=mensaje_usuario)
         handoff_payload["resumen_conversacion"] = resumen
         _notify_handoff_via_n8n(handoff_payload, company)
         _add_handoff_message(
