@@ -148,6 +148,7 @@
                 type="file"
                 accept="image/*,.pdf,.xls,.xlsx,.doc,.docx,.ppt,.pptx,.txt,.csv"
                 class="reply-file-input"
+                multiple
               />
               <span id="reply-file-name" class="reply-file-name"></span>
             </div>
@@ -1650,7 +1651,10 @@ const agente = agentNameEl.value.trim() || "Agente";
       if (replyFileEl) {
         replyFileEl.addEventListener("change", () => {
           if (replyFileNameEl) {
-            replyFileNameEl.textContent = replyFileEl.files.length ? replyFileEl.files[0].name : "";
+            const n = replyFileEl.files.length;
+            if (n === 0) replyFileNameEl.textContent = "";
+            else if (n === 1) replyFileNameEl.textContent = replyFileEl.files[0].name;
+            else replyFileNameEl.textContent = n + " archivos seleccionados";
           }
         });
       }
@@ -1665,8 +1669,8 @@ const agente = agentNameEl.value.trim() || "Agente";
         event.preventDefault();
         const mensaje = replyInput.value.trim();
         const mediaUrl = replyMediaUrlEl ? replyMediaUrlEl.value.trim() : "";
-        const file = replyFileEl && replyFileEl.files && replyFileEl.files[0] ? replyFileEl.files[0] : null;
-        if (!mensaje && !mediaUrl && !file) return;
+        const files = replyFileEl && replyFileEl.files && replyFileEl.files.length ? Array.from(replyFileEl.files) : [];
+        if (!mensaje && !mediaUrl && files.length === 0) return;
         // Limpiar inputs de inmediato para evitar reenvíos por doble-enter
         replyInput.value = "";
         if (replyMediaUrlEl) replyMediaUrlEl.value = "";
@@ -1675,7 +1679,12 @@ const agente = agentNameEl.value.trim() || "Agente";
           if (replyFileNameEl) replyFileNameEl.textContent = "";
         }
         try {
-          await enviarRespuesta(mensaje, mediaUrl || undefined, file || undefined);
+          // Primer envío: texto + URL + primer archivo (si hay)
+          await enviarRespuesta(mensaje, mediaUrl || undefined, files[0] || undefined);
+          // Archivos adicionales: uno por mensaje, sin texto
+          for (let _fi = 1; _fi < files.length; _fi++) {
+            await enviarRespuesta("", undefined, files[_fi]);
+          }
           await safeRefresh(true);
         } catch (error) {
           queueStatusEl.textContent = `Error al responder: ${error.message}`;
