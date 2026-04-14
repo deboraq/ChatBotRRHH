@@ -352,7 +352,7 @@ def _load_whatsapp_chat_context(phone):
     sess = getattr(g, "whatsapp_session", None)
     if not sess:
         return
-    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name", "wa_empleado_id", "wa_convenio", "wa_nombre"):
+    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name", "wa_empleado_id", "wa_convenio", "wa_nombre", "chat_session_id", "handoff_conversation_id"):
         if key in data and data[key] is not None:
             sess[key] = data[key]
 
@@ -397,6 +397,8 @@ def _save_whatsapp_chat_context(phone):
         "wa_empleado_id": sess.get("wa_empleado_id"),
         "wa_convenio": sess.get("wa_convenio"),
         "wa_nombre": sess.get("wa_nombre"),
+        "chat_session_id": sess.get("chat_session_id"),
+        "handoff_conversation_id": sess.get("handoff_conversation_id"),
         "updated_at": _utc_now(),
     }
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -4836,7 +4838,22 @@ def api_comunicados_enviar():
     if _is_meta_pid_sync:
         def _meta_send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
             try:
-                return bool(_send_meta_whatsapp(phone, body or "", phone_number_id=phone_number_id))
+                urls = media_url if isinstance(media_url, list) else ([media_url] if media_url else [])
+                if urls:
+                    import requests as _req_bc2
+                    img_url = urls[0]
+                    _r2 = _req_bc2.get(img_url, timeout=30)
+                    if _r2.ok:
+                        _mime2 = _r2.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+                        _fname2 = img_url.split("/")[-1].split("?")[0] or "imagen.jpg"
+                        _mid2 = _upload_media_to_meta(_r2.content, _mime2, _fname2, phone_number_id=phone_number_id)
+                        if _mid2:
+                            _mtype2 = "image" if _mime2.startswith("image/") else "document"
+                            _send_meta_whatsapp_media(phone, _mid2, _mtype2, caption=body or None, filename=_fname2 if _mtype2 == "document" else None, phone_number_id=phone_number_id)
+                            return True
+                if body:
+                    return bool(_send_meta_whatsapp(phone, body, phone_number_id=phone_number_id))
+                return False
             except Exception as e:
                 logger.warning("broadcast meta: error a %s: %s", phone, e)
                 return False
@@ -4959,7 +4976,23 @@ def api_comunicados_enviar_stream():
             if _is_meta_pid:
                 def _send_fn(phone, body=None, media_url=None, phone_number_id=None, **kwargs):
                     try:
-                        return bool(_send_meta_whatsapp(phone, body or "", phone_number_id=phone_number_id))
+                        urls = media_url if isinstance(media_url, list) else ([media_url] if media_url else [])
+                        if urls:
+                            import requests as _req_bc
+                            img_url = urls[0]
+                            _r = _req_bc.get(img_url, timeout=30)
+                            if _r.ok:
+                                import mimetypes as _mt
+                                _mime = _r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+                                _fname = img_url.split("/")[-1].split("?")[0] or "imagen.jpg"
+                                _mid = _upload_media_to_meta(_r.content, _mime, _fname, phone_number_id=phone_number_id)
+                                if _mid:
+                                    _mtype = "image" if _mime.startswith("image/") else "document"
+                                    _send_meta_whatsapp_media(phone, _mid, _mtype, caption=body or None, filename=_fname if _mtype == "document" else None, phone_number_id=phone_number_id)
+                                    return True
+                        if body:
+                            return bool(_send_meta_whatsapp(phone, body, phone_number_id=phone_number_id))
+                        return False
                     except Exception as e:
                         logger.warning("broadcast meta: error enviando a %s: %s", phone, e)
                         return False
