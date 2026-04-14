@@ -338,6 +338,7 @@
       let isSendingReply = false;
       let pollTimer = null;
       const AUTO_REFRESH_MS = 15 * 1000;
+      let _lastRenderedMsgKey = "";
       let validRoles = ["admin", "rrhh"];
       let permissionsCatalog = [];
       const THEME_STORAGE_KEY = "rrhh_panel_theme";
@@ -693,7 +694,13 @@
         });
       }
 
-      function renderMessages(mensajes) {
+      function renderMessages(mensajes, forceRender) {
+        // Evitar parpadeo de imágenes: no re-renderizar si nada cambió
+        const _lastMsg = mensajes.length > 0 ? mensajes[mensajes.length - 1] : null;
+        const _msgKey = mensajes.length + "|" + (_lastMsg ? (_lastMsg.fecha_iso || _lastMsg.fecha || "") : "");
+        if (!forceRender && _msgKey === _lastRenderedMsgKey) return;
+        _lastRenderedMsgKey = _msgKey;
+
         messagesEl.innerHTML = "";
         if (!mensajes.length) {
           messagesEl.innerHTML = "<p class='subtle'>Sin mensajes todavía.</p>";
@@ -1275,6 +1282,7 @@
       }
 
       async function seleccionarConversacion(conversationId) {
+        if (conversationId !== currentConversationId) _lastRenderedMsgKey = "";
         currentConversationId = conversationId;
         const selected = conversations.find((conv) => conv.conversation_id === conversationId);
         currentConversationState = selected?.estado || "";
@@ -1419,7 +1427,7 @@ const agente = agentNameEl.value.trim() || "Agente";
         }
       }
 
-      refreshBtn.addEventListener("click", () => safeRefresh(true));
+      refreshBtn.addEventListener("click", () => { _lastRenderedMsgKey = ""; safeRefresh(true); });
       includeClosedEl.addEventListener("change", () => safeRefresh(false));
       if (companySelectorEl) {
         companySelectorEl.addEventListener("change", async () => {
