@@ -260,11 +260,6 @@
                   <input id="modal-company-drive-folder-id" type="text" placeholder="ej: 16PNA3gAgvtoamLgdhkLn3BQ8i_erJFmy" />
                   <span class="subtle" style="display:block; margin-top:0.25rem;">Para sincronizar base de conocimiento desde Google Drive.</span>
                 </label>
-                <label class="field" style="grid-column: 1 / -1;">
-                  Email para notificaciones de handoff (opcional)
-                  <input id="modal-company-handoff-notify-email" type="email" placeholder="ej: rrhh@empresa.com" />
-                  <span class="subtle" style="display:block; margin-top:0.25rem;">Recibe un email cuando un colaborador pide hablar con un agente. Requiere SMTP configurado en el servidor.</span>
-                </label>
                 <div class="field whatsapp-numbers-block">
                   <p class="field-label" style="font-weight:600; margin:0 0 0.5rem 0;">Números de WhatsApp (por área/canal)</p>
                   <p class="subtle" style="margin:0 0 0.5rem 0; font-size:0.9rem;">Etiqueta opcional (ej. RRHH) y número. El número entrante identifica la empresa automáticamente.</p>
@@ -894,7 +889,6 @@
       const modalCompanyPhone = document.getElementById("modal-company-phone");
       const modalCompanyWebsite = document.getElementById("modal-company-website");
       const modalCompanyDriveFolderId = document.getElementById("modal-company-drive-folder-id");
-      const modalCompanyHandoffNotifyEmail = document.getElementById("modal-company-handoff-notify-email");
       const modalCompanyWhatsappList = document.getElementById("modal-company-whatsapp-list");
       const modalCompanyWhatsappAdd = document.getElementById("modal-company-whatsapp-add");
       const cfgCompanyNameEl = document.getElementById("cfg-company-name");
@@ -2865,7 +2859,6 @@
         if (modalCompanyPhone) modalCompanyPhone.value = "";
         if (modalCompanyWebsite) modalCompanyWebsite.value = "";
         if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = "";
-        if (modalCompanyHandoffNotifyEmail) modalCompanyHandoffNotifyEmail.value = "";
         if (companyFormModalTitle) companyFormModalTitle.textContent = "Agregar empresa";
         if (companyFormSubmitBtn) companyFormSubmitBtn.textContent = "Agregar empresa";
         if (modalCompanyId) {
@@ -2886,7 +2879,6 @@
           if (modalCompanyPhone) modalCompanyPhone.value = company.company_phone || "";
           if (modalCompanyWebsite) modalCompanyWebsite.value = company.company_website || "";
           if (modalCompanyDriveFolderId) modalCompanyDriveFolderId.value = company.drive_folder_id || "";
-          if (modalCompanyHandoffNotifyEmail) modalCompanyHandoffNotifyEmail.value = company.handoff_notify_email || "";
           if (companyFormModalTitle) companyFormModalTitle.textContent = "Modificar empresa";
           if (companyFormSubmitBtn) companyFormSubmitBtn.textContent = "Guardar";
           renderWhatsappNumbersList(company.whatsapp_numbers || []);
@@ -3013,7 +3005,6 @@
           company_phone: (modalCompanyPhone?.value || "").trim(),
           company_website: (modalCompanyWebsite?.value || "").trim(),
           drive_folder_id: (modalCompanyDriveFolderId?.value || "").trim() || null,
-          handoff_notify_email: (modalCompanyHandoffNotifyEmail?.value || "").trim() || null,
           branches: currentCompany && Array.isArray(currentCompany.branches) ? currentCompany.branches : [],
           whatsapp_numbers: getModalWhatsappNumbers(),
         };
