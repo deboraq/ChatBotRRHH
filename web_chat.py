@@ -213,8 +213,9 @@ def _notify_handoff_via_n8n(handoff_payload: dict, company: dict):
         try:
             # Solo notificar por email si no hay agentes activos en el panel.
             # Cuando el panel está abierto los agentes ven el handoff en tiempo real.
+            # Usamos TTL corto (60s): si no hubo heartbeat en el último minuto → panel cerrado.
             _cid = company.get("company_id")
-            _active = _list_active_agents(company_id=_cid)
+            _active = _list_active_agents(ttl_seconds=60, company_id=_cid)
             if _active:
                 logging.info(
                     f"Handoff notify: omitiendo email, hay {len(_active)} agente(s) activo(s) en el panel"
@@ -3125,7 +3126,11 @@ def responder_chat(mensaje_usuario):
         "necesito hablar con alguien", "necesito un agente",
         "contacto humano", "atencion humana", "derivame con alguien",
     }
-    if permitir and any(f in chatbot.normalizar_texto(mensaje_usuario) for f in _FRASES_CONTACTO_DIRECTA):
+    _texto_norm_contacto = chatbot.normalizar_texto(mensaje_usuario)
+    _es_contacto_directo = _texto_norm_contacto == "h" or any(
+        f in _texto_norm_contacto for f in _FRASES_CONTACTO_DIRECTA if f != "h"
+    )
+    if permitir and _es_contacto_directo:
         _sess().pop("pending_feedback_topic", None)
         _sess().pop("pending_derivacion", None)
         conversation_id = _iniciar_handoff_rrhh(mensaje_usuario)
