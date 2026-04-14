@@ -342,7 +342,7 @@ def _load_whatsapp_chat_context(phone):
     sess = getattr(g, "whatsapp_session", None)
     if not sess:
         return
-    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name"):
+    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name", "wa_empleado_id", "wa_convenio", "wa_nombre"):
         if key in data and data[key] is not None:
             sess[key] = data[key]
 
@@ -384,6 +384,9 @@ def _save_whatsapp_chat_context(phone):
         "chat_context_area": sess.get("chat_context_area"),
         "company_id": sess.get("company_id"),
         "company_name": sess.get("company_name"),
+        "wa_empleado_id": sess.get("wa_empleado_id"),
+        "wa_convenio": sess.get("wa_convenio"),
+        "wa_nombre": sess.get("wa_nombre"),
         "updated_at": _utc_now(),
     }
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -391,6 +394,40 @@ def _save_whatsapp_chat_context(phone):
         chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).set(payload, merge=True)
     except Exception as e:
         logger.warning("_save_whatsapp_chat_context: error guardando sesión para %s: %s", norm, e)
+
+
+def _get_whatsapp_identity(phone):
+    """Devuelve la identidad vinculada a este número WA (empleado_id, convenio, empresa_id, nombre) o None."""
+    if not chatbot.db or not phone:
+        return None
+    norm = _normalize_phone_for_match(phone)
+    if not norm:
+        return None
+    try:
+        doc = chatbot.db.collection(WA_IDENTITIES_COLLECTION).document(norm).get()
+        return doc.to_dict() if doc.exists else None
+    except Exception as e:
+        logger.warning("_get_whatsapp_identity: error para %s: %s", norm, e)
+        return None
+
+
+def _save_whatsapp_identity(phone, empleado_id, convenio, empresa_id, nombre):
+    """Guarda la vinculación número WA ↔ empleado en Firestore."""
+    if not chatbot.db or not phone:
+        return
+    norm = _normalize_phone_for_match(phone)
+    if not norm:
+        return
+    try:
+        chatbot.db.collection(WA_IDENTITIES_COLLECTION).document(norm).set({
+            "empleado_id": empleado_id,
+            "convenio": convenio or "",
+            "empresa_id": empresa_id or "",
+            "nombre": nombre or "",
+            "updated_at": _utc_now(),
+        }, merge=True)
+    except Exception as e:
+        logger.warning("_save_whatsapp_identity: error para %s: %s", norm, e)
 
 
 def _sess():
@@ -405,10 +442,14 @@ def _accion(label, value, variant="default"):
 
 
 # Contexto de chat: empresa, sucursal y área elegidas por el colaborador (el asistente pregunta en ese orden).
+CHAT_CONTEXT_STEP_DNI = "dni"      # identificación por DNI (solo WhatsApp, primer contacto)
 CHAT_CONTEXT_STEP_COMPANY = "company"
 CHAT_CONTEXT_STEP_BRANCH = "branch"
 CHAT_CONTEXT_STEP_AREA = "area"
 CHAT_CONTEXT_STEP_READY = "ready"
+
+# Colección Firestore para persistir la vinculación número WA ↔ empleado
+WA_IDENTITIES_COLLECTION = "whatsapp_identities"
 
 
 def _chat_context_step():
@@ -2078,6 +2119,59 @@ def _companies_for_filter_context():
     return out
 
 
+def _send_whatsapp_to_collaborator(to_phone, text, from_number=None, media_url=None):
+    """Envía texto y/o media al colaborador vía Meta WhatsApp Cloud API.
+    Para media: descarga el archivo desde la URL de Storage, lo sube a Meta y lo envía.
+    Siempre usa el META_PHONE_NUMBER_ID configurado como phone_number_id,
+    ignorando from_number (que puede ser un número Twilio de handoffs viejos).
+    """
+    if not to_phone:
+        return False
+    # Usar siempre el Meta phone_number_id configurado en env vars
+    pid = _meta_phone_number_id() or None
+
+    media_list = media_url if isinstance(media_url, list) else ([media_url] if media_url else [])
+    caption_pending = str(text or "").strip()
+
+    for url in media_list:
+        if not url or not isinstance(url, str) or not url.startswith("http"):
+            continue
+        try:
+            import requests as _req
+            from urllib.parse import urlparse
+            r = _req.get(url, timeout=30)
+            if not r.ok:
+                logger.warning("_send_whatsapp_to_collaborator: no se pudo descargar %s", url)
+                continue
+            file_bytes = r.content
+            content_type = r.headers.get("content-type", "").split(";")[0].strip()
+            parsed = urlparse(url)
+            filename = parsed.path.split("/")[-1].split("?")[0] or "archivo"
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            if not content_type or content_type in ("application/octet-stream", "binary/octet-stream"):
+                content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
+            media_id = _upload_media_to_meta(file_bytes, content_type, filename, phone_number_id=pid)
+            if not media_id:
+                logger.warning("_send_whatsapp_to_collaborator: no se pudo subir media a Meta")
+                continue
+            is_image = content_type.startswith("image/")
+            media_type = "image" if is_image else "document"
+            _send_meta_whatsapp_media(
+                to_phone, media_id, media_type,
+                caption=caption_pending or None,
+                filename=filename if not is_image else None,
+                phone_number_id=pid,
+            )
+            caption_pending = ""  # ya enviado como caption del archivo
+        except Exception as e:
+            logger.warning("_send_whatsapp_to_collaborator media: %s", e)
+
+    # Enviar texto restante si no fue incluido como caption
+    if caption_pending:
+        _send_meta_whatsapp(to_phone, caption_pending, phone_number_id=pid)
+    return True
+
+
 def _add_handoff_message(
     conversation_id,
     remitente,
@@ -2090,9 +2184,12 @@ def _add_handoff_message(
     texto_str = str(texto).strip()
     media_list = []
     if media_url is not None:
+        def _valid_media_url(u):
+            s = str(u).strip()
+            return s.startswith("http") or s.startswith("meta_media://")
         if isinstance(media_url, (list, tuple)):
-            media_list = [str(u).strip() for u in media_url if u and str(u).strip().startswith("http")]
-        elif isinstance(media_url, str) and media_url.strip().startswith("http"):
+            media_list = [str(u).strip() for u in media_url if u and _valid_media_url(u)]
+        elif isinstance(media_url, str) and _valid_media_url(media_url):
             media_list = [media_url.strip()]
     payload = {
         "remitente": remitente,
@@ -2154,17 +2251,13 @@ def _add_handoff_message(
             conv = _fetch_handoff(conversation_id)
             to_phone = (conv or {}).get("whatsapp_to_phone", "").strip()
             from_number = (conv or {}).get("whatsapp_from_number", "").strip()
-            if to_phone and from_number:
-                try:
-                    from twilio_whatsapp import send_one
-                    send_one(
-                        to_phone,
-                        body=payload.get("texto") or None,
-                        phone_number_id=from_number,
-                        media_url=payload.get("media_url") or None,
-                    )
-                except Exception:
-                    pass
+            if to_phone:
+                _send_whatsapp_to_collaborator(
+                    to_phone,
+                    text=payload.get("texto") or None,
+                    from_number=from_number or None,
+                    media_url=payload.get("media_url") or None,
+                )
 
 
 def _list_handoff_messages(conversation_id, limit=300):
@@ -2286,10 +2379,16 @@ def _close_handoff(conversation_id, quien):
         remitente="sistema",
         texto=f"La conversación fue cerrada por {quien}.",
     )
-    # Si era conversación de WhatsApp, resetear sesión para que el próximo mensaje empiece desde cero
+    # Si era conversación de WhatsApp, notificar al colaborador y resetear sesión
     if conv.get("channel") == "whatsapp":
         wa_phone = conv.get("whatsapp_to_phone")
         if wa_phone:
+            from_number = conv.get("whatsapp_from_number", "").strip()
+            _send_whatsapp_to_collaborator(
+                wa_phone,
+                "Tu consulta fue cerrada. Si tenés una nueva pregunta, escribinos cuando quieras. 👋",
+                from_number=from_number or None,
+            )
             _reset_whatsapp_chat_context(wa_phone)
     return True
 
@@ -2315,6 +2414,16 @@ def _reopen_handoff(conversation_id, quien):
         remitente="sistema",
         texto=f"Conversación reabierta por {quien}.",
     )
+    # Notificar al colaborador por WhatsApp
+    if conv.get("channel") == "whatsapp":
+        wa_phone = conv.get("whatsapp_to_phone", "").strip()
+        from_number = conv.get("whatsapp_from_number", "").strip()
+        if wa_phone:
+            _send_whatsapp_to_collaborator(
+                wa_phone,
+                "Tu consulta fue reabierta. Un agente se va a comunicar con vos a la brevedad. 🙌",
+                from_number=from_number or None,
+            )
     return True
 
 
@@ -3049,8 +3158,9 @@ def responder_chat(mensaje_usuario):
         )
 
     last_kb_pregunta = _sess().get("last_kb_pregunta")
+    _wa_convenio = (_sess().get("wa_convenio") or "").strip() or None
     respuesta, tema_id = chatbot.obtener_respuesta(
-        mensaje_usuario, temas_map, company_id=company_id, context_pregunta=last_kb_pregunta
+        mensaje_usuario, temas_map, company_id=company_id, context_pregunta=last_kb_pregunta, convenio=_wa_convenio
     )
     if respuesta:
         if tema_id == "knowledge_answer":
@@ -4880,6 +4990,92 @@ def _process_chat_turn(mensaje_trim):
 
     step = _chat_context_step()
 
+    # ── Paso DNI: solo en WhatsApp, primer contacto ───────────────────────────
+    if step == CHAT_CONTEXT_STEP_DNI:
+        mensaje_norm_dni = chatbot.normalizar_texto(mensaje_trim)
+        # El colaborador puede omitir la identificación
+        if mensaje_norm_dni in ("omitir", "saltar", "skip", "no tengo", "sin dni"):
+            _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_COMPANY
+            opciones = _construir_acciones_empresas(limite=8)
+            nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
+            reply = "Sin problema. ¿Con qué empresa estás relacionado/a?"
+            if nombres:
+                reply += "\n\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+            return {"ok": True, "reply": reply, "await_feedback": False, "end_session": False, "quick_actions": opciones, "handoff_active": False}
+        # Intentar leer el DNI del mensaje
+        import legajos_service as _ls
+        dni_ingresado = re.sub(r"[^\d]", "", mensaje_trim).strip()
+        if len(dni_ingresado) >= 6:
+            # Buscar en todas las empresas configuradas
+            _found_emp = None
+            if chatbot.db:
+                try:
+                    snaps = chatbot.db.collection(_ls.LEGAJOS_EMPLEADOS_COLLECTION)\
+                        .where("dni", "==", dni_ingresado).limit(1).get()
+                    for snap in snaps:
+                        _found_emp = _ls.empleado_from_snap(snap)
+                        break
+                except Exception as _e:
+                    logger.warning("DNI lookup error: %s", _e)
+            if _found_emp:
+                emp_id = _found_emp.get("id") or ""
+                emp_conv = (_found_emp.get("convenio") or "").strip().lower()
+                emp_empresa = (_found_emp.get("company_id") or "").strip()
+                emp_nombre = (_found_emp.get("nombre_completo") or _found_emp.get("nombre") or "").strip()
+                _sess()["wa_empleado_id"] = emp_id
+                _sess()["wa_convenio"] = emp_conv
+                _sess()["wa_nombre"] = emp_nombre
+                # Pre-cargar empresa si está configurada
+                if emp_empresa and _get_company(emp_empresa):
+                    _set_chat_context_company(emp_empresa)
+                    company_obj = _get_company(emp_empresa)
+                    branches = _get_branches_for_company(company_obj)
+                    areas = _get_all_areas_for_company(company_obj)
+                    if not branches and not areas:
+                        _set_chat_context_area("")
+                        _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                        saludo = f"¡Hola {emp_nombre or 'colaborador'}! Ya te identifiqué. ¿En qué puedo ayudarte hoy?"
+                        company_obj2 = _current_company()
+                        temas_map2 = construir_temas_map(
+                            company_id=emp_empresa,
+                            temas_habilitados=(company_obj2 or {}).get("temas_habilitados") or [],
+                        )
+                        qa2 = construir_acciones_menu(temas_map2, limite=6, permitir_hablar_con_humano=(company_obj2 or {}).get("permitir_hablar_con_humano", True))
+                        # Guardar identidad para futuros mensajes
+                        _wa_phone = getattr(g, "whatsapp_phone", None)
+                        if _wa_phone:
+                            _save_whatsapp_identity(_wa_phone, emp_id, emp_conv, emp_empresa, emp_nombre)
+                        return {"ok": True, "reply": saludo, "await_feedback": False, "end_session": False, "quick_actions": qa2, "handoff_active": False}
+                    elif branches:
+                        _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
+                        qa_b = _construir_acciones_sucursales(emp_empresa, limite=8)
+                        nombres_b = [a.get("label") or a.get("value") for a in qa_b if a.get("label") or a.get("value")]
+                        reply_b = f"¡Hola {emp_nombre or 'colaborador'}! ¿De qué sucursal sos?"
+                        if nombres_b:
+                            reply_b += "\n\n" + "\n".join(nombres_b) + "\n\nEscribí el número o el nombre."
+                        _wa_phone = getattr(g, "whatsapp_phone", None)
+                        if _wa_phone:
+                            _save_whatsapp_identity(_wa_phone, emp_id, emp_conv, emp_empresa, emp_nombre)
+                        return {"ok": True, "reply": reply_b, "await_feedback": False, "end_session": False, "quick_actions": qa_b, "handoff_active": False}
+                # Guardar identidad aunque la empresa no matchee
+                _wa_phone = getattr(g, "whatsapp_phone", None)
+                if _wa_phone:
+                    _save_whatsapp_identity(_wa_phone, emp_id, emp_conv, emp_empresa, emp_nombre)
+                # Continuar con selección de empresa
+                _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_COMPANY
+                opciones = _construir_acciones_empresas(limite=8)
+                nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
+                reply = f"¡Hola {emp_nombre or 'colaborador'}! Te identifiqué. ¿Con qué empresa estás relacionado/a?"
+                if nombres:
+                    reply += "\n\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
+                return {"ok": True, "reply": reply, "await_feedback": False, "end_session": False, "quick_actions": opciones, "handoff_active": False}
+            # DNI no encontrado
+            return {"ok": True, "reply": "No encontré ese DNI en el sistema. Verificá el número e intentá de nuevo, o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
+        # Mensaje que no parece un DNI
+        if chatbot.es_saludo(mensaje_norm_dni):
+            return {"ok": True, "reply": "👋 ¡Hola! Para ayudarte mejor, necesito identificarte. Por favor ingresá tu *DNI* (solo números), o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
+        return {"ok": True, "reply": "Por favor ingresá tu *DNI* (solo números), o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
+
     if step == CHAT_CONTEXT_STEP_COMPANY:
         mensaje_norm = chatbot.normalizar_texto(mensaje_trim)
         # Saludo durante el paso de empresa — responder amigablemente y volver a preguntar
@@ -5491,10 +5687,18 @@ def webhook_twilio_whatsapp():
             body = "📎 Envió " + str(len(media_urls)) + " archivo(s)"
     g.whatsapp_from = from_phone
     g.whatsapp_to = to_phone
+    g.whatsapp_phone = from_phone
     g.whatsapp_profile_name = (request.form.get("ProfileName") or "").strip()
     g.whatsapp_session = WHATSAPP_SESSIONS.setdefault(from_phone, {})
     # Siempre recargar desde Firestore para evitar inconsistencias entre instancias Cloud Run
     _load_whatsapp_chat_context(from_phone)
+    # Si el colaborador ya fue identificado por DNI, cargar sus datos en sesión
+    if not g.whatsapp_session.get("wa_empleado_id"):
+        identity = _get_whatsapp_identity(from_phone)
+        if identity:
+            g.whatsapp_session["wa_empleado_id"] = identity.get("empleado_id") or ""
+            g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
+            g.whatsapp_session["wa_nombre"] = identity.get("nombre") or ""
     if not g.whatsapp_session.get("chat_context_company_id"):
         cid, company, line_label = _company_by_whatsapp_phone(to_phone)
         if cid and company:
@@ -5513,6 +5717,9 @@ def webhook_twilio_whatsapp():
                 g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
             else:
                 g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+        elif not g.whatsapp_session.get("chat_context_step") and not g.whatsapp_session.get("wa_empleado_id"):
+            # Sesión nueva sin empresa asignada y sin identidad → pedir DNI
+            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_DNI
     if not g.whatsapp_session.get("handoff_conversation_id"):
         open_handoff_id = _find_open_handoff_by_whatsapp_phone(from_phone)
         if open_handoff_id:
@@ -5537,6 +5744,424 @@ def webhook_twilio_whatsapp():
     from twilio.twiml.messaging_response import MessagingResponse
     resp = MessagingResponse()
     return str(resp), 200, {"Content-Type": "text/xml"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  META WHATSAPP CLOUD API
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _meta_access_token():
+    return os.getenv("META_ACCESS_TOKEN", "").strip()
+
+def _meta_phone_number_id():
+    return os.getenv("META_PHONE_NUMBER_ID", "").strip()
+
+
+def _send_meta_whatsapp(to_phone, text, phone_number_id=None):
+    """Envía un mensaje de texto por WhatsApp vía Meta Cloud API."""
+    import requests as _req
+    pid = phone_number_id or _meta_phone_number_id()
+    token = _meta_access_token()
+    if not pid or not token:
+        logger.warning("_send_meta_whatsapp: META_PHONE_NUMBER_ID o META_ACCESS_TOKEN no configurado")
+        return False
+    # Normalizar número: Meta espera solo dígitos sin '+'
+    to_norm = re.sub(r"[^\d]", "", to_phone)
+
+    def _try_send(number):
+        url = f"https://graph.facebook.com/v18.0/{pid}/messages"
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": number,
+            "type": "text",
+            "text": {"body": str(text)[:4096]},
+        }
+        return _req.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+
+    try:
+        r = _try_send(to_norm)
+        if not r.ok:
+            # Error 131030: número no está en la lista permitida (sandbox).
+            # Los números argentinos tienen dos formatos posibles:
+            #   Moderno (wa_id): 5493515416836  = 54 + 9 + área(351) + local(5416836)
+            #   Viejo (lista):   54351155416836 = 54 + área(351) + 15 + local(5416836)
+            # Reintentamos con el formato alternativo.
+            try:
+                err_code = (r.json() or {}).get("error", {}).get("code")
+            except Exception:
+                err_code = None
+            if err_code == 131030 and to_norm.startswith("549") and len(to_norm) == 13:
+                # Formato moderno → viejo: 549 + área(3) + local(7) → 54 + área(3) + 15 + local(7)
+                rest = to_norm[3:]  # quitar "549" → ej. "3515416836"
+                alt = "54" + rest[:3] + "15" + rest[3:]
+                r2 = _try_send(alt)
+                if r2.ok:
+                    return True
+                logger.warning("_send_meta_whatsapp: error con formato alt %s: %s %s", alt, r2.status_code, r2.text[:300])
+            elif err_code == 131030 and len(to_norm) == 14 and to_norm.startswith("54") and to_norm[5:7] == "15":
+                # Formato viejo → moderno: 54 + área(3) + 15 + local(7) → 549 + área(3) + local(7)
+                area = to_norm[2:5]
+                local = to_norm[7:]
+                alt = "549" + area + local
+                r2 = _try_send(alt)
+                if r2.ok:
+                    return True
+                logger.warning("_send_meta_whatsapp: error con formato alt %s: %s %s", alt, r2.status_code, r2.text[:300])
+            logger.warning("_send_meta_whatsapp: error %s: %s", r.status_code, r.text[:500])
+        return r.ok
+    except Exception as e:
+        logger.warning("_send_meta_whatsapp: excepción: %s", e)
+        return False
+
+
+def _send_meta_interactive(to_phone, body_text, options, phone_number_id=None):
+    """Envía un mensaje interactivo de WhatsApp vía Meta Cloud API.
+    - ≤3 opciones → botones inline (sin "Ver opciones")
+    - 4-10 opciones → lista desplegable con botón "Ver opciones"
+    - >10 o si falla → fallback texto plano
+    Reintenta con formato argentino alternativo ante error 131030.
+    """
+    import requests as _req
+    pid = phone_number_id or _meta_phone_number_id()
+    token = _meta_access_token()
+    if not pid or not token:
+        return False
+    to_norm = re.sub(r"[^\d]", "", to_phone)
+    valid_opts = [o for o in (options or []) if str(o.get("label") or "").strip()][:10]
+    if not valid_opts:
+        return _send_meta_whatsapp(to_phone, body_text, phone_number_id=pid)
+
+    body_trunc = str(body_text or "")[:1024].strip()
+
+    if len(valid_opts) <= 3:
+        buttons = []
+        for opt in valid_opts:
+            title = str(opt["label"]).strip()[:20]
+            btn_id = str(opt.get("value") or opt["label"]).strip()[:256]
+            buttons.append({"type": "reply", "reply": {"id": btn_id, "title": title}})
+        interactive_payload = {
+            "type": "button",
+            "body": {"text": body_trunc},
+            "action": {"buttons": buttons},
+        }
+    else:
+        rows = []
+        for opt in valid_opts:
+            title = str(opt["label"]).strip()[:24]
+            row_id = str(opt.get("value") or opt["label"]).strip()[:200]
+            rows.append({"id": row_id, "title": title})
+        interactive_payload = {
+            "type": "list",
+            "body": {"text": body_trunc},
+            "action": {
+                "button": "Ver opciones",
+                "sections": [{"title": "Opciones", "rows": rows}],
+            },
+        }
+
+    def _try_send(number):
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": number,
+            "type": "interactive",
+            "interactive": interactive_payload,
+        }
+        url = f"https://graph.facebook.com/v18.0/{pid}/messages"
+        return _req.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15)
+
+    try:
+        r = _try_send(to_norm)
+        if not r.ok:
+            try:
+                err_code = (r.json() or {}).get("error", {}).get("code")
+            except Exception:
+                err_code = None
+            # Retry con formato argentino alternativo
+            if err_code == 131030 and to_norm.startswith("549") and len(to_norm) == 13:
+                rest = to_norm[3:]
+                alt = "54" + rest[:3] + "15" + rest[3:]
+                r2 = _try_send(alt)
+                if r2.ok:
+                    return True
+            elif err_code == 131030 and len(to_norm) == 14 and to_norm.startswith("54") and to_norm[5:7] == "15":
+                area = to_norm[2:5]
+                local = to_norm[7:]
+                alt = "549" + area + local
+                r2 = _try_send(alt)
+                if r2.ok:
+                    return True
+            # Fallback: texto plano
+            logger.warning("_send_meta_interactive: fallo %s, fallback texto", r.status_code)
+            return _send_meta_whatsapp(to_phone, body_text, phone_number_id=pid)
+        return r.ok
+    except Exception as e:
+        logger.warning("_send_meta_interactive: %s", e)
+        return _send_meta_whatsapp(to_phone, body_text, phone_number_id=pid)
+
+
+def _upload_media_to_meta(file_bytes, mime_type, filename, phone_number_id=None):
+    """Sube un archivo a Meta y devuelve el media_id."""
+    import requests as _req
+    pid = phone_number_id or _meta_phone_number_id()
+    token = _meta_access_token()
+    if not pid or not token:
+        return None
+    url = f"https://graph.facebook.com/v18.0/{pid}/media"
+    try:
+        r = _req.post(
+            url,
+            files={"file": (filename, file_bytes, mime_type)},
+            data={"messaging_product": "whatsapp"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=60,
+        )
+        if r.ok:
+            return (r.json() or {}).get("id")
+        logger.warning("_upload_media_to_meta: %s %s", r.status_code, r.text[:200])
+        return None
+    except Exception as e:
+        logger.warning("_upload_media_to_meta: %s", e)
+        return None
+
+
+def _send_meta_whatsapp_media(to_phone, media_id, media_type, caption=None, filename=None, phone_number_id=None):
+    """Envía un archivo (imagen, documento, etc.) vía Meta API usando un media_id ya subido.
+    Reintenta con formato de número argentino alternativo si recibe error 131030.
+    """
+    import requests as _req
+    pid = phone_number_id or _meta_phone_number_id()
+    token = _meta_access_token()
+    if not pid or not token or not media_id:
+        return False
+    to_norm = re.sub(r"[^\d]", "", to_phone)
+
+    def _try_send(number):
+        media_obj = {"id": media_id}
+        if caption:
+            media_obj["caption"] = str(caption)[:1024]
+        if filename and media_type == "document":
+            media_obj["filename"] = filename
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": number,
+            "type": media_type,
+            media_type: media_obj,
+        }
+        url = f"https://graph.facebook.com/v18.0/{pid}/messages"
+        return _req.post(url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+
+    try:
+        r = _try_send(to_norm)
+        if not r.ok:
+            try:
+                err_code = (r.json() or {}).get("error", {}).get("code")
+            except Exception:
+                err_code = None
+            if err_code == 131030 and to_norm.startswith("549") and len(to_norm) == 13:
+                rest = to_norm[3:]
+                alt = "54" + rest[:3] + "15" + rest[3:]
+                r2 = _try_send(alt)
+                if r2.ok:
+                    return True
+                logger.warning("_send_meta_whatsapp_media: error alt %s: %s %s", alt, r2.status_code, r2.text[:200])
+            elif err_code == 131030 and len(to_norm) == 14 and to_norm.startswith("54") and to_norm[5:7] == "15":
+                area = to_norm[2:5]
+                local = to_norm[7:]
+                alt = "549" + area + local
+                r2 = _try_send(alt)
+                if r2.ok:
+                    return True
+                logger.warning("_send_meta_whatsapp_media: error alt %s: %s %s", alt, r2.status_code, r2.text[:200])
+            logger.warning("_send_meta_whatsapp_media: %s %s", r.status_code, r.text[:200])
+        return r.ok
+    except Exception as e:
+        logger.warning("_send_meta_whatsapp_media: %s", e)
+        return False
+
+
+def _download_meta_media(media_id):
+    """Descarga un archivo de Meta por su media_id. Devuelve (bytes, mime_type) o (None, None)."""
+    import requests as _req
+    token = _meta_access_token()
+    if not token or not media_id:
+        return None, None
+    try:
+        # 1) Obtener URL de descarga
+        r = _req.get(
+            f"https://graph.facebook.com/v18.0/{media_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        if not r.ok:
+            return None, None
+        data = r.json() or {}
+        dl_url = data.get("url")
+        mime = data.get("mime_type", "application/octet-stream")
+        if not dl_url:
+            return None, None
+        # 2) Descargar el archivo
+        r2 = _req.get(dl_url, headers={"Authorization": f"Bearer {token}"}, timeout=60)
+        return (r2.content, mime) if r2.ok else (None, None)
+    except Exception as e:
+        logger.warning("_download_meta_media: %s", e)
+        return None, None
+
+
+@flask_app.get("/webhook/meta/whatsapp")
+def webhook_meta_whatsapp_get():
+    """Verificación del webhook por Meta (GET)."""
+    verify_token = os.getenv("META_VERIFY_TOKEN", "chatbot_rrhh_verify").strip()
+    mode = request.args.get("hub.mode", "")
+    token = request.args.get("hub.verify_token", "")
+    challenge = request.args.get("hub.challenge", "")
+    if mode == "subscribe" and token == verify_token:
+        return challenge, 200
+    return "Forbidden", 403
+
+
+@flask_app.post("/webhook/meta/whatsapp")
+def webhook_meta_whatsapp():
+    """Recibe mensajes entrantes de Meta WhatsApp Cloud API."""
+    data = request.get_json(silent=True) or {}
+
+    for entry in (data.get("entry") or []):
+        for change in (entry.get("changes") or []):
+            value = change.get("value") or {}
+            phone_number_id = (value.get("metadata") or {}).get("phone_number_id") or _meta_phone_number_id()
+
+            # Ignorar eventos de estado (delivered, read, etc.)
+            for status in (value.get("statuses") or []):
+                pass  # podríamos loguear, pero no procesamos
+
+            for msg in (value.get("messages") or []):
+                from_phone = (msg.get("from") or "").strip()
+                if not from_phone:
+                    continue
+
+                msg_type = (msg.get("type") or "").strip()
+                body = ""
+                media_info = None  # (media_id, mime_type, filename)
+
+                if msg_type == "text":
+                    body = ((msg.get("text") or {}).get("body") or "").strip()
+
+                elif msg_type == "location":
+                    loc = msg.get("location") or {}
+                    lat = loc.get("latitude")
+                    lng = loc.get("longitude")
+                    if lat is not None and lng is not None:
+                        body = f"__location__ {lat},{lng}"
+
+                elif msg_type in ("image", "video", "audio", "sticker"):
+                    media_obj = msg.get(msg_type) or {}
+                    mid = media_obj.get("id")
+                    mime = media_obj.get("mime_type", "")
+                    caption = (media_obj.get("caption") or "").strip()
+                    if mid:
+                        body = caption or f"📎 Envió {msg_type}"
+                        media_info = (mid, mime, msg_type)
+
+                elif msg_type == "document":
+                    doc = msg.get("document") or {}
+                    mid = doc.get("id")
+                    mime = doc.get("mime_type", "application/octet-stream")
+                    fname = (doc.get("filename") or "archivo").strip()
+                    caption = (doc.get("caption") or "").strip()
+                    if mid:
+                        body = caption or f"📎 {fname}"
+                        media_info = (mid, mime, fname)
+
+                elif msg_type == "interactive":
+                    # Respuestas de botones o listas interactivas
+                    # Usamos "id" (= value original) para matching correcto; fallback a "title"
+                    interactive = msg.get("interactive") or {}
+                    itype = interactive.get("type")
+                    if itype == "button_reply":
+                        btn = interactive.get("button_reply") or {}
+                        body = btn.get("id") or btn.get("title") or ""
+                    elif itype == "list_reply":
+                        row = interactive.get("list_reply") or {}
+                        body = row.get("id") or row.get("title") or ""
+
+                if not body and not media_info:
+                    continue
+
+                profile_name = ((value.get("contacts") or [{}])[0].get("profile") or {}).get("name") or ""
+
+                logger.info("Webhook Meta: from=%s type=%s body_len=%s pid=%s", from_phone, msg_type, len(body), phone_number_id)
+
+                # ── Inicializar sesión (igual que Twilio) ─────────────────────
+                g.whatsapp_from = from_phone
+                g.whatsapp_to = phone_number_id
+                g.whatsapp_phone = from_phone
+                g.whatsapp_phone_number_id = phone_number_id
+                g.whatsapp_profile_name = profile_name
+                g.whatsapp_session = WHATSAPP_SESSIONS.setdefault(from_phone, {})
+                _load_whatsapp_chat_context(from_phone)
+
+                # Cargar identidad persistida (DNI ya vinculado)
+                if not g.whatsapp_session.get("wa_empleado_id"):
+                    identity = _get_whatsapp_identity(from_phone)
+                    if identity:
+                        g.whatsapp_session["wa_empleado_id"] = identity.get("empleado_id") or ""
+                        g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
+                        g.whatsapp_session["wa_nombre"] = identity.get("nombre") or ""
+
+                if not g.whatsapp_session.get("chat_context_company_id"):
+                    cid, company, line_label = _company_by_whatsapp_phone(phone_number_id)
+                    if cid and company:
+                        g.whatsapp_session["chat_context_company_id"] = cid
+                        g.whatsapp_session["company_id"] = cid
+                        g.whatsapp_session["company_name"] = company.get("company_name") or cid
+                        branches = _get_branches_for_company(company)
+                        areas = _get_all_areas_for_company(company)
+                        label_norm = (line_label or "").strip().lower()
+                        if label_norm and areas and any(str(a).strip().lower() == label_norm for a in areas):
+                            g.whatsapp_session["chat_context_area"] = line_label.strip()
+                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                        elif branches:
+                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
+                        elif areas:
+                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+                        else:
+                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                    elif not g.whatsapp_session.get("chat_context_step") and not g.whatsapp_session.get("wa_empleado_id"):
+                        g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_DNI
+
+                if not g.whatsapp_session.get("handoff_conversation_id"):
+                    open_handoff_id = _find_open_handoff_by_whatsapp_phone(from_phone)
+                    if open_handoff_id:
+                        g.whatsapp_session["handoff_conversation_id"] = open_handoff_id
+
+                # Guardar phone_number_id en sesión para que el panel lo use al responder
+                g.whatsapp_session["meta_phone_number_id"] = phone_number_id
+
+                # Adjuntos: poner URL de descarga en g para que el panel los registre
+                if media_info:
+                    g.whatsapp_media_urls = [f"meta_media://{media_info[0]}"]
+                else:
+                    g.whatsapp_media_urls = []
+
+                try:
+                    result = _process_chat_turn(body)
+                except Exception as e:
+                    logger.exception("Webhook Meta: error en _process_chat_turn: %s", e)
+                    result = {"reply": ""}
+
+                _save_whatsapp_chat_context(from_phone)
+
+                reply = (result.get("reply") or "").strip()
+                quick_actions = result.get("quick_actions") or []
+                if reply:
+                    if quick_actions:
+                        # Extraer header (texto antes del menú numerado) para el body interactivo
+                        header_match = re.search(r'\n+\d+[\.\)]\s', reply)
+                        header = reply[:header_match.start()].strip() if header_match else reply
+                        _send_meta_interactive(from_phone, header, quick_actions, phone_number_id=phone_number_id)
+                    else:
+                        _send_meta_whatsapp(from_phone, reply, phone_number_id=phone_number_id)
+
+    return jsonify({"status": "ok"}), 200
 
 
 @flask_app.get("/login")
@@ -6390,7 +7015,11 @@ def _sync_knowledge_from_drive(company_id, folder_id):
     if not folder_id or not str(folder_id).strip():
         return 0, "Falta el ID de la carpeta de Drive. Configuralo en la empresa o pasalo en la solicitud."
     folder_id = str(folder_id).strip()
-    # Limpiar URLs o parámetros pegados al ID (ej: "ID?usp=drive_link")
+    # Aceptar URL completa de Drive: extraer el ID de /folders/<ID>
+    _m = re.search(r"/folders/([a-zA-Z0-9_-]+)", folder_id)
+    if _m:
+        folder_id = _m.group(1)
+    # Limpiar parámetros pegados al ID (ej: "ID?usp=drive_link")
     if "?" in folder_id:
         folder_id = folder_id.split("?")[0].strip()
     try:
@@ -6424,73 +7053,133 @@ def _sync_knowledge_from_drive(company_id, folder_id):
         drive = build("drive", "v3", credentials=creds, cache_discovery=False)
     except Exception as e:
         return 0, f"Error al conectar con Drive: {str(e)[:200]}"
-    # Listar archivos en la carpeta (no recursivo por simplicidad)
+    # ── Helper: extraer texto de un archivo de Drive ─────────────────────────
+    def _extraer_texto_drive_file(f):
+        from io import BytesIO
+        fid = f.get("id")
+        fname = (f.get("name") or "").lower()
+        fmime = (f.get("mimeType") or "").lower()
+        if "folder" in fmime:
+            return None
+        try:
+            if "document" in fmime or "presentation" in fmime or fname.endswith((".gdoc", ".gslides")):
+                content = drive.files().export(fileId=fid, mimeType="text/plain").execute()
+                return content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
+            elif "spreadsheet" in fmime or fname.endswith(".gsheet"):
+                content = drive.files().export(fileId=fid, mimeType="text/csv").execute()
+                return content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
+            elif "pdf" in fmime or fname.endswith(".pdf"):
+                req = drive.files().get_media(fileId=fid)
+                buf = BytesIO()
+                dl = MediaIoBaseDownload(buf, req)
+                done = False
+                while not done:
+                    _, done = dl.next_chunk()
+                raw = buf.getvalue()
+                text, err = _extract_text_document_ai(raw)
+                return text if not err and text else None
+            elif fmime.startswith("text/") or fname.endswith(".txt"):
+                req = drive.files().get_media(fileId=fid)
+                buf = BytesIO()
+                dl = MediaIoBaseDownload(buf, req)
+                done = False
+                while not done:
+                    _, done = dl.next_chunk()
+                return buf.getvalue().decode("utf-8", errors="replace")
+        except Exception as _ex:
+            logging.warning("_extraer_texto_drive_file: error exportando '%s' (%s): %s", f.get("name"), fmime, _ex)
+            return None
+        return None
+
+    # ── Helper: procesar lista de archivos con un tag de convenio ─────────────
+    def _procesar_archivos_drive(archivos, convenio_tag):
+        resultado = []
+        for f in archivos:
+            texto = _extraer_texto_drive_file(f)
+            if texto:
+                nuevas = _ai_generate_faqs_from_text(texto)
+                for e in nuevas:
+                    if convenio_tag:
+                        e["convenio"] = convenio_tag
+                resultado.extend(nuevas)
+            else:
+                logging.warning("_procesar_archivos_drive: sin texto en '%s'", f.get("name"))
+        return resultado
+
+    # ── Helper: mapear nombre de subcarpeta → convenio ────────────────────────
+    company_cfg = _get_company(company_id, include_inactive=True)
+    convenios_empresa = [
+        str(c.get("nombre") or "").strip().lower()
+        for c in ((company_cfg or {}).get("convenios") or [])
+        if (c.get("nombre") or "").strip()
+    ]
+
+    def _carpeta_a_convenio(folder_name):
+        """Mapea el nombre de una subcarpeta al convenio correspondiente o None si es genérica."""
+        n = folder_name.strip().lower()
+        # Carpetas genéricas (sin convenio)
+        if any(g in n for g in ("generica", "general", "todos", "global")):
+            return None
+        # Quitar prefijo "faqs " si existe
+        nombre_limpio = n[5:].strip() if n.startswith("faqs ") else n
+        if not nombre_limpio or nombre_limpio in ("generica", "general", "todos"):
+            return None
+        # Buscar coincidencia con convenios configurados
+        for conv in convenios_empresa:
+            if conv and (conv in nombre_limpio or nombre_limpio in conv):
+                return conv
+        # Si no matchea ningún convenio configurado, usar el nombre como convenio
+        return nombre_limpio
+
+    # ── Listar contenido de la carpeta raíz (archivos + subcarpetas) ──────────
     try:
         q = f"'{folder_id}' in parents and trashed = false"
-        files_list = drive.files().list(
+        items_list = drive.files().list(
             q=q,
-            pageSize=50,
+            pageSize=100,
             fields="files(id, name, mimeType)",
             orderBy="name",
         ).execute()
-        files = files_list.get("files") or []
+        items = items_list.get("files") or []
     except Exception as e:
         return 0, f"Error al listar carpeta: {str(e)[:200]}. ¿Compartiste la carpeta con el email de la cuenta de servicio?"
+
+    archivos_raiz = [f for f in items if "folder" not in (f.get("mimeType") or "").lower()]
+    subcarpetas = [f for f in items if "folder" in (f.get("mimeType") or "").lower()]
+
+    logging.info("Drive sync: carpeta raíz tiene %d archivos y %d subcarpetas", len(archivos_raiz), len(subcarpetas))
+
     all_entries = []
-    for f in files:
-        file_id = f.get("id")
-        name = (f.get("name") or "").lower()
-        mime = (f.get("mimeType") or "").lower()
-        text = None
-        # Google Docs / Google Slides → exportar como texto plano
-        if "document" in mime or "presentation" in mime or name.endswith((".gdoc", ".gslides")):
-            try:
-                content = drive.files().export(fileId=file_id, mimeType="text/plain").execute()
-                text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
-            except Exception:
-                continue
-        # Google Sheets → exportar como CSV
-        elif "spreadsheet" in mime or name.endswith(".gsheet"):
-            try:
-                content = drive.files().export(fileId=file_id, mimeType="text/csv").execute()
-                text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else (content or "")
-            except Exception:
-                continue
-        # PDF → extraer texto con Document AI
-        elif "pdf" in mime or name.endswith(".pdf"):
-            try:
-                from io import BytesIO
-                request = drive.files().get_media(fileId=file_id)
-                buf = BytesIO()
-                downloader = MediaIoBaseDownload(buf, request)
-                done = False
-                while not done:
-                    _, done = downloader.next_chunk()
-                raw = buf.getvalue()
-                text, err = _extract_text_document_ai(raw)
-                if err or not text:
-                    continue
-            except Exception:
-                continue
-        # Archivos de texto plano
-        elif mime.startswith("text/") or name.endswith(".txt"):
-            try:
-                from io import BytesIO
-                request = drive.files().get_media(fileId=file_id)
-                buf = BytesIO()
-                downloader = MediaIoBaseDownload(buf, request)
-                done = False
-                while not done:
-                    _, done = downloader.next_chunk()
-                text = buf.getvalue().decode("utf-8", errors="replace")
-            except Exception:
-                continue
-        else:
+    diag_lines = []  # diagnóstico para mostrar en el error si falla
+
+    # Archivos directamente en la raíz → genéricos (sin convenio)
+    if archivos_raiz:
+        all_entries.extend(_procesar_archivos_drive(archivos_raiz, None))
+
+    # Subcarpetas → cada una con su convenio (o genérica si el nombre lo indica)
+    for carpeta in subcarpetas:
+        nombre_carpeta = carpeta.get("name") or ""
+        convenio_tag = _carpeta_a_convenio(nombre_carpeta)
+        try:
+            sub_q = f"'{carpeta['id']}' in parents and trashed = false"
+            sub_result = drive.files().list(
+                q=sub_q,
+                pageSize=50,
+                fields="files(id, name, mimeType)",
+                orderBy="name",
+            ).execute()
+            sub_files = [f for f in (sub_result.get("files") or []) if "folder" not in (f.get("mimeType") or "").lower()]
+            logging.info("Drive sync: subcarpeta '%s' → %d archivos (convenio=%s)", nombre_carpeta, len(sub_files), convenio_tag)
+            diag_lines.append(f"'{nombre_carpeta}': {len(sub_files)} archivo(s)")
+        except Exception as _se:
+            logging.warning("Drive sync: error listando subcarpeta '%s': %s", nombre_carpeta, _se)
+            diag_lines.append(f"'{nombre_carpeta}': error al listar ({str(_se)[:80]})")
             continue
-        if text:
-            all_entries.extend(_ai_generate_faqs_from_text(text))
+        all_entries.extend(_procesar_archivos_drive(sub_files, convenio_tag))
+
     if not all_entries:
-        return 0, "No se extrajeron preguntas/respuestas de los archivos. Verificá que la carpeta esté compartida con la cuenta de servicio y que los documentos tengan contenido de RRHH."
+        diag = ("; ".join(diag_lines)) if diag_lines else "carpeta vacía o sin archivos soportados"
+        return 0, f"No se extrajeron preguntas/respuestas. Diagnóstico: {diag}. Verificá que los documentos tengan contenido y que la carpeta esté compartida con la cuenta de servicio."
     if not chatbot.guardar_company_knowledge(company_id, all_entries):
         return 0, "No se pudo guardar en Firestore."
     # Auto-generar temas del menú a partir de las preguntas extraídas
@@ -7273,11 +7962,7 @@ def rrhh_iniciar_conversacion_api():
         conv = _fetch_handoff(existing_id)
         if conv and _normalize_company_id(conv.get("company_id")) == company_id:
             _add_handoff_message(existing_id, remitente="rrhh", texto=mensaje, agente=_rrhh_agent_name())
-            try:
-                from twilio_whatsapp import send_one
-                send_one(phone, body=mensaje, phone_number_id=from_number_raw)
-            except Exception as e:
-                logger.warning("Twilio envío al reabrir conversación: %s", e)
+            _send_whatsapp_to_collaborator(phone, mensaje, from_number=from_number_raw)
             _upsert_handoff(
                 existing_id,
                 {"updated_at": _utc_now(), "ultimo_mensaje": mensaje[:200], "ultimo_mensaje_fecha": _utc_now()},
@@ -7311,31 +7996,34 @@ def rrhh_iniciar_conversacion_api():
     _upsert_handoff(conversation_id, handoff_payload, merge=False)
     _add_handoff_message(conversation_id, remitente="rrhh", texto=mensaje, agente=display_name)
 
-    def _mensaje_error_twilio(err_text):
-        err_lower = (err_text or "").lower()
-        if "63080" in err_lower or "50 daily" in err_lower or ("exceeded" in err_lower and "messages limit" in err_lower):
-            return (
-                "Límite diario de mensajes de Twilio alcanzado (50/día en cuentas trial). "
-                "Mañana se reinicia el contador, o pasate a una cuenta de pago en twilio.com para enviar más."
-            )
-        return err_text or "Error al enviar por WhatsApp"
-
-    try:
-        from twilio_whatsapp import send_one
-        if not send_one(phone, body=mensaje, phone_number_id=from_number_raw):
-            from twilio_whatsapp import last_twilio_error
-            err = _mensaje_error_twilio((last_twilio_error or "").strip())
-            return jsonify({"ok": False, "error": err}), 502
-    except Exception as e:
-        logger.warning("Twilio envío en iniciar conversación: %s", e)
-        err = _mensaje_error_twilio(str(e))
-        return jsonify({"ok": False, "error": err}), 502
+    pid = _meta_phone_number_id() or None
+    if not _send_meta_whatsapp(phone, mensaje, phone_number_id=pid):
+        return jsonify({"ok": False, "error": "No se pudo enviar el mensaje por WhatsApp. Verificá que el token Meta esté vigente."}), 502
     return jsonify({"ok": True, "conversation_id": conversation_id})
 
 
 # Límite de subida para adjuntos (10 MB)
 UPLOAD_MAX_BYTES = 10 * 1024 * 1024
-UPLOAD_ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "pdf"}
+UPLOAD_ALLOWED_EXTENSIONS = {
+    "jpg", "jpeg", "png", "gif", "webp",
+    "pdf",
+    "xls", "xlsx",
+    "doc", "docx",
+    "ppt", "pptx",
+    "txt", "csv",
+}
+_EXT_TO_MIME = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "ppt": "application/vnd.ms-powerpoint",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "txt": "text/plain",
+    "csv": "text/csv",
+}
 
 
 def _get_storage_bucket():
@@ -7433,6 +8121,23 @@ def rrhh_media_proxy():
     return response
 
 
+@flask_app.get("/api/rrhh/meta-media")
+@rrhh_permission_required(
+    auth_rrhh.PERM_CONVERSATIONS_VIEW,
+    message="Sin permiso para ver adjuntos.",
+)
+def rrhh_meta_media_proxy():
+    """Proxy para ver en el panel imágenes/archivos que el colaborador envió por Meta WhatsApp."""
+    media_id = request.args.get("id", "").strip()
+    if not media_id:
+        return ("", 400)
+    file_bytes, mime_type = _download_meta_media(media_id)
+    if not file_bytes:
+        return ("No se pudo descargar el archivo de Meta.", 404)
+    from flask import Response
+    return Response(file_bytes, content_type=mime_type or "application/octet-stream")
+
+
 @flask_app.post("/api/rrhh/upload")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_MANAGE,
@@ -7467,8 +8172,10 @@ def _upload_file_to_storage(prefix_path: str):
         return None, f"El archivo supera el límite de {UPLOAD_MAX_BYTES // (1024*1024)} MB."
     ext = (file_storage.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in UPLOAD_ALLOWED_EXTENSIONS:
-        return None, f"Tipo no permitido. Permitidos: {', '.join(UPLOAD_ALLOWED_EXTENSIONS)}."
-    content_type = file_storage.content_type or ("application/pdf" if ext == "pdf" else "image/jpeg")
+        return None, f"Tipo no permitido. Permitidos: {', '.join(sorted(UPLOAD_ALLOWED_EXTENSIONS))}."
+    content_type = (file_storage.content_type or "").split(";")[0].strip()
+    if not content_type or content_type in ("application/octet-stream", "binary/octet-stream", "image/jpeg"):
+        content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
     safe_name = "".join(c for c in file_storage.filename if c.isalnum() or c in "._- ").strip() or "archivo"
     path = f"{prefix_path}/{uuid.uuid4().hex}_{safe_name}"
     try:
@@ -7490,7 +8197,9 @@ def _upload_one_legajo_filestorage(bucket, company_id: str, empleado_id: str, fi
     ext = (file_storage.filename or "").rsplit(".", 1)[-1].lower()
     if ext not in UPLOAD_ALLOWED_EXTENSIONS:
         return None, f"Tipo no permitido. Permitidos: {', '.join(sorted(UPLOAD_ALLOWED_EXTENSIONS))}."
-    content_type = file_storage.content_type or ("application/pdf" if ext == "pdf" else "image/jpeg")
+    content_type = (file_storage.content_type or "").split(";")[0].strip()
+    if not content_type or content_type in ("application/octet-stream", "binary/octet-stream", "image/jpeg"):
+        content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
     safe_name = "".join(c for c in file_storage.filename if c.isalnum() or c in "._- ").strip() or "archivo"
     cid = _normalize_company_id(company_id) or str(company_id or "").strip().lower()
     eid = str(empleado_id or "").strip()

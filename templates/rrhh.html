@@ -703,6 +703,7 @@
         function mediaUrlForDisplay(url) {
           if (!url || typeof url !== "string") return url;
           if (url.indexOf("api.twilio.com") !== -1) return "/api/rrhh/media?u=" + encodeURIComponent(url);
+          if (url.startsWith("meta_media://")) return "/api/rrhh/meta-media?id=" + encodeURIComponent(url.replace("meta_media://", ""));
           return url;
         }
         mensajes.forEach((msg) => {
@@ -1343,17 +1344,22 @@ const agente = agentNameEl.value.trim() || "Agente";
       async function enviarRespuesta(mensaje, mediaUrl, file) {
         if (!currentConversationId) throw new Error("Seleccioná una conversación.");
         if (isSendingReply) return;
-        let urlToSend = mediaUrl || "";
-        if (file) {
-          urlToSend = await subirArchivo(file);
-        }
-        if (!mensaje && !urlToSend) throw new Error("Escribí un mensaje o subí/pegá un archivo.");
+        // Bloquear inmediatamente para evitar doble click/enter durante la subida o el envío
         isSendingReply = true;
+        const originalBtnText = replySubmitBtn ? replySubmitBtn.textContent : "Enviar";
+        if (replySubmitBtn) replySubmitBtn.textContent = "Enviando…";
         syncConversationActions();
-        const agente = agentNameEl.value.trim() || "Agente";
-        const body = { agente, mensaje: mensaje || "" };
-        if (urlToSend) body.media_url = urlToSend;
         try {
+          let urlToSend = mediaUrl || "";
+          if (file) {
+            if (replySubmitBtn) replySubmitBtn.textContent = "Subiendo…";
+            urlToSend = await subirArchivo(file);
+            if (replySubmitBtn) replySubmitBtn.textContent = "Enviando…";
+          }
+          if (!mensaje && !urlToSend) throw new Error("Escribí un mensaje o subí/pegá un archivo.");
+          const agente = agentNameEl.value.trim() || "Agente";
+          const body = { agente, mensaje: mensaje || "" };
+          if (urlToSend) body.media_url = urlToSend;
           const response = await fetch(`/api/rrhh/conversaciones/${currentConversationId}/mensajes`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1364,6 +1370,7 @@ const agente = agentNameEl.value.trim() || "Agente";
           await cargarMensajes(currentConversationId);
         } finally {
           isSendingReply = false;
+          if (replySubmitBtn) replySubmitBtn.textContent = originalBtnText;
           syncConversationActions();
         }
       }
@@ -1635,14 +1642,15 @@ const agente = agentNameEl.value.trim() || "Agente";
         const mediaUrl = replyMediaUrlEl ? replyMediaUrlEl.value.trim() : "";
         const file = replyFileEl && replyFileEl.files && replyFileEl.files[0] ? replyFileEl.files[0] : null;
         if (!mensaje && !mediaUrl && !file) return;
+        // Limpiar inputs de inmediato para evitar reenvíos por doble-enter
+        replyInput.value = "";
+        if (replyMediaUrlEl) replyMediaUrlEl.value = "";
+        if (replyFileEl) {
+          replyFileEl.value = "";
+          if (replyFileNameEl) replyFileNameEl.textContent = "";
+        }
         try {
           await enviarRespuesta(mensaje, mediaUrl || undefined, file || undefined);
-          replyInput.value = "";
-          if (replyMediaUrlEl) replyMediaUrlEl.value = "";
-          if (replyFileEl) {
-            replyFileEl.value = "";
-            if (replyFileNameEl) replyFileNameEl.textContent = "";
-          }
           await safeRefresh(true);
         } catch (error) {
           queueStatusEl.textContent = `Error al responder: ${error.message}`;
