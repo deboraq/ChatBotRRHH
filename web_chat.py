@@ -5168,6 +5168,16 @@ def _process_chat_turn(mensaje_trim):
     if step == CHAT_CONTEXT_STEP_BRANCH:
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         mensaje_norm_b = chatbot.normalizar_texto(mensaje_trim)
+        # Si por alguna razón llega "menu" / "ver menú completo" en el step de sucursal, volver al menú de temas
+        _MENU_CMDS = {"menu", "ver menu", "ver menu completo", "menu completo"}
+        if mensaje_norm_b in _MENU_CMDS:
+            branch_saved = _sess().get("chat_context_branch") or ""
+            company_tmp = _set_company_session(ctx_cid)
+            permitir_tmp = (company_tmp or {}).get("permitir_hablar_con_humano", True)
+            temas_tmp = construir_temas_map(company_id=ctx_cid, temas_habilitados=(company_tmp or {}).get("temas_habilitados") or [])
+            if branch_saved:
+                _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+            return {"ok": True, "reply": construir_menu_texto(temas_tmp, permitir_hablar_con_humano=permitir_tmp), "await_feedback": False, "end_session": False, "quick_actions": construir_acciones_menu(temas_tmp, permitir_hablar_con_humano=permitir_tmp), "handoff_active": False}
         # Saludo durante el paso de sucursal — repetir la pregunta con opciones
         if chatbot.es_saludo(mensaje_norm_b):
             opciones_b = _construir_acciones_sucursales(ctx_cid, limite=8)
@@ -5249,6 +5259,14 @@ def _process_chat_turn(mensaje_trim):
         ctx_cid = _sess().get("chat_context_company_id") or (_current_company() or {}).get("company_id")
         ctx_branch = _sess().get("chat_context_branch") or None
         mensaje_norm_a = chatbot.normalizar_texto(mensaje_trim)
+        # Si llega "menu" / "ver menú completo" en el step de área, ir directo al menú de temas
+        _MENU_CMDS_A = {"menu", "ver menu", "ver menu completo", "menu completo"}
+        if mensaje_norm_a in _MENU_CMDS_A:
+            company_tmp = _set_company_session(ctx_cid)
+            permitir_tmp = (company_tmp or {}).get("permitir_hablar_con_humano", True)
+            temas_tmp = construir_temas_map(company_id=ctx_cid, temas_habilitados=(company_tmp or {}).get("temas_habilitados") or [])
+            _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+            return {"ok": True, "reply": construir_menu_texto(temas_tmp, permitir_hablar_con_humano=permitir_tmp), "await_feedback": False, "end_session": False, "quick_actions": construir_acciones_menu(temas_tmp, permitir_hablar_con_humano=permitir_tmp), "handoff_active": False}
         # Saludo durante el paso de área — repetir la pregunta con opciones
         if chatbot.es_saludo(mensaje_norm_a):
             opciones_a = _construir_acciones_areas(ctx_cid, limite=8, branch=ctx_branch)
@@ -6120,18 +6138,21 @@ def webhook_meta_whatsapp():
                         g.whatsapp_session["chat_context_company_id"] = cid
                         g.whatsapp_session["company_id"] = cid
                         g.whatsapp_session["company_name"] = company.get("company_name") or cid
-                        branches = _get_branches_for_company(company)
-                        areas = _get_all_areas_for_company(company)
-                        label_norm = (line_label or "").strip().lower()
-                        if label_norm and areas and any(str(a).strip().lower() == label_norm for a in areas):
-                            g.whatsapp_session["chat_context_area"] = line_label.strip()
-                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
-                        elif branches:
-                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
-                        elif areas:
-                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
-                        else:
-                            g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                        # Solo setear el step si no hay uno ya cargado desde Firestore.
+                        # Si hay step (ej. "ready"), no pisarlo aunque no tengamos company_id.
+                        if not g.whatsapp_session.get("chat_context_step"):
+                            branches = _get_branches_for_company(company)
+                            areas = _get_all_areas_for_company(company)
+                            label_norm = (line_label or "").strip().lower()
+                            if label_norm and areas and any(str(a).strip().lower() == label_norm for a in areas):
+                                g.whatsapp_session["chat_context_area"] = line_label.strip()
+                                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
+                            elif branches:
+                                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_BRANCH
+                            elif areas:
+                                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_AREA
+                            else:
+                                g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_READY
                     elif not g.whatsapp_session.get("chat_context_step") and not g.whatsapp_session.get("wa_empleado_id"):
                         g.whatsapp_session["chat_context_step"] = CHAT_CONTEXT_STEP_DNI
 
