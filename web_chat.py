@@ -188,11 +188,20 @@ def _notify_handoff_via_n8n(handoff_payload: dict, company: dict):
     # Para WA: buscar el email del número específico que recibió el mensaje
     notify_email = ""
     wa_from_number = str(handoff_payload.get("whatsapp_from_number") or "").strip()
+    wa_numbers = company.get("whatsapp_numbers") or []
     if wa_from_number:
-        for line in (company.get("whatsapp_numbers") or []):
+        for line in wa_numbers:
             p = str(line.get("phone") or "").strip()
             if p and _normalize_phone_for_match(p) == _normalize_phone_for_match(wa_from_number):
                 notify_email = str(line.get("notify_email") or "").strip()
+                break
+    # Si no hubo match exacto y wa_from_number parece un ID numérico de Meta
+    # (ej. 1078605635336424), intentar con el primer número que tenga notify_email
+    if not notify_email and wa_from_number and wa_from_number.isdigit() and len(wa_from_number) > 10:
+        for line in wa_numbers:
+            candidate = str(line.get("notify_email") or "").strip()
+            if candidate:
+                notify_email = candidate
                 break
     # Fallback: email general de la empresa
     if not notify_email:
