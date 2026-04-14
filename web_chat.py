@@ -245,6 +245,7 @@ def _notify_handoff_via_n8n(handoff_payload: dict, company: dict):
 logger = logging.getLogger(__name__)
 flask_app = Flask(__name__)
 flask_app.config["SECRET_KEY"] = os.getenv("CHATBOT_WEB_SECRET", "dev-chatbot-secret")
+BOT_NAME = os.getenv("CHATBOT_BOT_NAME", "Debo")
 # Firebase Hosting preserves the "__session" cookie across rewrites to Cloud Run.
 flask_app.config["SESSION_COOKIE_NAME"] = os.getenv("CHATBOT_SESSION_COOKIE_NAME", "__session")
 # Timeout de inactividad: 8 horas (en segundos)
@@ -3391,7 +3392,7 @@ def chat_page():
     if hr_display.upper() == "RRHH":
         hr_display = "Atención"
 
-    _bot_name = "Debo"
+    _bot_name = BOT_NAME
     if step == CHAT_CONTEXT_STEP_COMPANY:
         quick_actions_iniciales = _construir_acciones_empresas(limite=8)
         nombres_empresas = [a.get("label") or a.get("value") for a in quick_actions_iniciales if a.get("label") or a.get("value")]
@@ -5065,7 +5066,7 @@ def _process_chat_turn(mensaje_trim):
                 _sess()["chat_context_step"] = CHAT_CONTEXT_STEP_COMPANY
                 opciones = _construir_acciones_empresas(limite=8)
                 nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
-                reply = f"¡Hola {emp_nombre or 'colaborador'}! Te identifiqué. ¿Con qué empresa estás relacionado/a?"
+                reply = f"👋 ¡Hola {emp_nombre or 'colaborador'}! Soy {BOT_NAME}, tu asistente de RRHH. 😊 ¿Con qué empresa estás relacionado/a?"
                 if nombres:
                     reply += "\n\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
                 return {"ok": True, "reply": reply, "await_feedback": False, "end_session": False, "quick_actions": opciones, "handoff_active": False}
@@ -5073,8 +5074,8 @@ def _process_chat_turn(mensaje_trim):
             return {"ok": True, "reply": "No encontré ese DNI en el sistema. Verificá el número e intentá de nuevo, o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
         # Mensaje que no parece un DNI
         if chatbot.es_saludo(mensaje_norm_dni):
-            return {"ok": True, "reply": "👋 ¡Hola! Para ayudarte mejor, necesito identificarte. Por favor ingresá tu *DNI* (solo números), o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
-        return {"ok": True, "reply": "Por favor ingresá tu *DNI* (solo números), o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
+            return {"ok": True, "reply": f"👋 ¡Hola! Soy {BOT_NAME}, tu asistente de RRHH. 😊 Para ayudarte mejor, necesito identificarte. Por favor ingresá tu *DNI* (solo números), o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
+        return {"ok": True, "reply": f"Soy {BOT_NAME}, tu asistente de RRHH. Por favor ingresá tu *DNI* (solo números), o escribí *omitir* para continuar sin identificarte.", "await_feedback": False, "end_session": False, "quick_actions": [], "handoff_active": False}
 
     if step == CHAT_CONTEXT_STEP_COMPANY:
         mensaje_norm = chatbot.normalizar_texto(mensaje_trim)
@@ -5082,7 +5083,7 @@ def _process_chat_turn(mensaje_trim):
         if chatbot.es_saludo(mensaje_norm):
             opciones = _construir_acciones_empresas(limite=8)
             nombres = [a.get("label") or a.get("value") for a in opciones if a.get("label") or a.get("value")]
-            reply = "👋 ¡Hola! ¿Con qué empresa estás relacionado/a?"
+            reply = f"👋 ¡Hola! Soy {BOT_NAME}, tu asistente de RRHH. 😊 ¿Con qué empresa estás relacionado/a?"
             if nombres:
                 reply += "\n\n" + "\n".join(nombres) + "\n\nEscribí el número o el nombre."
             return {"ok": True, "reply": reply, "await_feedback": False, "end_session": False, "quick_actions": opciones, "handoff_active": False}
@@ -5984,6 +5985,7 @@ def _download_meta_media(media_id):
     import requests as _req
     token = _meta_access_token()
     if not token or not media_id:
+        logger.warning("_download_meta_media: token o media_id vacío")
         return None, None
     try:
         # 1) Obtener URL de descarga
@@ -5993,15 +5995,20 @@ def _download_meta_media(media_id):
             timeout=15,
         )
         if not r.ok:
+            logger.warning("_download_meta_media: step1 error %s — %s", r.status_code, r.text[:300])
             return None, None
         data = r.json() or {}
         dl_url = data.get("url")
         mime = data.get("mime_type", "application/octet-stream")
         if not dl_url:
+            logger.warning("_download_meta_media: sin url en respuesta: %s", data)
             return None, None
         # 2) Descargar el archivo
         r2 = _req.get(dl_url, headers={"Authorization": f"Bearer {token}"}, timeout=60)
-        return (r2.content, mime) if r2.ok else (None, None)
+        if not r2.ok:
+            logger.warning("_download_meta_media: step2 error %s", r2.status_code)
+            return None, None
+        return r2.content, mime
     except Exception as e:
         logger.warning("_download_meta_media: %s", e)
         return None, None
@@ -6138,7 +6145,8 @@ def webhook_meta_whatsapp():
 
                 # Adjuntos: poner URL de descarga en g para que el panel los registre
                 if media_info:
-                    g.whatsapp_media_urls = [f"meta_media://{media_info[0]}"]
+                    from urllib.parse import quote as _uq
+                    g.whatsapp_media_urls = [f"meta_media://{media_info[0]}?mime={_uq(media_info[1] or '')}&fname={_uq(str(media_info[2] or ''))}"]
                 else:
                     g.whatsapp_media_urls = []
 
@@ -8119,6 +8127,66 @@ def rrhh_media_proxy():
     if response is None:
         return ("", 404)
     return response
+
+
+@flask_app.get("/api/rrhh/meta-diagnostico")
+@rrhh_permission_required(auth_rrhh.PERM_CONVERSATIONS_VIEW, message="Sin permiso.")
+def rrhh_meta_diagnostico():
+    """Endpoint de diagnóstico: verifica token Meta y opcionalmente descarga un media_id."""
+    import requests as _req
+    token = _meta_access_token()
+    pid = _meta_phone_number_id()
+    result = {"token_configurado": bool(token), "phone_number_id": pid}
+    if not token:
+        return jsonify(result)
+    # Verificar token con la API de Meta
+    try:
+        r = _req.get(
+            f"https://graph.facebook.com/v18.0/{pid}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        result["meta_api_status"] = r.status_code
+        result["meta_api_response"] = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text[:300]
+    except Exception as e:
+        result["meta_api_error"] = str(e)
+    # Si se pasa ?media_id=... también prueba descargarlo (paso 1 y paso 2)
+    media_id = request.args.get("media_id", "").strip()
+    if media_id:
+        try:
+            r2 = _req.get(
+                f"https://graph.facebook.com/v18.0/{media_id}",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            result["media_status"] = r2.status_code
+            result["media_response"] = r2.json() if r2.headers.get("content-type", "").startswith("application/json") else r2.text[:300]
+            if r2.ok:
+                dl_url = (r2.json() or {}).get("url")
+                if dl_url:
+                    r3 = _req.get(dl_url, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+                    result["media_download_status"] = r3.status_code
+                    result["media_download_bytes"] = len(r3.content) if r3.ok else 0
+                    if not r3.ok:
+                        result["media_download_error"] = r3.text[:300]
+        except Exception as e:
+            result["media_error"] = str(e)
+    # Si se pasa ?send_to=NUMERO prueba enviar un mensaje de texto
+    send_to = request.args.get("send_to", "").strip()
+    if send_to:
+        try:
+            to_norm = re.sub(r"[^\d]", "", send_to)
+            r_send = _req.post(
+                f"https://graph.facebook.com/v18.0/{pid}/messages",
+                json={"messaging_product": "whatsapp", "to": to_norm, "type": "text", "text": {"body": "Test diagnóstico"}},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
+            )
+            result["send_status"] = r_send.status_code
+            result["send_response"] = r_send.json() if r_send.headers.get("content-type", "").startswith("application/json") else r_send.text[:300]
+        except Exception as e:
+            result["send_error"] = str(e)
+    return jsonify(result)
 
 
 @flask_app.get("/api/rrhh/meta-media")
