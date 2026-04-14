@@ -5635,6 +5635,14 @@ def webhook_n8n_procesar_comunicados():
         mensaje = data.get("mensaje") or ""
         media_urls = data.get("media_urls") or []
         whatsapp_phone = data.get("whatsapp_phone") or os.getenv("TWILIO_WHATSAPP_FROM", "")
+        # Aplicar fallback a Meta si el phone guardado no es un ID numérico de Meta
+        _sched_pid = str(whatsapp_phone or "").strip()
+        _sched_is_meta = _sched_pid.isdigit() and len(_sched_pid) > 10
+        if not _sched_is_meta:
+            _meta_fb = _meta_phone_number_id()
+            if _meta_fb:
+                whatsapp_phone = _meta_fb
+                _sched_is_meta = True
 
         if not phones or (not mensaje and not media_urls):
             chatbot.db.collection(COMUNICADOS_PROGRAMADOS_COLLECTION).document(doc_id).update({
@@ -5656,6 +5664,29 @@ def webhook_n8n_procesar_comunicados():
             continue
 
         try:
+            if _sched_is_meta:
+                from whatsapp_broadcast import set_send_function as _wb_set_sched
+                def _sched_meta_fn(phone, body=None, media_url=None, phone_number_id=None, **kw):
+                    try:
+                        urls = media_url if isinstance(media_url, list) else ([media_url] if media_url else [])
+                        if urls:
+                            import requests as _rsched
+                            _r = _rsched.get(urls[0], timeout=30)
+                            if _r.ok:
+                                _mime = _r.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+                                _fname = urls[0].split("/")[-1].split("?")[0] or "imagen.jpg"
+                                _mid = _upload_media_to_meta(_r.content, _mime, _fname, phone_number_id=phone_number_id)
+                                if _mid:
+                                    _mt = "image" if _mime.startswith("image/") else "document"
+                                    _send_meta_whatsapp_media(phone, _mid, _mt, caption=body or None, filename=_fname if _mt == "document" else None, phone_number_id=phone_number_id)
+                                    return True
+                        if body:
+                            return bool(_send_meta_whatsapp(phone, body, phone_number_id=phone_number_id))
+                        return False
+                    except Exception as _e:
+                        logger.warning("scheduler meta send error %s: %s", phone, _e)
+                        return False
+                _wb_set_sched(_sched_meta_fn)
             result = broadcast_messages(
                 phone_list=phones,
                 body_text=mensaje or None,
