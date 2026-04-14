@@ -142,11 +142,11 @@
               class="reply-media-url"
             />
             <div class="reply-file-wrap">
-              <label for="reply-file" class="reply-file-label">📎 Subir foto o archivo</label>
+              <label for="reply-file" class="reply-file-label">📎 Subir archivo</label>
               <input
                 id="reply-file"
                 type="file"
-                accept="image/*,.pdf,application/pdf"
+                accept="image/*,.pdf,.xls,.xlsx,.doc,.docx,.ppt,.pptx,.txt,.csv"
                 class="reply-file-input"
               />
               <span id="reply-file-name" class="reply-file-name"></span>
@@ -703,8 +703,18 @@
         function mediaUrlForDisplay(url) {
           if (!url || typeof url !== "string") return url;
           if (url.indexOf("api.twilio.com") !== -1) return "/api/rrhh/media?u=" + encodeURIComponent(url);
-          if (url.startsWith("meta_media://")) return "/api/rrhh/meta-media?id=" + encodeURIComponent(url.replace("meta_media://", ""));
+          if (url.startsWith("meta_media://")) {
+            const rawPart = url.slice("meta_media://".length);
+            const qIdx = rawPart.indexOf("?");
+            const mediaId = qIdx >= 0 ? rawPart.substring(0, qIdx) : rawPart;
+            return "/api/rrhh/meta-media?id=" + encodeURIComponent(mediaId);
+          }
           return url;
+        }
+        function _mediaParam(url, key) {
+          if (!url) return "";
+          const m = url.match(new RegExp("[?&]" + key + "=([^&]*)"));
+          return m ? decodeURIComponent(m[1]) : "";
         }
         mensajes.forEach((msg) => {
           const bubble = document.createElement("article");
@@ -714,12 +724,19 @@
           urls.forEach((url) => {
             const displayUrl = mediaUrlForDisplay(url);
             const u = escapeHtml(displayUrl);
-            const uOrig = escapeHtml(url);
+            const mime = url.startsWith("meta_media://") ? _mediaParam(url, "mime") : "";
+            const fname = url.startsWith("meta_media://") ? _mediaParam(url, "fname") : "";
             const isImageExt = /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
-            if (isImageExt) {
+            const isDocExt = /\.(pdf|xls|xlsx|doc|docx|ppt|pptx|txt|csv)(\?|$)/i.test(url);
+            const isImageMime = mime.startsWith("image/");
+            const hasDocFname = fname && fname !== "image" && fname !== "video" && fname !== "audio" && fname !== "sticker";
+            if (isImageExt || isImageMime) {
               mediaHtml += `<p><a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Adjunto" class="msg-attachment-img" loading="lazy" /></a></p>`;
+            } else if (hasDocFname || isDocExt) {
+              const label = hasDocFname ? escapeHtml(fname) : "Ver archivo";
+              mediaHtml += `<p><a href="${u}" target="_blank" rel="noopener" class="msg-media-fallback">📎 ${label}</a></p>`;
             } else {
-              mediaHtml += `<p class="msg-media-wrap"><a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Adjunto" class="msg-attachment-img" loading="lazy" onerror="this.onerror=null;this.style.display=\'none\';var n=this.nextElementSibling;if(n)n.style.display=\'inline\'" /></a><a href="${u}" target="_blank" rel="noopener" class="msg-media-fallback" style="display:none">📎 Ver archivo</a></p>`;
+              mediaHtml += `<p class="msg-media-wrap"><a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="Adjunto" class="msg-attachment-img" loading="lazy" onerror="this.onerror=null;this.style.display=\'none\';var n=this.parentElement.nextElementSibling;if(n)n.style.display=\'inline\'" /></a><a href="${u}" target="_blank" rel="noopener" class="msg-media-fallback" style="display:none">📎 Ver archivo</a></p>`;
             }
           });
           bubble.innerHTML = `
