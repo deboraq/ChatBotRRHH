@@ -358,20 +358,31 @@ def _load_whatsapp_chat_context(phone):
 
 
 def _reset_whatsapp_chat_context(phone):
-    """Limpia la sesión WhatsApp (memoria + Firestore) para que el próximo mensaje empiece de cero."""
+    """Al cerrar un handoff: limpia solo el estado de handoff pero preserva empresa/sucursal/área."""
     if not phone:
         return
-    # Limpiar en-place para que g.whatsapp_session (misma referencia) quede vacía en este request
+    # Preservar los campos de contexto que el colaborador ya eligió
+    _KEEP_KEYS = {
+        "chat_context_step", "chat_context_company_id", "chat_context_branch",
+        "chat_context_area", "company_id", "company_name",
+        "wa_empleado_id", "wa_convenio", "wa_nombre",
+        "chat_session_id", "meta_phone_number_id",
+    }
     if phone in WHATSAPP_SESSIONS:
-        WHATSAPP_SESSIONS[phone].clear()
-        WHATSAPP_SESSIONS[phone]["__session_reset__"] = True
-    # Eliminar doc de Firestore inmediatamente (para instancias que no tienen la sesión en memoria)
+        sess = WHATSAPP_SESSIONS[phone]
+        keys_to_remove = [k for k in list(sess.keys()) if k not in _KEEP_KEYS]
+        for k in keys_to_remove:
+            sess.pop(k, None)
+    # En Firestore: solo limpiar handoff_conversation_id (no borrar el doc)
     norm = _normalize_phone_for_match(phone)
     if norm and chatbot.db:
         try:
-            chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).delete()
+            chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).set(
+                {"handoff_conversation_id": None, "updated_at": _utc_now()},
+                merge=True,
+            )
         except Exception as e:
-            logger.warning("_reset_whatsapp_chat_context: error limpiando contexto para %s: %s", norm, e)
+            logger.warning("_reset_whatsapp_chat_context: error para %s: %s", norm, e)
 
 
 def _save_whatsapp_chat_context(phone):
@@ -384,8 +395,8 @@ def _save_whatsapp_chat_context(phone):
     sess = getattr(g, "whatsapp_session", None)
     if not sess:
         return
-    # Si la sesión fue reseteada en este turno, no guardar (el doc ya fue eliminado)
-    if sess.get("__session_reset__"):
+    # No guardar si la sesión no tiene datos útiles
+    if not sess.get("chat_context_step") and not sess.get("company_id"):
         return
     payload = {
         "chat_context_step": sess.get("chat_context_step"),
@@ -3096,7 +3107,9 @@ def responder_chat(mensaje_usuario):
 
     # Frases inequívocas de contacto humano — se procesan siempre, sin importar el estado de sesión.
     # Esto cubre el caso WhatsApp donde pending_derivacion se perdió entre instancias de Cloud Run.
+    # "h" es el value del botón "H. Hablar con un agente" en el menú de WhatsApp.
     _FRASES_CONTACTO_DIRECTA = {
+        "h",
         "hablar con alguien", "hablar con un agente", "hablar con un asistente",
         "quiero hablar con alguien", "quiero hablar con un agente",
         "necesito hablar con alguien", "necesito un agente",
@@ -4813,16 +4826,17 @@ def api_comunicados_enviar():
     # Detectar si phone_number_id es un ID numérico de Meta
     _pid_raw = str(phone_number_id or "").strip()
     _is_meta_pid_sync = bool(_pid_raw) and _pid_raw.isdigit() and len(_pid_raw) > 10
-    if not phone_number_id and not _is_meta_pid_sync:
-        phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
-    if not phone_number_id:
-        # Intentar usar META si está configurado
+    # Si no es un ID Meta numérico, preferir META_PHONE_NUMBER_ID si está configurado
+    # (el campo "phone" de la empresa puede ser el número de display, no el numeric ID)
+    if not _is_meta_pid_sync:
         _meta_pid_fallback = _meta_phone_number_id()
         if _meta_pid_fallback:
             phone_number_id = _meta_pid_fallback
             _is_meta_pid_sync = True
-        else:
-            return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM o META_PHONE_NUMBER_ID)."}), 503
+        elif not phone_number_id:
+            phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    if not phone_number_id:
+        return jsonify({"ok": False, "error": "WhatsApp no configurado (falta TWILIO_WHATSAPP_FROM o META_PHONE_NUMBER_ID)."}), 503
     if not _is_meta_pid_sync and not phone_number_id.startswith("whatsapp:"):
         try:
             from twilio_whatsapp import _format_to_whatsapp
@@ -4951,12 +4965,17 @@ def api_comunicados_enviar_stream():
                         break
             if not phone_number_id and nums:
                 phone_number_id = (nums[0].get("phone") or "").strip()
-    if not phone_number_id:
-        phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "") or _meta_phone_number_id() or ""
-        phone_number_id = phone_number_id.strip()
-    # Solo reformatear a whatsapp:+... si NO es un ID numérico de Meta
-    _pid_is_meta = str(phone_number_id).strip().isdigit() and len(str(phone_number_id).strip()) > 10
-    if not _pid_is_meta and not phone_number_id.startswith("whatsapp:"):
+    # Detectar si phone_number_id es un ID numérico de Meta
+    _pid_is_meta = str(phone_number_id or "").strip().isdigit() and len(str(phone_number_id or "").strip()) > 10
+    # Si no es un ID Meta numérico, preferir META_PHONE_NUMBER_ID si está configurado
+    if not _pid_is_meta:
+        _meta_pid_stream = _meta_phone_number_id()
+        if _meta_pid_stream:
+            phone_number_id = _meta_pid_stream
+            _pid_is_meta = True
+        elif not phone_number_id:
+            phone_number_id = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+    if not _pid_is_meta and phone_number_id and not phone_number_id.startswith("whatsapp:"):
         try:
             from twilio_whatsapp import _format_to_whatsapp
             phone_number_id = _format_to_whatsapp(phone_number_id) or phone_number_id
