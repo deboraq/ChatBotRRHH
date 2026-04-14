@@ -211,6 +211,16 @@ def _notify_handoff_via_n8n(handoff_payload: dict, company: dict):
 
     def _do():
         try:
+            # Solo notificar por email si no hay agentes activos en el panel.
+            # Cuando el panel está abierto los agentes ven el handoff en tiempo real.
+            _cid = company.get("company_id")
+            _active = _list_active_agents(company_id=_cid)
+            if _active:
+                logging.info(
+                    f"Handoff notify: omitiendo email, hay {len(_active)} agente(s) activo(s) en el panel"
+                )
+                return
+
             company_name = handoff_payload.get("company_name") or handoff_payload.get("company_id") or "Sin empresa"
             colaborador = handoff_payload.get("colaborador_nombre") or handoff_payload.get("colaborador_telefono") or "Colaborador"
             consulta = handoff_payload.get("ultima_consulta") or "Solicitud de atención"
