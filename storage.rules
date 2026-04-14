@@ -1,9 +1,0 @@
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    // Acceso a archivos solo vía backend (URLs firmadas o Admin SDK).
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
-  }
-}

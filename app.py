@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import unicodedata
@@ -145,7 +146,6 @@ SINONIMOS = {
     "vacaciones": [
         "descanso",
         "licencia anual",
-        "dias libres",
         "vacas",
         "feriado",
         "dias de vacaciones",
@@ -160,7 +160,7 @@ SINONIMOS = {
         "dividir vacaciones",
         "partir vacaciones",
     ],
-    "art": ["accidente", "me lastime", "seguro laboral", "la art", "lesion"],
+    "art": ["accidente laboral", "seguro laboral", "la art", "aseguradora"],
     "recibo": ["sueldo", "comprobante", "liquidacion", "haberes", "recibos"],
     "aguinaldo": [
         "sac",
@@ -328,8 +328,12 @@ AREAS_POR_TEMA = {
 }
 
 
-def obtener_knowledge_empresa(company_id=None):
-    """Devuelve la lista de {pregunta, respuesta} para la empresa (desde Firestore)."""
+def obtener_knowledge_empresa(company_id=None, convenio=None):
+    """
+    Devuelve la lista de {pregunta, respuesta, convenio?} para la empresa.
+    Si convenio es informado, incluye solo entradas genéricas (sin convenio) + las del convenio del empleado.
+    Si convenio es None, devuelve todas las entradas.
+    """
     if not db:
         return []
     cid = _normalize_company_id(company_id)
@@ -341,7 +345,21 @@ def obtener_knowledge_empresa(company_id=None):
             return []
         data = doc.to_dict() or {}
         entries = data.get("entries") or []
-        return [{"pregunta": str(e.get("pregunta") or "").strip(), "respuesta": str(e.get("respuesta") or "").strip()} for e in entries if isinstance(e, dict) and (e.get("pregunta") or e.get("respuesta"))]
+        conv_norm = (convenio or "").strip().lower() if convenio else None
+        result = []
+        for e in entries:
+            if not isinstance(e, dict) or not (e.get("pregunta") or e.get("respuesta")):
+                continue
+            e_conv = (e.get("convenio") or "").strip().lower()
+            # Si se filtra por convenio: incluir genéricas (sin convenio) + las del convenio del empleado
+            if conv_norm and e_conv and e_conv != conv_norm:
+                continue
+            result.append({
+                "pregunta": str(e.get("pregunta") or "").strip(),
+                "respuesta": str(e.get("respuesta") or "").strip(),
+                "convenio": e.get("convenio") or None,
+            })
+        return result
     except Exception as exc:
         print(f"⚠️ Error al leer base de conocimiento: {exc}")
         return []
@@ -357,6 +375,9 @@ _SINONIMOS_QUERY = [
     (["nacio mi hijo", "nacimiento de hijo", "nacio bebe"], "licencia nacimiento"),
     (["fallecio", "fallecimiento familiar", "muerte familiar"], "licencia fallecimiento"),
     (["dias de descanso", "dias libres pagos"], "vacaciones"),
+    (["dia libre", "dias libres", "pedir libre", "tomarme libre", "tomarme un dia",
+      "tomar un dia", "tomar el dia", "tomarme el dia", "francos", "dia franco",
+      "sin goce", "sin sueldo", "libre manana", "libre hoy"], "dias libres"),
     (["me lastime", "accidente laboral", "accidente de trabajo"], "art"),
     (["comunicarme con", "como contacto", "numero de rrhh", "telefono de rrhh"], "contacto rrhh"),
 ]
@@ -447,15 +468,27 @@ def _mensaje_derivacion(tema=None):
 
 
 def guardar_knowledge_empresa(company_id, entries):
-    """Guarda la base de conocimiento (lista de {pregunta, respuesta}) para la empresa."""
+    """Guarda la base de conocimiento (lista de {pregunta, respuesta, convenio?}) para la empresa."""
     if not db:
         return False
     cid = _normalize_company_id(company_id)
     if not cid:
         return False
     try:
+        normalized = []
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            item = {
+                "pregunta": str(e.get("pregunta") or "").strip(),
+                "respuesta": str(e.get("respuesta") or "").strip(),
+            }
+            conv = str(e.get("convenio") or "").strip().lower()
+            if conv:
+                item["convenio"] = conv
+            normalized.append(item)
         payload = {
-            "entries": [{"pregunta": str(e.get("pregunta") or "").strip(), "respuesta": str(e.get("respuesta") or "").strip()} for e in entries if isinstance(e, dict)],
+            "entries": normalized,
             "updated_at": datetime.now(),
         }
         db.collection(COMPANY_KNOWLEDGE_COLLECTION).document(cid).set(payload, merge=True)
@@ -631,6 +664,7 @@ def obtener_respuesta_faq(tema, company_id=None):
 def detectar_tema(entrada_norm, temas_map):
     tema_directo = temas_map.get(entrada_norm)
     if tema_directo:
+        logging.warning("detectar_tema DIRECTO: entrada=%r → tema=%r", entrada_norm, tema_directo)
         return tema_directo
 
     indice_temas = {normalizar_texto(tema): tema for tema in temas_map.values()}
@@ -638,38 +672,50 @@ def detectar_tema(entrada_norm, temas_map):
     # Prioriza frases largas para evitar falsos positivos.
     for tema_norm, tema_real in sorted(indice_temas.items(), key=lambda item: len(item[0]), reverse=True):
         if contiene_frase(entrada_norm, tema_norm):
+            logging.warning("detectar_tema CONTIENE_FRASE_TEMA: entrada=%r, tema_norm=%r → %r", entrada_norm, tema_norm, tema_real)
             return tema_real
 
     for oficial, variaciones in SINONIMOS.items():
         tema_destino = indice_temas.get(normalizar_texto(oficial), normalizar_texto(oficial))
         for alias in [oficial, *variaciones]:
             if contiene_frase(entrada_norm, normalizar_texto(alias)):
+                logging.warning("detectar_tema SINONIMO: entrada=%r, alias=%r → %r", entrada_norm, alias, tema_destino)
                 return tema_destino
 
     if len(entrada_norm) < 3:
         return None
 
+    palabras_entrada = len(entrada_norm.split())
     opciones = {}
     for tema_norm, tema_real in indice_temas.items():
-        opciones[tema_norm] = tema_real
+        # Excluir temas muy cortos del fuzzy para evitar falsos positivos
+        if len(tema_norm) >= 5:
+            opciones[tema_norm] = tema_real
 
     for oficial, variaciones in SINONIMOS.items():
         tema_destino = indice_temas.get(normalizar_texto(oficial), normalizar_texto(oficial))
         for alias in [oficial, *variaciones]:
             alias_norm = normalizar_texto(alias)
-            if len(alias_norm) >= 3:
+            # Solo incluir alias con longitud razonable respecto al input
+            palabras_alias = len(alias_norm.split())
+            if len(alias_norm) >= 5 and palabras_alias >= max(1, palabras_entrada - 2):
                 opciones.setdefault(alias_norm, tema_destino)
 
     if not opciones:
         return None
 
     match = fuzzy_extract_one(entrada_norm, list(opciones.keys()))
-    if match and match[1] >= 78:
+    logging.warning("detectar_tema FUZZY: entrada=%r, best_match=%r", entrada_norm, match)
+    if match and match[1] >= 85:
+        logging.warning("detectar_tema FUZZY HIT: %r → %r (score=%s)", match[0], opciones[match[0]], match[1])
         return opciones[match[0]]
     return None
 
 
 def es_saludo(entrada_norm):
+    # Si el mensaje tiene más de 5 palabras, probablemente contiene una consulta real además del saludo
+    if len(entrada_norm.split()) > 5:
+        return False
     saludos = ["hola", *SINONIMOS["hola"]]
     return any(contiene_frase(entrada_norm, normalizar_texto(saludo)) for saludo in saludos)
 
@@ -721,13 +767,16 @@ def clasificar_input_feedback(texto):
     texto_norm = normalizar_texto(texto)
     if not texto_norm:
         return "vacio", texto_norm
-    if texto_norm in {"si", "no"}:
+    if texto_norm in {"si", "sí", "no"}:
         return "feedback", texto_norm
-    # Detectar "no, ..." / "si, ..." como feedback aunque vengan con texto adicional
-    primer_palabra = texto_norm.split()[0]
-    if primer_palabra == "no":
+    palabras = texto_norm.split()
+    primer_palabra = palabras[0]
+    # "no" como feedback solo si es corto (<=2 palabras) y la segunda (si existe) es una muletilla conocida.
+    # Evita falsos positivos como "no servís", "no entendiste nada", etc.
+    MULETILLAS_NO = {"gracias", "dale", "ok", "claro", "entiendo", "entendido", ","}
+    if primer_palabra == "no" and (len(palabras) == 1 or (len(palabras) == 2 and palabras[1] in MULETILLAS_NO)):
         return "feedback", "no"
-    if primer_palabra in {"si", "dale", "claro"}:
+    if primer_palabra in {"si", "sí", "dale", "claro"} and len(palabras) <= 3:
         return "feedback", "si"
     if texto_norm == "menu":
         return "menu", texto_norm
@@ -761,7 +810,7 @@ def manejar_feedback_interactivo(tema_id, texto_feedback):
     return "continuar", None
 
 
-def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None):
+def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None, convenio=None):
     """
     Devuelve (respuesta, tema_id) según la entrada del usuario.
     Si la empresa tiene base de conocimiento (archivo subido), se busca ahí primero.
@@ -772,6 +821,7 @@ def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None
         return "⚠️ No llegué a entender tu consulta. ¿Podrías reformularla?", "ayuda"
 
     tema_elegido = detectar_tema(entrada_norm, temas_map)
+    logging.warning("DEBUG procesarConsulta: entrada_norm=%r tema_elegido=%r temas_map_keys=%r", entrada_norm, tema_elegido, list(temas_map.keys()) if temas_map else None)
     saludo_detectado = es_saludo(entrada_norm)
 
     if saludo_detectado and not tema_elegido:
@@ -782,12 +832,16 @@ def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None
         if tema_norm == "ayuda":
             return MENSAJE_AYUDA, "ayuda"
         if tema_norm == "hola":
-            return MENSAJE_BIENVENIDA, "saludo"
+            # Solo retornar bienvenida si es_saludo lo confirmó; si no, puede ser
+            # un falso positivo por fuzzy-match (ej: "tomarme el dia" ~ "buen dia")
+            if saludo_detectado:
+                return MENSAJE_BIENVENIDA, "saludo"
+            tema_elegido = None  # ignorar y buscar en KB / FAQ
 
     # Base de conocimiento por empresa — búsqueda ANTES del check de contacto/derivación
     # para que "quiero saber sobre el contacto" encuentre la sección CONTACTO RRHH de la KB
     if company_id:
-        entries = obtener_knowledge_empresa(company_id)
+        entries = obtener_knowledge_empresa(company_id, convenio=convenio)
         if entries:
             entrada_kb = _expandir_consulta_kb(entrada_norm)
             resp, score = buscar_en_knowledge(entrada_kb, entries)
@@ -805,6 +859,14 @@ def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None
                 if resp_ctx and score_ctx > score:
                     resp, score = resp_ctx, score_ctx
 
+            # Si el tema fue detectado, siempre comparar con búsqueda por nombre del tema.
+            # Esto evita que palabras genéricas (ej: "tengo") matcheen el tema incorrecto.
+            if tema_elegido:
+                tema_kb = _expandir_consulta_kb(normalizar_texto(tema_elegido))
+                resp_tema, score_tema = buscar_en_knowledge(tema_kb, entries)
+                if resp_tema and score_tema > score:
+                    resp, score = resp_tema, score_tema
+
             if resp and score >= KNOWLEDGE_MATCH_THRESHOLD:
                 if intencion == "fecha" and score < 95:
                     return (
@@ -817,14 +879,14 @@ def obtener_respuesta(entrada, temas_map, company_id=None, context_pregunta=None
                     f"Esto es lo más cercano que encontré en nuestra base de datos:\n\n{resp}"
                 ), "knowledge_answer"
 
-            # La empresa tiene knowledge base pero no hubo match
+            # La empresa tiene knowledge base pero no hubo match → registrar como pendiente
             if tema_elegido:
                 return (
                     f"No encontré información específica sobre \"{tema_elegido}\" en la base de datos de tu empresa."
-                ), "knowledge_answer"
+                ), "knowledge_no_match"
             return (
                 "No encontré información sobre eso en nuestra base de datos."
-            ), "knowledge_answer"
+            ), "knowledge_no_match"
 
     # Solo si no hay KB (o la empresa no tiene KB cargada), verificar si quiere hablar con un agente
     if solicita_contacto_rrhh(entrada_norm):
