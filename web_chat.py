@@ -2714,7 +2714,6 @@ def construir_acciones_sugerencias(consulta, temas_map, permitir_hablar_con_huma
 
 def construir_acciones_handoff():
     return [
-        _accion("Actualizar mensajes", "__poll_rrhh__", "secondary"),
         _accion("Finalizar chat con agente", "__cerrar_rrhh__", "negative"),
     ]
 

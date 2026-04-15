@@ -190,6 +190,19 @@
         </div>
       </div>
 
+      <!-- Modal de progreso de envío de archivos -->
+      <div id="modal-upload-progress" class="upload-progress-overlay" role="alertdialog" aria-modal="true" aria-labelledby="upload-progress-title" hidden>
+        <div class="upload-progress-box">
+          <div class="upload-progress-header">
+            <span>📤</span>
+            <span id="upload-progress-title">Enviando archivos…</span>
+            <span id="upload-progress-badge" class="upload-progress-badge"></span>
+          </div>
+          <ul id="upload-progress-list" class="upload-progress-list"></ul>
+          <p class="upload-progress-warning">⚠️ No cierres ni recargues esta página hasta que finalice el envío.</p>
+        </div>
+      </div>
+
       {% if auth_enabled and can_manage_roles %}
       <section class="panel roles-panel">
         <div class="roles-head">
@@ -1678,16 +1691,74 @@ const agente = agentNameEl.value.trim() || "Agente";
           replyFileEl.value = "";
           if (replyFileNameEl) replyFileNameEl.textContent = "";
         }
-        try {
-          // Primer envío: texto + URL + primer archivo (si hay)
-          await enviarRespuesta(mensaje, mediaUrl || undefined, files[0] || undefined);
-          // Archivos adicionales: uno por mensaje, sin texto
-          for (let _fi = 1; _fi < files.length; _fi++) {
-            await enviarRespuesta("", undefined, files[_fi]);
+
+        // Si hay archivos, mostrar modal de progreso
+        const progressModal = document.getElementById("modal-upload-progress");
+        const progressList = document.getElementById("upload-progress-list");
+        const progressBadge = document.getElementById("upload-progress-badge");
+
+        if (files.length > 0 && progressModal) {
+          // Construir lista de archivos en el modal
+          progressList.innerHTML = "";
+          files.forEach((f, i) => {
+            const li = document.createElement("li");
+            li.id = `upf-item-${i}`;
+            li.innerHTML = `<span class="upf-icon">📎</span><span class="upf-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span><span class="upf-status">Pendiente</span>`;
+            progressList.appendChild(li);
+          });
+          progressBadge.textContent = `0 / ${files.length}`;
+          progressModal.hidden = false;
+
+          // Bloquear navegación accidental durante la subida
+          const _onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ""; };
+          window.addEventListener("beforeunload", _onBeforeUnload);
+
+          const setItemState = (i, cssClass, statusText) => {
+            const li = document.getElementById(`upf-item-${i}`);
+            if (!li) return;
+            li.className = cssClass;
+            li.querySelector(".upf-status").textContent = statusText;
+          };
+
+          let doneCount = 0;
+          try {
+            // Primer envío: texto + url + primer archivo
+            setItemState(0, "upf-uploading", "⏳ Subiendo…");
+            await enviarRespuesta(mensaje, mediaUrl || undefined, files[0]);
+            doneCount++;
+            setItemState(0, "upf-done", "✓ Enviado");
+            progressBadge.textContent = `${doneCount} / ${files.length}`;
+            // Archivos adicionales
+            for (let _fi = 1; _fi < files.length; _fi++) {
+              setItemState(_fi, "upf-uploading", "⏳ Subiendo…");
+              try {
+                await enviarRespuesta("", undefined, files[_fi]);
+                doneCount++;
+                setItemState(_fi, "upf-done", "✓ Enviado");
+              } catch (fileErr) {
+                setItemState(_fi, "upf-error", `✗ ${fileErr.message}`);
+                queueStatusEl.textContent = `Error en ${files[_fi].name}: ${fileErr.message}`;
+              }
+              progressBadge.textContent = `${doneCount} / ${files.length}`;
+            }
+          } catch (error) {
+            setItemState(0, "upf-error", `✗ ${error.message}`);
+            queueStatusEl.textContent = `Error: ${error.message}`;
+          } finally {
+            window.removeEventListener("beforeunload", _onBeforeUnload);
+            // Mantener el modal visible un instante para que el usuario vea el estado final
+            await new Promise(r => setTimeout(r, 900));
+            progressModal.hidden = true;
+            await safeRefresh(true);
           }
-          await safeRefresh(true);
-        } catch (error) {
-          queueStatusEl.textContent = `Error al responder: ${error.message}`;
+        } else {
+          // Sin archivos: flujo normal sin modal
+          try {
+            await enviarRespuesta(mensaje, mediaUrl || undefined, undefined);
+            await safeRefresh(true);
+          } catch (error) {
+            queueStatusEl.textContent = `Error al responder: ${error.message}`;
+          }
         }
       });
 
