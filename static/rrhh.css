@@ -1231,3 +1231,74 @@ code {
   }
 }
 
+/* ── Modal de progreso de envío de archivos ── */
+.upload-progress-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.upload-progress-overlay[hidden] { display: none; }
+.upload-progress-box {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1.5rem 2rem;
+  min-width: 320px;
+  max-width: 460px;
+  width: 90vw;
+  box-shadow: var(--shadow);
+}
+.upload-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text);
+}
+.upload-progress-badge {
+  font-size: 0.78rem;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  margin-left: auto;
+}
+.upload-progress-list {
+  list-style: none;
+  margin: 0 0 1rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.upload-progress-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-soft);
+}
+.upf-icon { font-size: 1rem; flex-shrink: 0; }
+.upf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.upf-status { font-size: 0.78rem; color: var(--text-muted); flex-shrink: 0; }
+.upload-progress-list li.upf-uploading { background: #eff6ff; border-color: #bfdbfe; }
+.upload-progress-list li.upf-uploading .upf-status { color: var(--primary); }
+.upload-progress-list li.upf-done { background: #f0fdf4; border-color: #bbf7d0; }
+.upload-progress-list li.upf-done .upf-status { color: #16a34a; }
+.upload-progress-list li.upf-error { background: #fef2f2; border-color: #fecaca; }
+.upload-progress-list li.upf-error .upf-status { color: var(--danger); }
+.upload-progress-warning {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+  text-align: center;
+}
+
