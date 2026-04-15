@@ -384,12 +384,23 @@ def _reset_whatsapp_chat_context(phone):
         keys_to_remove = [k for k in list(sess.keys()) if k not in _KEEP_KEYS]
         for k in keys_to_remove:
             sess.pop(k, None)
-    # En Firestore: solo limpiar handoff_conversation_id (no borrar el doc)
+    # En Firestore: limpiar handoff_conversation_id y asegurarse de que el step queda en "ready".
+    # Un handoff solo puede estar activo cuando el step era "ready", así que al cerrarlo
+    # siempre corresponde volver a "ready". Esto evita que la siguiente sesión arranque
+    # en step "company" si el doc de Firestore no tenía el step guardado.
     norm = _normalize_phone_for_match(phone)
     if norm and chatbot.db:
         try:
+            # Leer step actual del doc para no pisarlo si ya tenía algo válido distinto de "ready"
+            _fs_step = CHAT_CONTEXT_STEP_READY
+            if phone in WHATSAPP_SESSIONS and WHATSAPP_SESSIONS[phone].get("chat_context_step"):
+                _fs_step = WHATSAPP_SESSIONS[phone]["chat_context_step"]
             chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION).document(norm).set(
-                {"handoff_conversation_id": None, "updated_at": _utc_now()},
+                {
+                    "handoff_conversation_id": None,
+                    "chat_context_step": _fs_step,
+                    "updated_at": _utc_now(),
+                },
                 merge=True,
             )
         except Exception as e:
@@ -1810,21 +1821,78 @@ def _resolve_target_agent_for_reassignment(payload):
 
 
 def _can_manage_configuration():
-    """Acceso a la página Configuración (al menos un módulo)."""
+    """Acceso a la página Configuración (al menos un módulo habilitado)."""
     if not _auth_enabled():
         return True
     return (
         _has_permission(auth_rrhh.PERM_CONFIG_MANAGE)
         or _has_permission(auth_rrhh.PERM_USERS_MANAGE)
         or _has_permission(auth_rrhh.PERM_ROLES_MANAGE)
+        or _has_permission(auth_rrhh.PERM_CONFIG_EMPRESAS)
+        or _has_permission(auth_rrhh.PERM_CONFIG_SUCURSALES)
+        or _has_permission(auth_rrhh.PERM_CONFIG_AREAS)
+        or _has_permission(auth_rrhh.PERM_CONFIG_KNOWLEDGE)
+        or _has_permission(auth_rrhh.PERM_CONFIG_CONVENIOS)
+        or _has_permission(auth_rrhh.PERM_CONFIG_SMTP)
     )
 
 
 def _can_manage_general_config():
-    """Empresas, Sucursales, Áreas."""
+    """Backward-compat: True si tiene el permiso global de configuración."""
     if not _auth_enabled():
         return True
     return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE)
+
+
+def _can_config_empresas():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE) or _has_permission(auth_rrhh.PERM_CONFIG_EMPRESAS)
+
+
+def _can_config_sucursales():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE) or _has_permission(auth_rrhh.PERM_CONFIG_SUCURSALES)
+
+
+def _can_config_areas():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE) or _has_permission(auth_rrhh.PERM_CONFIG_AREAS)
+
+
+def _can_config_knowledge():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE) or _has_permission(auth_rrhh.PERM_CONFIG_KNOWLEDGE)
+
+
+def _can_config_convenios():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE) or _has_permission(auth_rrhh.PERM_CONFIG_CONVENIOS)
+
+
+def _can_config_smtp():
+    if not _auth_enabled():
+        return True
+    return _has_permission(auth_rrhh.PERM_CONFIG_MANAGE) or _has_permission(auth_rrhh.PERM_CONFIG_SMTP)
+
+
+def _list_companies_for_current_rrhh_user(include_inactive=True):
+    """Devuelve las empresas filtradas por las asignaciones del usuario logueado."""
+    companies_raw = _list_companies(include_inactive=include_inactive)
+    cur_user = _current_rrhh_user()
+    if cur_user:
+        assignments = [
+            item for item in (cur_user.get("assignments") or [])
+            if isinstance(item, dict) and item.get("company_id")
+        ]
+        if assignments:
+            allowed_ids = {str(item["company_id"]).strip().lower() for item in assignments}
+            companies_raw = [c for c in companies_raw if c.get("company_id") in allowed_ids]
+    return companies_raw
 
 
 def _companies_for_user(user_payload):
@@ -1889,6 +1957,20 @@ def _has_permission(permission):
     if not effective_role:
         effective_role = current.get("role") or "rrhh"
     return auth_rrhh.role_has_permission(effective_role, permission)
+
+
+def _is_admin():
+    if not _auth_enabled():
+        return True
+    current = _current_rrhh_user()
+    if not current:
+        return False
+    entry = auth_rrhh.get_users().get((current.get("username") or "").lower()) or current
+    selected_company = _selected_company_id_for_rrhh() or ""
+    effective_role = auth_rrhh.get_role_for_context(entry, selected_company, branch=None)
+    if not effective_role:
+        effective_role = current.get("role") or "rrhh"
+    return str(effective_role).strip().lower() == "admin"
 
 
 def _auth_json_error():
@@ -2200,7 +2282,9 @@ def _send_whatsapp_to_collaborator(to_phone, text, from_number=None, media_url=N
     pid = _meta_phone_number_id() or None
 
     media_list = media_url if isinstance(media_url, list) else ([media_url] if media_url else [])
-    caption_pending = str(text or "").strip()
+    # "(archivo adjunto)" es un marcador interno, no un mensaje real para el colaborador
+    _raw_caption = str(text or "").strip()
+    caption_pending = "" if _raw_caption == "(archivo adjunto)" else _raw_caption
 
     for url in media_list:
         if not url or not isinstance(url, str) or not url.startswith("http"):
@@ -2219,6 +2303,31 @@ def _send_whatsapp_to_collaborator(to_phone, text, from_number=None, media_url=N
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
             if not content_type or content_type in ("application/octet-stream", "binary/octet-stream"):
                 content_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
+            # Meta no acepta text/csv — convertir a XLSX antes de subir
+            if ext == "csv" or content_type == "text/csv":
+                try:
+                    import openpyxl as _openpyxl
+                    from io import BytesIO as _BytesIO, StringIO as _StringIO
+                    import csv as _csv_mod
+                    _text = file_bytes.decode("utf-8-sig", errors="replace")
+                    try:
+                        _dialect = _csv_mod.Sniffer().sniff(_text[:2048])
+                    except Exception:
+                        _dialect = "excel"
+                    _reader = _csv_mod.reader(_StringIO(_text), _dialect)
+                    _wb = _openpyxl.Workbook()
+                    _ws = _wb.active
+                    for _row in _reader:
+                        _ws.append(_row)
+                    _buf = _BytesIO()
+                    _wb.save(_buf)
+                    file_bytes = _buf.getvalue()
+                    content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    filename = filename.rsplit(".", 1)[0] + ".xlsx"
+                    ext = "xlsx"
+                    logger.info("_send_whatsapp_to_collaborator: CSV convertido a XLSX (%s)", filename)
+                except Exception as _conv_err:
+                    logger.warning("_send_whatsapp_to_collaborator csv->xlsx: %s", _conv_err)
             media_id = _upload_media_to_meta(file_bytes, content_type, filename, phone_number_id=pid)
             if not media_id:
                 logger.warning("_send_whatsapp_to_collaborator: no se pudo subir media a Meta")
@@ -2714,7 +2823,7 @@ def construir_acciones_sugerencias(consulta, temas_map, permitir_hablar_con_huma
 
 def construir_acciones_handoff():
     return [
-        _accion("Finalizar chat con agente", "__cerrar_rrhh__", "negative"),
+        _accion("Finalizar chat", "__cerrar_rrhh__", "negative"),
     ]
 
 
@@ -2796,8 +2905,6 @@ def _generar_resumen_conversacion(chat_session_id, mensaje_trigger=None):
 
     # Extraer consultas reales del colaborador (ignorar respuestas cortas/triviales)
     consultas = []
-    ultimo_bot_respondio = False
-    ultimo_bot_texto = ""
     for t in turnos:
         remitente = str(t.get("remitente") or "").strip().lower()
         texto = str(t.get("texto") or "").strip()
@@ -2807,10 +2914,6 @@ def _generar_resumen_conversacion(chat_session_id, mensaje_trigger=None):
             norm = chatbot.normalizar_texto(texto)
             if norm not in _RESUMEN_IGNORAR and len(texto) > 3:
                 consultas.append(texto)
-                ultimo_bot_respondio = False  # sólo resetear para consultas reales
-        elif remitente in ("bot", "asistente"):
-            ultimo_bot_respondio = True
-            ultimo_bot_texto = texto
 
     logging.info("_generar_resumen: session_id=%r consultas_filtradas=%d remitentes=%s",
                  chat_session_id, len(consultas),
@@ -2839,13 +2942,6 @@ def _generar_resumen_conversacion(chat_session_id, mensaje_trigger=None):
 
     partes = ["📋 Resumen de la consulta:"]
     partes.append(f"Temas consultados ({len(consultas_unicas)}): " + " | ".join(f'"{c}"' for c in consultas_unicas))
-
-    # Última respuesta del bot
-    if ultimo_bot_respondio and ultimo_bot_texto:
-        bot_corto = ultimo_bot_texto[:150] + "..." if len(ultimo_bot_texto) > 150 else ultimo_bot_texto
-        partes.append(f"Última respuesta del bot: {bot_corto}")
-    else:
-        partes.append("El bot no pudo responder la última consulta.")
 
     return "\n".join(partes)
 
@@ -3596,8 +3692,7 @@ def configuracion_page():
         return ("No tenés permisos para acceder a configuración.", 403)
     company = _set_company_session(session.get("company_id") or _default_company_id())
     settings = _read_general_settings()
-    companies_raw = _list_companies(include_inactive=True)
-    companies = [_company_for_api(c) for c in companies_raw]
+    companies = [_company_for_api(c) for c in _list_companies_for_current_rrhh_user(include_inactive=True)]
     return render_template(
         "configuracion.html",
         auth_enabled=_auth_enabled(),
@@ -3605,6 +3700,14 @@ def configuracion_page():
         can_manage_users=_has_permission(auth_rrhh.PERM_USERS_MANAGE),
         can_manage_roles=_has_permission(auth_rrhh.PERM_ROLES_MANAGE),
         can_manage_general=_can_manage_general_config(),
+        can_config_empresas=_can_config_empresas(),
+        can_config_sucursales=_can_config_sucursales(),
+        can_config_areas=_can_config_areas(),
+        can_config_knowledge=_can_config_knowledge(),
+        can_config_convenios=_can_config_convenios(),
+        can_config_smtp=_can_config_smtp(),
+        can_send_comunicados=_has_permission(auth_rrhh.PERM_COMUNICADOS_SEND),
+        is_admin=_is_admin(),
         general_settings=settings,
         companies=companies,
         selected_company_id=company.get("company_id"),
@@ -4345,6 +4448,8 @@ def api_legajos_convenios_list():
     user = _current_rrhh_user()
     if _auth_enabled() and user is None:
         return jsonify({"ok": False, "error": "No autenticado"}), 401
+    if _auth_enabled() and not _can_config_convenios():
+        return jsonify({"ok": False, "error": "Sin permiso para ver convenios."}), 403
     cid = request.args.get("company_id", "").strip().lower()
     if not cid:
         return jsonify({"ok": False, "error": "Falta company_id"}), 400
@@ -4357,6 +4462,8 @@ def api_legajos_convenios_create():
     user = _current_rrhh_user()
     if _auth_enabled() and user is None:
         return jsonify({"ok": False, "error": "No autenticado"}), 401
+    if _auth_enabled() and not _can_config_convenios():
+        return jsonify({"ok": False, "error": "Sin permiso para gestionar convenios."}), 403
     data = request.get_json(silent=True) or {}
     cid = str(data.get("company_id") or "").strip().lower()
     nombre = str(data.get("nombre") or "").strip()
@@ -4372,6 +4479,8 @@ def api_legajos_convenios_update(convenio_id):
     user = _current_rrhh_user()
     if _auth_enabled() and user is None:
         return jsonify({"ok": False, "error": "No autenticado"}), 401
+    if _auth_enabled() and not _can_config_convenios():
+        return jsonify({"ok": False, "error": "Sin permiso para gestionar convenios."}), 403
     data = request.get_json(silent=True) or {}
     nombre = str(data.get("nombre") or "").strip()
     tipos = data.get("tipos_documento") or []
@@ -4386,6 +4495,8 @@ def api_legajos_convenios_delete(convenio_id):
     user = _current_rrhh_user()
     if _auth_enabled() and user is None:
         return jsonify({"ok": False, "error": "No autenticado"}), 401
+    if _auth_enabled() and not _can_config_convenios():
+        return jsonify({"ok": False, "error": "Sin permiso para gestionar convenios."}), 403
     ok, msg = legajos_service.delete_convenio(chatbot.db, convenio_id)
     if not ok:
         return jsonify({"ok": False, "error": msg}), 400
@@ -6836,9 +6947,9 @@ def configuracion_general_update_api():
 @flask_app.get("/api/configuracion/empresas")
 @rrhh_auth_required
 def configuracion_empresas_api():
-    if not _can_manage_configuration():
+    if not _can_config_empresas() and not _can_config_sucursales() and not _can_config_areas() and not _can_manage_configuration():
         return _forbidden_json_error("Sin permiso para ver empresas.")
-    companies = [_company_for_api(c) for c in _list_companies(include_inactive=True)]
+    companies = [_company_for_api(c) for c in _list_companies_for_current_rrhh_user(include_inactive=True)]
     return jsonify(
         {
             "ok": True,
@@ -6851,8 +6962,8 @@ def configuracion_empresas_api():
 @flask_app.post("/api/configuracion/empresas")
 @rrhh_auth_required
 def configuracion_crear_empresa_api():
-    if not _can_manage_general_config():
-        return _forbidden_json_error("Sin permiso para crear empresas.")
+    if not _is_admin():
+        return _forbidden_json_error("Solo el admin puede crear empresas.")
     data = request.get_json(silent=True) or {}
     ok, company, error = _upsert_company(data)
     if not ok:
@@ -6864,7 +6975,7 @@ def configuracion_crear_empresa_api():
 @flask_app.post("/api/configuracion/empresas/<company_id>")
 @rrhh_auth_required
 def configuracion_editar_empresa_api(company_id):
-    if not _can_manage_general_config():
+    if not _can_config_empresas() and not _can_config_sucursales() and not _can_config_areas():
         return _forbidden_json_error("Sin permiso para editar empresas.")
     current = _get_company(company_id, include_inactive=True)
     if not current:
@@ -6919,7 +7030,7 @@ def configuracion_editar_empresa_api(company_id):
 @flask_app.get("/api/configuracion/smtp")
 @rrhh_auth_required
 def configuracion_smtp_get():
-    if not _can_manage_general_config():
+    if not _can_config_smtp():
         return _forbidden_json_error("Sin permiso.")
     cfg = _smtp_settings()
     return jsonify({
@@ -6937,7 +7048,7 @@ def configuracion_smtp_get():
 @flask_app.post("/api/configuracion/smtp")
 @rrhh_auth_required
 def configuracion_smtp_save():
-    if not _can_manage_general_config():
+    if not _can_config_smtp():
         return _forbidden_json_error("Sin permiso.")
     data = request.get_json(silent=True) or {}
     host = str(data.get("host") or "").strip()[:200]
@@ -6977,7 +7088,7 @@ def configuracion_smtp_save():
 @flask_app.post("/api/configuracion/smtp/test")
 @rrhh_auth_required
 def configuracion_smtp_test():
-    if not _can_manage_general_config():
+    if not _can_config_smtp():
         return _forbidden_json_error("Sin permiso.")
     data = request.get_json(silent=True) or {}
     to_email = str(data.get("to") or "").strip()
@@ -6992,8 +7103,8 @@ def configuracion_smtp_test():
 @flask_app.delete("/api/configuracion/empresas/<company_id>")
 @rrhh_auth_required
 def configuracion_eliminar_empresa_api(company_id):
-    if not _can_manage_general_config():
-        return _forbidden_json_error("Sin permiso para eliminar empresas.")
+    if not _is_admin():
+        return _forbidden_json_error("Solo el admin puede eliminar empresas.")
     ok, error = _delete_company(company_id)
     if not ok:
         status_code = 404 if "no encontrada" in error.lower() else 409
@@ -7007,7 +7118,7 @@ def configuracion_eliminar_empresa_api(company_id):
 @flask_app.post("/api/configuracion/empresa/seleccionar")
 @rrhh_auth_required
 def configuracion_seleccionar_empresa_api():
-    if not _can_manage_general_config():
+    if not _can_manage_configuration():
         return _forbidden_json_error("Sin permiso para cambiar empresa activa.")
     data = request.get_json(silent=True) or {}
     company_id = _normalize_company_id(data.get("company_id"))
@@ -7027,7 +7138,7 @@ def configuracion_seleccionar_empresa_api():
 @rrhh_auth_required
 def configuracion_knowledge_get():
     """Devuelve la base de conocimiento (cantidad y opcionalmente entradas) de una empresa."""
-    if not _can_manage_configuration():
+    if not _can_config_knowledge():
         return _forbidden_json_error("Sin permiso.")
     company_id = _normalize_company_id(request.args.get("company_id") or "")
     if not company_id:
@@ -7268,7 +7379,7 @@ def _parse_knowledge_file(file_storage):
 @rrhh_auth_required
 def configuracion_knowledge_upload():
     """Sube un archivo CSV, Excel o PDF (Pregunta/Respuesta) y guarda la base de conocimiento. En PDF se usa Document AI para extraer texto."""
-    if not _can_manage_general_config():
+    if not _can_config_knowledge():
         return _forbidden_json_error("Sin permiso para gestionar base de conocimiento.")
     company_id = _normalize_company_id(request.form.get("company_id") or "")
     if not company_id:
@@ -7595,7 +7706,7 @@ def _auto_update_temas_from_knowledge(company_id, entries):
 @rrhh_auth_required
 def configuracion_knowledge_sync_from_drive():
     """Sincroniza la base de conocimiento desde una carpeta de Google Drive usando IA (Gemini) para extraer FAQs de cualquier documento."""
-    if not _can_manage_general_config():
+    if not _can_config_knowledge():
         return _forbidden_json_error("Sin permiso para gestionar base de conocimiento.")
     data = request.get_json(silent=True) or {}
     company_id = _normalize_company_id(data.get("company_id") or "")
@@ -7629,7 +7740,7 @@ def configuracion_knowledge_sync_from_drive():
 @rrhh_auth_required
 def configuracion_knowledge_regenerar_temas():
     """Regenera los temas del menú a partir de la base de conocimiento existente (sin re-sincronizar Drive)."""
-    if not _can_manage_general_config():
+    if not _can_config_knowledge():
         return _forbidden_json_error("Sin permiso para regenerar temas.")
     data = request.get_json(silent=True) or {}
     company_id = _normalize_company_id(data.get("company_id") or "")
@@ -7807,8 +7918,7 @@ def rrhh_seleccionar_empresa_api():
 )
 def rrhh_usuarios_api():
     users = auth_rrhh.list_file_users()
-    companies_raw = _list_companies(include_inactive=False)
-    companies = [_company_for_api(c) for c in companies_raw]
+    companies = [_company_for_api(c) for c in _list_companies_for_current_rrhh_user(include_inactive=False)]
     return jsonify(
         {
             "ok": True,

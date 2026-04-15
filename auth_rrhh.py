@@ -27,6 +27,12 @@ PERM_HISTORY_VIEW = "historial_ver"
 PERM_USERS_MANAGE = "usuarios_gestionar"
 PERM_ROLES_MANAGE = "roles_gestionar"
 PERM_CONFIG_MANAGE = "configuracion_gestionar"
+PERM_CONFIG_EMPRESAS = "configuracion_empresas"
+PERM_CONFIG_SUCURSALES = "configuracion_sucursales"
+PERM_CONFIG_AREAS = "configuracion_areas"
+PERM_CONFIG_KNOWLEDGE = "configuracion_conocimiento"
+PERM_CONFIG_CONVENIOS = "configuracion_convenios"
+PERM_CONFIG_SMTP = "configuracion_smtp"
 PERM_STATS_VIEW = "estadisticas_ver"
 PERM_PREFERENCES_MANAGE = "preferencias_gestionar"
 PERM_COMUNICADOS_SEND = "comunicados_enviar"
@@ -39,7 +45,13 @@ PERMISSIONS_CATALOG = {
     PERM_HISTORY_VIEW: "Ver historial completo",
     PERM_USERS_MANAGE: "Crear y editar usuarios",
     PERM_ROLES_MANAGE: "Crear y editar roles/permisos",
-    PERM_CONFIG_MANAGE: "Gestionar configuración (empresas, sucursales, áreas, convenios, carpetas)",
+    PERM_CONFIG_MANAGE: "Configuración completa (acceso a todas las secciones)",
+    PERM_CONFIG_EMPRESAS: "Configuración → Gestionar empresas",
+    PERM_CONFIG_SUCURSALES: "Configuración → Gestionar sucursales",
+    PERM_CONFIG_AREAS: "Configuración → Gestionar áreas",
+    PERM_CONFIG_KNOWLEDGE: "Configuración → Gestionar base de conocimiento",
+    PERM_CONFIG_CONVENIOS: "Configuración → Gestionar convenios laborales",
+    PERM_CONFIG_SMTP: "Configuración → Configurar Email / SMTP",
     PERM_STATS_VIEW: "Ver estadísticas",
     PERM_PREFERENCES_MANAGE: "Gestionar preferencias (empresa activa, autocierre, reglas del chat)",
     PERM_COMUNICADOS_SEND: "Enviar comunicados por WhatsApp",
@@ -493,13 +505,24 @@ def _load_admin_user_from_env():
 
 def _build_roles_map(role_entries):
     roles = {}
+    # Nombres de roles que ya existen en Firestore/archivo
+    names_in_entries = {
+        _normalize_role(item.get("name"), default="")
+        for item in role_entries
+        if isinstance(item, dict) and item.get("name")
+    }
     for name, payload in deepcopy(DEFAULT_ROLE_DEFINITIONS).items():
-        roles[name] = {
-            "name": name,
-            "display_name": str(payload.get("display_name") or name),
-            "permissions": _normalize_permissions(payload.get("permissions")) or [],
-            "company_ids": [],
-        }
+        # Sembrar el default solo si:
+        # - No hay entradas personalizadas aún (instalación limpia), O
+        # - Este default aparece explícitamente en las entradas, O
+        # - Es "admin" (siempre necesario para el usuario administrador)
+        if not role_entries or name in names_in_entries or name == "admin":
+            roles[name] = {
+                "name": name,
+                "display_name": str(payload.get("display_name") or name),
+                "permissions": _normalize_permissions(payload.get("permissions")) or [],
+                "company_ids": [],
+            }
     for item in role_entries:
         normalized = _normalize_role_entry(item)
         if not normalized:
@@ -1366,8 +1389,8 @@ def delete_role(name, path=None):
     role_name = _normalize_role(name, default="")
     if not role_name:
         return False, "Nombre de rol requerido."
-    if role_name in DEFAULT_ROLE_DEFINITIONS:
-        return False, "No se pueden eliminar los roles base del sistema."
+    if role_name == "admin":
+        return False, "No se puede eliminar el rol admin del sistema."
 
     target_path = path or roles_file_path()
     raw_entries = _load_roles_raw_entries(target_path)
@@ -1384,7 +1407,7 @@ def delete_role(name, path=None):
 
     # Impide borrar roles que estén asignados a usuarios actuales.
     for user in get_users().values():
-        if _normalize_role(user.get("role"), default="rrhh") == role_name:
+        if _normalize_role(user.get("role"), default="") == role_name:
             return False, "No podés eliminar un rol asignado a usuarios."
 
     if not _write_roles_raw_entries(target_path, kept):
