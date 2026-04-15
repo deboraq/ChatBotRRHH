@@ -162,13 +162,25 @@
           <h2>Módulos</h2>
           <p class="subtle">Seleccioná qué querés administrar.</p>
           <nav id="config-nav" class="config-nav">
-            {% if can_manage_general %}
+            {% if can_config_empresas %}
             <button type="button" data-section-target="empresas">Empresas</button>
+            {% endif %}
+            {% if can_config_sucursales %}
             <button type="button" data-section-target="sucursales">Sucursales</button>
+            {% endif %}
+            {% if can_config_areas %}
             <button type="button" data-section-target="areas">Áreas</button>
+            {% endif %}
+            {% if can_config_knowledge %}
             <button type="button" data-section-target="knowledge">Base de conocimiento</button>
+            {% endif %}
+            {% if can_send_comunicados %}
             <button type="button" data-section-target="contactos">Contactos</button>
+            {% endif %}
+            {% if can_config_convenios %}
             <button type="button" data-section-target="convenios">Convenios</button>
+            {% endif %}
+            {% if can_config_smtp %}
             <button type="button" data-section-target="smtp">Email / SMTP</button>
             {% endif %}
             {% if can_manage_users %}
@@ -181,17 +193,19 @@
         </aside>
 
         <div class="config-content">
-          {% if can_manage_general %}
+          {% if can_config_empresas %}
           <section class="panel companies-panel config-section" data-section-key="empresas">
             <h2>Empresas</h2>
             <p class="subtle">
               Listado de empresas. Usá "Agregar" para crear una nueva o "Modificar" en cada fila para editar. Los cambios impactan en login, chat y panel de atención.
             </p>
 
+            {% if is_admin %}
             <div class="companies-toolbar">
               <button type="button" id="btn-add-company" class="btn btn-primary">Agregar</button>
             </div>
             <p class="subtle">Si no completás el ID al agregar, se genera automáticamente desde el nombre.</p>
+            {% endif %}
 
             <div class="companies-table-wrap">
               <table class="companies-table config-table">
@@ -206,9 +220,11 @@
               </table>
             </div>
 
+            {% if is_admin %}
             <p class="subtle danger-note">
               Para eliminar una empresa usá el botón Eliminar en la fila correspondiente. Si tiene usuarios asignados, el sistema la bloqueará.
             </p>
+            {% endif %}
 
             <p id="general-status" class="subtle"></p>
           </section>
@@ -273,7 +289,9 @@
               </form>
             </div>
           </div>
+          {% endif %}
 
+          {% if can_config_sucursales %}
           <section class="panel branches-panel config-section" data-section-key="sucursales">
             <h2>Sucursales</h2>
             <p class="subtle">
@@ -298,7 +316,9 @@
             </div>
             <p id="branches-status" class="subtle"></p>
           </section>
+          {% endif %}
 
+          {% if can_config_areas %}
           <section class="panel areas-panel config-section" data-section-key="areas">
             <h2>Áreas</h2>
             <p class="subtle">
@@ -405,7 +425,7 @@
           </div>
           {% endif %}
 
-          {% if can_manage_general %}
+          {% if can_config_knowledge %}
           <section class="panel knowledge-panel config-section" data-section-key="knowledge">
             <h2>Base de conocimiento por empresa</h2>
             <p class="subtle">Subí un archivo CSV, Excel o PDF con <strong>Pregunta</strong> y <strong>Respuesta</strong>. En PDF se usa Document AI para extraer el texto (formato "Pregunta: ... Respuesta: ..." o líneas alternadas). El chatbot prioriza esta base sobre los temas del menú.</p>
@@ -627,7 +647,7 @@
           </div>
           {% endif %}
 
-          {% if can_manage_general %}
+          {% if can_send_comunicados %}
           <section class="panel contactos-panel config-section" data-section-key="contactos">
             <h2>Contactos de WhatsApp</h2>
             <p class="subtle">Administrá la lista de contactos para comunicados. Podés importarlos con la plantilla CSV o agregarlos uno por uno.</p>
@@ -681,6 +701,9 @@
               </div>
             </div>
           </section>
+          {% endif %}
+
+          {% if can_config_convenios %}
           <section class="panel convenios-panel config-section" data-section-key="convenios">
             <h2>Convenios laborales</h2>
             <p class="subtle">Configurá los convenios de cada empresa y las carpetas de documentos habilitadas para cada uno.</p>
@@ -726,24 +749,6 @@
             <p id="carpetas-status" class="subtle"></p>
           </section>
 
-          <section class="panel config-section" data-section-key="smtp" style="max-width:600px;">
-            <h2>Email / SMTP</h2>
-            <p class="subtle">Configuración del servidor de correo para notificaciones de handoff. Si las variables de entorno <code>SMTP_HOST</code> están configuradas en el servidor, se usan esas. Si no, completá aquí y se guardan en Firestore.</p>
-            <form id="smtp-settings-form" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem;">
-              <label class="field">Host SMTP <span class="subtle">(ej: smtp.gmail.com)</span><input id="smtp-host" type="text" placeholder="smtp.gmail.com" /></label>
-              <label class="field">Puerto <span class="subtle">(defecto: 587)</span><input id="smtp-port" type="number" placeholder="587" min="1" max="65535" /></label>
-              <label class="field">Usuario <span class="subtle">(ej: tu-cuenta@gmail.com)</span><input id="smtp-user" type="text" placeholder="tu-cuenta@gmail.com" /></label>
-              <label class="field">Contraseña <input id="smtp-password" type="password" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" /></label>
-              <label class="field">Email remitente <span class="subtle">(ej: no-reply@empresa.com)</span><input id="smtp-from" type="email" placeholder="no-reply@empresa.com" /></label>
-              <label class="field" style="flex-direction:row;align-items:center;gap:0.5rem;"><input id="smtp-use-tls" type="checkbox" checked style="width:auto;" /> Usar TLS (STARTTLS)</label>
-              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-                <button type="submit" class="btn btn-primary" id="smtp-save-btn">Guardar configuración SMTP</button>
-                <button type="button" id="smtp-test-btn" class="btn ghost">Enviar email de prueba</button>
-              </div>
-              <p id="smtp-status" class="subtle" style="min-height:1.2em;"></p>
-            </form>
-          </section>
-
           <!-- Modal convenio -->
           <div id="convenio-modal" class="config-modal" role="dialog" aria-labelledby="convenio-modal-title" aria-modal="true" hidden>
             <div class="config-modal-backdrop"></div>
@@ -772,7 +777,27 @@
           </div>
           {% endif %}
 
-          {% if not (can_manage_general or can_manage_users or can_manage_roles) %}
+          {% if can_config_smtp %}
+          <section class="panel config-section" data-section-key="smtp" style="max-width:600px;">
+            <h2>Email / SMTP</h2>
+            <p class="subtle">Configuración del servidor de correo para notificaciones de handoff. Si las variables de entorno <code>SMTP_HOST</code> están configuradas en el servidor, se usan esas. Si no, completá aquí y se guardan en Firestore.</p>
+            <form id="smtp-settings-form" style="display:flex;flex-direction:column;gap:0.75rem;margin-top:1rem;">
+              <label class="field">Host SMTP <span class="subtle">(ej: smtp.gmail.com)</span><input id="smtp-host" type="text" placeholder="smtp.gmail.com" /></label>
+              <label class="field">Puerto <span class="subtle">(defecto: 587)</span><input id="smtp-port" type="number" placeholder="587" min="1" max="65535" /></label>
+              <label class="field">Usuario <span class="subtle">(ej: tu-cuenta@gmail.com)</span><input id="smtp-user" type="text" placeholder="tu-cuenta@gmail.com" /></label>
+              <label class="field">Contraseña <input id="smtp-password" type="password" placeholder="Dejar vacío para no cambiar" autocomplete="new-password" /></label>
+              <label class="field">Email remitente <span class="subtle">(ej: no-reply@empresa.com)</span><input id="smtp-from" type="email" placeholder="no-reply@empresa.com" /></label>
+              <label class="field" style="flex-direction:row;align-items:center;gap:0.5rem;"><input id="smtp-use-tls" type="checkbox" checked style="width:auto;" /> Usar TLS (STARTTLS)</label>
+              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                <button type="submit" class="btn btn-primary" id="smtp-save-btn">Guardar configuración SMTP</button>
+                <button type="button" id="smtp-test-btn" class="btn ghost">Enviar email de prueba</button>
+              </div>
+              <p id="smtp-status" class="subtle" style="min-height:1.2em;"></p>
+            </form>
+          </section>
+          {% endif %}
+
+          {% if not (can_config_empresas or can_config_sucursales or can_config_areas or can_config_knowledge or can_config_convenios or can_config_smtp or can_send_comunicados or can_manage_users or can_manage_roles) %}
           <section class="panel">
             <h2>Sin módulos disponibles</h2>
             <p class="subtle">Tu usuario no tiene permisos para administrar esta pantalla.</p>
@@ -786,6 +811,14 @@
       const canManageUsers = {{ can_manage_users|tojson }};
       const canManageRoles = {{ can_manage_roles|tojson }};
       const canManageGeneral = {{ can_manage_general|tojson }};
+      const canConfigEmpresas = {{ can_config_empresas|tojson }};
+      const canConfigSucursales = {{ can_config_sucursales|tojson }};
+      const canConfigAreas = {{ can_config_areas|tojson }};
+      const canConfigKnowledge = {{ can_config_knowledge|tojson }};
+      const canConfigConvenios = {{ can_config_convenios|tojson }};
+      const canConfigSmtp = {{ can_config_smtp|tojson }};
+      const canSendComunicados = {{ can_send_comunicados|tojson }};
+      const isAdmin = {{ is_admin|tojson }};
       const sectionNavButtons = Array.from(document.querySelectorAll("[data-section-target]"));
       const sectionPanels = Array.from(document.querySelectorAll(".config-section[data-section-key]"));
       const CONFIG_SECTION_STORAGE_KEY = "config_active_section";
@@ -904,7 +937,7 @@
 
       const AUTO_CLOSE_DISABLED = "disabled";
 
-      let validRoles = ["admin", "rrhh"];
+      let validRoles = ["admin"];
       let rolesListWithCompanies = [];
       let permissionsCatalog = [];
       let companies = {{ companies|tojson if companies is defined else [] }};
@@ -1325,20 +1358,22 @@
           btnModify.textContent = "Modificar";
           btnModify.addEventListener("click", () => openCompanyModal(company));
           tdAction.appendChild(btnModify);
-          const btnDelete = document.createElement("button");
-          btnDelete.type = "button";
-          btnDelete.className = "role-update-btn danger";
-          btnDelete.style.marginLeft = "6px";
-          btnDelete.textContent = "Eliminar";
-          btnDelete.addEventListener("click", async () => {
-            try {
-              await eliminarEmpresaPorId(company.company_id);
-            } catch (error) {
-              setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
-              showToast(getErrorMessage(error), true);
-            }
-          });
-          tdAction.appendChild(btnDelete);
+          if (isAdmin) {
+            const btnDelete = document.createElement("button");
+            btnDelete.type = "button";
+            btnDelete.className = "role-update-btn danger";
+            btnDelete.style.marginLeft = "6px";
+            btnDelete.textContent = "Eliminar";
+            btnDelete.addEventListener("click", async () => {
+              try {
+                await eliminarEmpresaPorId(company.company_id);
+              } catch (error) {
+                setGeneralStatus(`Error: ${getErrorMessage(error)}`, true);
+                showToast(getErrorMessage(error), true);
+              }
+            });
+            tdAction.appendChild(btnDelete);
+          }
           tr.appendChild(tdId);
           tr.appendChild(tdName);
           tr.appendChild(tdAction);
@@ -2343,8 +2378,8 @@
         fillCompanySelect(modalCompany, "", true);
         updateModalRolesDropdown();
         modalRolesPanel?.querySelectorAll(".modal-role-cb").forEach((cb) => { cb.checked = false; });
-        const rrhhCb = modalRolesPanel?.querySelector(".modal-role-cb[data-role='rrhh']");
-        if (rrhhCb) rrhhCb.checked = true;
+        const firstRoleCb = modalRolesPanel?.querySelector(".modal-role-cb:not([data-role='admin'])") || modalRolesPanel?.querySelector(".modal-role-cb");
+        if (firstRoleCb) firstRoleCb.checked = true;
         updateModalRolesTriggerLabel();
 
         if (mode === "add") {
@@ -2423,7 +2458,7 @@
         const phone = (modalPhone?.value || "").trim();
         const area = getModalAreas().join(", ");
         const password = (modalPassword?.value || "").trim();
-        const role = getModalRoles().join(", ") || "rrhh";
+        const role = getModalRoles().join(", ") || validRoles.find((r) => r !== "admin") || "admin";
         const assignments = getModalAssignments();
 
         if (mode === "add") {
@@ -3892,7 +3927,7 @@
       init();
 
       // ── Sección Contactos ──────────────────────────────────────────────────
-      if (canManageGeneral) {
+      if (canSendComunicados) {
         const contactosCompanySelect = document.getElementById("contactos-company-select");
         const contactosFileImport = document.getElementById("contactos-file-import");
         const contactosAddNombre = document.getElementById("contactos-add-nombre");
@@ -4163,7 +4198,7 @@
       // =====================================================================
       // CONVENIOS + CARPETAS
       // =====================================================================
-      if (canManageGeneral) {
+      if (canConfigConvenios) {
         const DEFAULT_TIPOS = {{ all_tipos_documento | tojson }};
         let companyTipos = DEFAULT_TIPOS; // se actualiza al cargar carpetas de la empresa
         let companyTiposMap = Object.fromEntries(DEFAULT_TIPOS.map(([c, l]) => [c, l]));
