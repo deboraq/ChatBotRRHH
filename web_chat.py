@@ -5288,7 +5288,16 @@ def _process_chat_turn(mensaje_trim):
                     logger.warning("DNI lookup error: %s", _e)
             if _found_emp:
                 emp_id = _found_emp.get("id") or ""
-                emp_conv = (_found_emp.get("convenio") or "").strip().lower()
+                emp_conv_raw = (_found_emp.get("convenio") or "").strip()
+                # El campo convenio puede ser un ID de documento en legajos_convenios → resolver al nombre
+                if emp_conv_raw and chatbot.db:
+                    try:
+                        _conv_doc = _ls.get_convenio(chatbot.db, emp_conv_raw)
+                        emp_conv = (_conv_doc.get("nombre") or emp_conv_raw).strip().lower() if _conv_doc else emp_conv_raw.lower()
+                    except Exception:
+                        emp_conv = emp_conv_raw.lower()
+                else:
+                    emp_conv = emp_conv_raw.lower()
                 emp_empresa = (_found_emp.get("company_id") or "").strip()
                 emp_nombre = (_found_emp.get("nombre_completo") or _found_emp.get("nombre") or "").strip()
                 _sess()["wa_empleado_id"] = emp_id
