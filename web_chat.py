@@ -6034,6 +6034,21 @@ def webhook_twilio_whatsapp():
         identity = _get_whatsapp_identity(from_phone)
         if identity:
             g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
+    # Si wa_convenio parece un ID de Firestore (>15 chars) en lugar de un nombre, resolverlo
+    _cur_conv = g.whatsapp_session.get("wa_convenio") or ""
+    _cur_emp = g.whatsapp_session.get("wa_empleado_id") or ""
+    if _cur_conv and len(_cur_conv) > 15 and _cur_emp and chatbot.db:
+        try:
+            import legajos_service as _ls_wh
+            _emp_snap = chatbot.db.collection(_ls_wh.LEGAJOS_EMPLEADOS_COLLECTION).document(_cur_emp).get()
+            if _emp_snap.exists:
+                _conv_id = (_emp_snap.to_dict() or {}).get("convenio") or ""
+                if _conv_id:
+                    _conv_doc = _ls_wh.get_convenio(chatbot.db, _conv_id)
+                    if _conv_doc:
+                        g.whatsapp_session["wa_convenio"] = (_conv_doc.get("nombre") or "").strip().lower()
+        except Exception:
+            pass
     if not g.whatsapp_session.get("chat_context_company_id"):
         cid, company, line_label = _company_by_whatsapp_phone(to_phone)
         if cid and company:
@@ -6452,6 +6467,21 @@ def webhook_meta_whatsapp():
                     identity = _get_whatsapp_identity(from_phone)
                     if identity:
                         g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
+                # Si wa_convenio parece un ID de Firestore (>15 chars), resolverlo al nombre
+                _cur_conv = g.whatsapp_session.get("wa_convenio") or ""
+                _cur_emp = g.whatsapp_session.get("wa_empleado_id") or ""
+                if _cur_conv and len(_cur_conv) > 15 and _cur_emp and chatbot.db:
+                    try:
+                        import legajos_service as _ls_wh
+                        _emp_snap = chatbot.db.collection(_ls_wh.LEGAJOS_EMPLEADOS_COLLECTION).document(_cur_emp).get()
+                        if _emp_snap.exists:
+                            _conv_id = (_emp_snap.to_dict() or {}).get("convenio") or ""
+                            if _conv_id:
+                                _conv_doc = _ls_wh.get_convenio(chatbot.db, _conv_id)
+                                if _conv_doc:
+                                    g.whatsapp_session["wa_convenio"] = (_conv_doc.get("nombre") or "").strip().lower()
+                    except Exception:
+                        pass
 
                 if not g.whatsapp_session.get("chat_context_company_id"):
                     cid, company, line_label = _company_by_whatsapp_phone(phone_number_id)
