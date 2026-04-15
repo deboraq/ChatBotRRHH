@@ -6020,6 +6020,11 @@ def webhook_twilio_whatsapp():
             g.whatsapp_session["wa_empleado_id"] = identity.get("empleado_id") or ""
             g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
             g.whatsapp_session["wa_nombre"] = identity.get("nombre") or ""
+    elif not g.whatsapp_session.get("wa_convenio"):
+        # Tiene empleado_id pero le falta convenio (sesión guardada antes de que se agregara) → refrescar
+        identity = _get_whatsapp_identity(from_phone)
+        if identity:
+            g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
     if not g.whatsapp_session.get("chat_context_company_id"):
         cid, company, line_label = _company_by_whatsapp_phone(to_phone)
         if cid and company:
@@ -6433,6 +6438,11 @@ def webhook_meta_whatsapp():
                         g.whatsapp_session["wa_empleado_id"] = identity.get("empleado_id") or ""
                         g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
                         g.whatsapp_session["wa_nombre"] = identity.get("nombre") or ""
+                elif not g.whatsapp_session.get("wa_convenio"):
+                    # Tiene empleado_id pero le falta convenio (sesión antigua) → refrescar
+                    identity = _get_whatsapp_identity(from_phone)
+                    if identity:
+                        g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
 
                 if not g.whatsapp_session.get("chat_context_company_id"):
                     cid, company, line_label = _company_by_whatsapp_phone(phone_number_id)
@@ -7524,8 +7534,11 @@ def _sync_knowledge_from_drive(company_id, folder_id):
         # Carpetas genéricas (sin convenio)
         if any(g in n for g in ("generica", "general", "todos", "global")):
             return None
-        # Quitar prefijo "faqs " si existe
-        nombre_limpio = n[5:].strip() if n.startswith("faqs ") else n
+        # Quitar prefijo "faqs " o "faqs_" si existe
+        if n.startswith("faqs ") or n.startswith("faqs_"):
+            nombre_limpio = n[5:].strip()
+        else:
+            nombre_limpio = n
         if not nombre_limpio or nombre_limpio in ("generica", "general", "todos"):
             return None
         # Buscar coincidencia con convenios configurados
@@ -7592,33 +7605,71 @@ def _sync_knowledge_from_drive(company_id, folder_id):
 
 
 _KB_TOPIC_KEYWORDS = [
-    ("vacaciones",      ["vacacion", "dias vacaciones", "licencia anual", "vacaciones anuales",
-                         "licencias anuales", "dias de vacacion"]),
-    ("recibo",          ["recibo de sueldo", "recibo", "boleta de sueldo", "firma digital"]),
-    ("adelanto",        ["adelanto de sueldo", "adelanto", "anticipo de sueldo", "adelanto de salario",
-                         "adelanto sueldo"]),
-    ("aguinaldo",       ["aguinaldo", " sac ", "sueldo anual complementario", "anual complementario"]),
-    ("licencias",       ["licencia por", "licencia especial", "licencias especiales", "licencia matrimonio",
-                         "licencia nacimiento", "licencia fallecimiento", "licencia examen",
-                         "licencias por", "licencias especial", "dias corridos por", "permiso especial",
-                         "dias de licencia", "licencias especiales"]),
-    ("art",             ["art ", " art,", "accidente de trabajo", "accidente laboral", "aseguradora",
-                         "riesgos del trabajo", "galeno art", "formulario de denuncia", "art\n", "\nart"]),
-    ("home office",     ["home office", "trabajo remoto", "teletrabajo", "trabajar desde", "dias remotos",
-                         "trabajo desde casa", "politica de home", "dias por semana", "modalidad remota",
-                         "trabajo hibrido", "modalidad hibrida"]),
-    ("uniforme",        ["uniforme", "ropa de trabajo", "elementos de trabajo", "deposito de suministros",
-                         "equipamiento", "indumentaria"]),
-    ("capacitacion",    ["capacitacion", "capacitar", "cursos", "formacion", "instituto xyz",
-                         "convenio de capacitacion", "entrenamiento", "training"]),
-    ("obra social",     ["obra social", "cobertura medica", "cobertura de salud", "osde", "prepaga",
-                         "cambio de plan", "agregar familiares", "medicina prepaga"]),
-    ("contacto",        ["contacto rrhh", "comunicarse con", "area de recursos humanos", "interno 200",
-                         "correo de rrhh", "horario de atencion", "oficina de rrhh", "contacto de rrhh",
-                         "datos de contacto", "como contactar"]),
-    ("nacimiento",      ["nacimiento", "maternidad", "paternidad", "licencia por hijo", "adopcion"]),
-    ("casamiento",      ["casamiento", "matrimonio", "boda"]),
-    ("fraccionamiento", ["fraccionamiento", "fraccionar"]),
+    ("vacaciones",       ["vacacion", "dias vacaciones", "licencia anual", "vacaciones anuales",
+                          "licencias anuales", "dias de vacacion"]),
+    ("recibo",           ["recibo de sueldo", "recibo", "boleta de sueldo", "firma digital"]),
+    ("adelanto",         ["adelanto de sueldo", "adelanto", "anticipo de sueldo", "adelanto de salario",
+                          "adelanto sueldo"]),
+    ("aguinaldo",        ["aguinaldo", " sac ", "sueldo anual complementario", "anual complementario"]),
+    ("licencias",        ["licencia por", "licencia especial", "licencias especiales", "licencia matrimonio",
+                          "licencia nacimiento", "licencia fallecimiento", "licencia examen",
+                          "licencias por", "licencias especial", "dias corridos por", "permiso especial",
+                          "dias de licencia", "licencias especiales", "licencia de conducir",
+                          "licencia profesional", "renovar licencia"]),
+    ("art",              ["art ", " art,", "accidente de trabajo", "accidente laboral", "aseguradora",
+                          "riesgos del trabajo", "galeno art", "formulario de denuncia", "art\n", "\nart"]),
+    ("home office",      ["home office", "trabajo remoto", "teletrabajo", "trabajar desde", "dias remotos",
+                          "trabajo desde casa", "politica de home", "dias por semana", "modalidad remota",
+                          "trabajo hibrido", "modalidad hibrida"]),
+    ("uniforme",         ["uniforme", "ropa de trabajo", "elementos de trabajo", "deposito de suministros",
+                          "equipamiento", "indumentaria"]),
+    ("capacitacion",     ["capacitacion", "capacitar", "cursos", "formacion", "instituto xyz",
+                          "convenio de capacitacion", "entrenamiento", "training"]),
+    ("obra social",      ["obra social", "cobertura medica", "cobertura de salud", "osde", "prepaga",
+                          "cambio de plan", "agregar familiares", "medicina prepaga"]),
+    ("contacto",         ["contacto rrhh", "comunicarse con", "area de recursos humanos", "interno 200",
+                          "correo de rrhh", "horario de atencion", "oficina de rrhh", "contacto de rrhh",
+                          "datos de contacto", "como contactar", "como contacto", "contactar al",
+                          "contactar a rrhh", "numero de rrhh", "equipo de rrhh"]),
+    ("nacimiento",       ["nacimiento", "maternidad", "paternidad", "licencia por hijo", "adopcion"]),
+    ("casamiento",       ["casamiento", "matrimonio", "boda"]),
+    ("fraccionamiento",  ["fraccionamiento", "fraccionar"]),
+    # Temas adicionales para cubrir FAQs de diferentes rubros
+    ("horas extras",     ["horas extras", "hora extra", "banco de horas", "horas extraordinarias",
+                          "recargo por hora", "horas de mas"]),
+    ("reglamento",       ["reglamento interno", "reglamento de la empresa", "normas internas",
+                          "reglamento laboral", "politica interna", "politica de la empresa"]),
+    ("datos personales", ["datos personales", "actualizar datos", "cambiar datos",
+                          "cuenta bancaria", "cbu", "domicilio", "telefono personal"]),
+    ("certificados",     ["carta de trabajo", "certificado de haberes", "certificado laboral",
+                          "constancia laboral", "certificado de trabajo", "constancia de empleo"]),
+    ("enfermedad",       ["enfermedad", "certificado medico", "licencia medica", "dias de enfermedad",
+                          "baja medica", "parte de enfermedad", "me enfermo", "estoy enfermo"]),
+    ("fichaje",          ["fichar", "fichaje", "olvido fichar", "olvidar fichar",
+                          "ingreso y salida", "marcar asistencia", "olvide fichar", "olvidé fichar"]),
+    ("accidentes",       ["accidente en ruta", "accidente vial", "accidente de transito",
+                          "accidente en viaje", "siniestro vial", "accidente con el vehiculo"]),
+    ("descanso",         ["descanso entre turnos", "tiempo de descanso", "horas de descanso",
+                          "turno y descanso", "minimo de descanso", "descanso obligatorio"]),
+    ("viaticos",         ["viatico", "viaticos", "gastos de viaje", "comprobantes de gastos",
+                          "rendicion de gastos", "gastos en viaje", "rendicion de viaticos"]),
+    ("seguros",          ["seguro del vehiculo", "seguro vehicular", "poliza de seguro",
+                          "cobertura del vehiculo", "cobertura del auto", "seguro de la unidad"]),
+    ("fallas",           ["falla mecanica", "falla del vehiculo", "problema mecanico",
+                          "averia", "falla en ruta", "falla tecnica", "unidad tiene una falla"]),
+    ("combustible",      ["combustible", "carga de combustible", "tarjeta corporativa",
+                          "cargar combustible", "estacion de servicio", "consumo de combustible"]),
+    ("beneficios",       ["beneficios", "descuento en compras", "plus por presentismo",
+                          "beneficio del empleado", "beneficio laboral", "descuento empleado"]),
+    ("productividad",    ["sistema de puntos", "puntos por ventas", "bono de productividad",
+                          "puntaje de ventas", "puntos de venta", "bono por objetivo"]),
+    ("tardanzas",        ["llegada tarde", "llegar tarde", "tardanza", "tardanzas",
+                          "descuento por tardanza", "presentismo", "llego tarde"]),
+    ("desempeño",        ["evaluacion de desempeño", "desempeño laboral", "evaluacion semestral",
+                          "bono anual", "promocion interna", "evaluacion de rendimiento",
+                          "rendimiento laboral"]),
+    ("conflictos",       ["conflicto con", "conflicto laboral", "problema con companero",
+                          "convivencia laboral", "protocolo de convivencia", "compañero de trabajo"]),
 ]
 
 
@@ -7638,6 +7689,23 @@ _HEADING_TO_TEMA = {
     "nacimiento": "nacimiento", "maternidad": "nacimiento",
     "casamiento": "casamiento", "matrimonio": "casamiento",
     "fraccionamiento": "fraccionamiento",
+    "horas extras": "horas extras",
+    "reglamento": "reglamento", "reglamento interno": "reglamento",
+    "datos personales": "datos personales",
+    "certificados": "certificados",
+    "enfermedad": "enfermedad",
+    "fichaje": "fichaje",
+    "accidentes": "accidentes",
+    "descanso": "descanso",
+    "viaticos": "viaticos",
+    "seguros": "seguros",
+    "fallas": "fallas",
+    "combustible": "combustible",
+    "beneficios": "beneficios",
+    "productividad": "productividad",
+    "tardanzas": "tardanzas",
+    "desempeño": "desempeño",
+    "conflictos": "conflictos",
 }
 
 
@@ -7664,22 +7732,7 @@ def _extraer_temas_de_knowledge(entries):
                         temas_encontrados.append(tema)
                     matched = True
                     break
-        if not matched:
-            # Extraer primera palabra significativa (>=4 letras) de pregunta o respuesta
-            _STOPWORDS = {"cuant", "donde", "como", "cuales", "puedo", "sobre", "cuanta",
-                          "tengo", "hacer", "pedir", "quien", "queda", "cual", "para",
-                          "esta", "este", "sido", "sera", "tipo", "toda", "todo", "otra", "otro",
-                          "debo", "debe", "deben", "hay", "que"}
-            for texto_fb in (pregunta_norm, respuesta_norm):
-                found_fb = False
-                for w in texto_fb.split():
-                    if len(w) >= 4 and w not in _STOPWORDS:
-                        if w not in temas_encontrados:
-                            temas_encontrados.append(w)
-                        found_fb = True
-                        break
-                if found_fb:
-                    break
+        # Si ningún keyword coincide, no se agrega tema (evita nombres sin sentido en el menú)
     return temas_encontrados[:12]
 
 
