@@ -100,6 +100,40 @@ button:hover {
   min-height: 60px;
 }
 
+/* Inputs de fecha con la misma estética que los dropdowns */
+.stats-date-input {
+  min-width: 140px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.9rem;
+  height: 40px;
+  box-sizing: border-box;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #1e293b;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.stats-date-input:hover {
+  border-color: #2563eb;
+}
+
+:root[data-theme="dark"] .stats-date-input,
+html[data-theme="dark"] .stats-date-input {
+  background: #1e293b;
+  color: #ffffff;
+  border-color: #475569;
+  color-scheme: dark;
+}
+
+:root[data-theme="dark"] .stats-date-input:hover,
+html[data-theme="dark"] .stats-date-input:hover {
+  border-color: #2563eb;
+}
+
 .stats-dropdown-wrap .filter-field-label {
   display: block;
   margin-bottom: 4px;
