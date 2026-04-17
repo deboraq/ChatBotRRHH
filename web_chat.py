@@ -407,6 +407,30 @@ def _reset_whatsapp_chat_context(phone):
             logger.warning("_reset_whatsapp_chat_context: error para %s: %s", norm, e)
 
 
+def _invalidar_sesion_wa_por_empleado(empleado_id):
+    """Resetea al paso DNI todas las sesiones WhatsApp vinculadas a un empleado.
+    Se llama cuando cambia el convenio del empleado para forzar re-identificación.
+    """
+    if not chatbot.db or not empleado_id:
+        return
+    try:
+        snaps = chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION)\
+            .where("wa_empleado_id", "==", empleado_id).get()
+        for snap in snaps:
+            snap.reference.update({
+                "chat_context_step": CHAT_CONTEXT_STEP_DNI,
+                "wa_convenio": "",
+            })
+            # También limpiar de la memoria si está activa
+            phone_key = snap.id
+            if phone_key in WHATSAPP_SESSIONS:
+                WHATSAPP_SESSIONS[phone_key]["chat_context_step"] = CHAT_CONTEXT_STEP_DNI
+                WHATSAPP_SESSIONS[phone_key]["wa_convenio"] = ""
+            logger.info("Sesión WA reseteada a DNI por cambio de convenio: empleado=%s phone=%s", empleado_id, snap.id)
+    except Exception as e:
+        logger.warning("_invalidar_sesion_wa_por_empleado: %s", e)
+
+
 def _save_whatsapp_chat_context(phone):
     """Guarda en Firestore el contexto de chat de la sesión WhatsApp actual."""
     if not chatbot.db or not phone:
@@ -4043,6 +4067,8 @@ def api_legajos_empleado_patch(empleado_id):
 
     user = _current_rrhh_user()
     uname = str((user or {}).get("username") or "").strip()
+    convenio_viejo = str(emp.get("convenio") or "").strip()
+    convenio_nuevo = _patch_str("convenio", emp.get("convenio")) if "convenio" in data else convenio_viejo
     ok, row, msg = legajos_service.update_empleado(
         chatbot.db,
         empleado_id=empleado_id,
@@ -4053,10 +4079,13 @@ def api_legajos_empleado_patch(empleado_id):
         area=_patch_str("area", emp.get("area")),
         notas=_patch_str("notas", emp.get("notas")),
         email=_patch_str("email", emp.get("email")),
-        convenio=_patch_str("convenio", emp.get("convenio")),
+        convenio=convenio_nuevo,
     )
     if not ok:
         return jsonify({"ok": False, "error": msg or "No se pudo actualizar."}), 400
+    # Si cambió el convenio, resetear sesión WA del empleado para forzar re-identificación
+    if ok and convenio_nuevo != convenio_viejo:
+        _invalidar_sesion_wa_por_empleado(empleado_id)
     cid = str(emp.get("company_id") or "").strip().lower()
     _legajos_audit(
         legajos_service.LEGAJOS_AUDIT_EMPLEADO_EDITAR,
