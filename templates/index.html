@@ -213,9 +213,14 @@
           Panel de atención
         </button>
         {% endif %}
-        {% if can_view_config|default(true) %}
-        <button type="button" class="app-module-btn" data-module="configuracion" data-src="/configuracion">
-          Configuración
+        {% if can_view_comunicados|default(false) %}
+        <button type="button" class="app-module-btn" data-module="comunicados" data-src="/comunicados">
+          Comunicados
+        </button>
+        {% endif %}
+        {% if can_view_legajos|default(false) %}
+        <button type="button" class="app-module-btn {% if (initial_module|default('chat')) == 'legajos' %}active{% endif %}" data-module="legajos" data-src="/legajos">
+          Legajos
         </button>
         {% endif %}
         {% if can_view_stats|default(true) %}
@@ -223,9 +228,9 @@
           Estadísticas
         </button>
         {% endif %}
-        {% if can_view_comunicados|default(false) %}
-        <button type="button" class="app-module-btn" data-module="comunicados" data-src="/comunicados">
-          Comunicados
+        {% if can_view_history|default(true) %}
+        <button type="button" class="app-module-btn" data-module="historial" data-src="/historial">
+          Historial
         </button>
         {% endif %}
         {% if can_manage_preferences|default(true) %}
@@ -233,14 +238,9 @@
           Preferencias
         </button>
         {% endif %}
-        {% if can_view_history|default(true) %}
-        <button type="button" class="app-module-btn" data-module="historial" data-src="/historial">
-          Historial
-        </button>
-        {% endif %}
-        {% if can_view_legajos|default(false) %}
-        <button type="button" class="app-module-btn {% if (initial_module|default('chat')) == 'legajos' %}active{% endif %}" data-module="legajos" data-src="/legajos">
-          Legajos
+        {% if can_view_config|default(true) %}
+        <button type="button" class="app-module-btn" data-module="configuracion" data-src="/configuracion">
+          Configuración
         </button>
         {% endif %}
       </aside>
