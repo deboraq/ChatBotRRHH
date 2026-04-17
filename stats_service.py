@@ -1,5 +1,5 @@
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date as _date_type, datetime, timedelta, timezone
 
 
 def _normalizar_texto(valor):
@@ -29,6 +29,16 @@ def _extraer_fecha(valor):
         if valor.tzinfo is None:
             return valor
         return valor.astimezone(timezone.utc).replace(tzinfo=None)
+    # Manejar fechas guardadas como strings ISO (ej: sent_at de comunicados)
+    if isinstance(valor, str) and valor.strip():
+        try:
+            s = valor.strip().replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
+        except (ValueError, TypeError):
+            pass
     return None
 
 
@@ -76,11 +86,37 @@ def build_statistics_from_records(
     now=None,
     days=7,
     detail_limit=200,
+    date_from=None,
+    date_to=None,
 ):
     rrhh_records = rrhh_records or []
     comunicados_records = comunicados_records or []
     now = now or datetime.now(timezone.utc)
-    labels = _labels_ultimos_dias(now, days)
+
+    # Filtrar registros por rango de fechas si se especifica
+    if date_from or date_to:
+        def _in_range(dt):
+            if dt is None:
+                return False
+            d = dt.date() if hasattr(dt, "date") else dt
+            if date_from and d < date_from:
+                return False
+            if date_to and d > date_to:
+                return False
+            return True
+        feedback_records = [r for r in feedback_records if _in_range(_extraer_fecha(r.get("fecha")))]
+        pendientes_records = [r for r in pendientes_records if _in_range(_extraer_fecha(r.get("fecha")))]
+        comunicados_records = [r for r in comunicados_records if _in_range(
+            _extraer_fecha(r.get("sent_at")) or _extraer_fecha(r.get("scheduled_at"))
+        )]
+
+    # Etiquetas del gráfico: usar rango seleccionado o últimos N días
+    if date_from and date_to:
+        delta = (date_to - date_from).days
+        days_for_chart = min(delta + 1, 90)
+        labels = [(date_from + timedelta(days=i)).isoformat() for i in range(days_for_chart)]
+    else:
+        labels = _labels_ultimos_dias(now, days)
     serie = _serie_vacia(labels)
     labels_set = set(labels)
     label_index = {label: idx for idx, label in enumerate(labels)}
@@ -280,7 +316,7 @@ def build_statistics_from_records(
     }
 
 
-def obtener_estadisticas(db, now=None, days=7, rrhh_records=None, company_id=None):
+def obtener_estadisticas(db, now=None, days=7, rrhh_records=None, company_id=None, date_from=None, date_to=None):
     rrhh_records = rrhh_records or []
     filter_cid = _normalize_company_id(company_id) if company_id else ""
     if db is None:
@@ -389,5 +425,7 @@ def obtener_estadisticas(db, now=None, days=7, rrhh_records=None, company_id=Non
         legajos_inactivos=legajos_inactivos,
         now=now,
         days=days,
+        date_from=date_from,
+        date_to=date_to,
     )
 

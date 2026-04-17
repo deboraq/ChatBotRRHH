@@ -59,6 +59,14 @@
             <div id="filter-area-panel" class="stats-dropdown-panel" role="group" aria-label="Áreas" hidden></div>
           </div>
         </div>
+        <div class="filter-field">
+          <span class="filter-field-label">Desde</span>
+          <input type="date" id="filter-date-from" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border,#e5e7eb);background:var(--bg-input,#fff);color:inherit;font-size:0.85rem;" />
+        </div>
+        <div class="filter-field">
+          <span class="filter-field-label">Hasta</span>
+          <input type="date" id="filter-date-to" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border,#e5e7eb);background:var(--bg-input,#fff);color:inherit;font-size:0.85rem;" />
+        </div>
       </section>
 
       <section id="status" class="status"></section>
@@ -110,9 +118,9 @@
           <small>Total de envíos exitosos</small>
         </article>
         <article class="kpi-card actionable" id="card-legajos" data-drilldown="legajos">
-          <h3>Colaboradores activos</h3>
+          <h3>Colaboradores</h3>
           <p id="kpi-legajos-activos">0</p>
-          <small>Click para ver desglose</small>
+          <small>Activos / Total en Legajos · Click para ver desglose</small>
         </article>
       </section>
 
@@ -182,6 +190,8 @@
       const filterAreaTrigger = document.getElementById("filter-area-trigger");
       const filterAreaPanel = document.getElementById("filter-area-panel");
       const filterAreaLabel = document.getElementById("filter-area-label");
+      const filterDateFrom = document.getElementById("filter-date-from");
+      const filterDateTo = document.getElementById("filter-date-to");
 
       let lineChart;
       let pieChart;
@@ -209,7 +219,9 @@
 
       function getFilterParams() {
         const companyId = (filterCompanyEl?.value || "").trim();
-        return { companyId, branches: getSelectedBranches(), areas: getSelectedAreas() };
+        const dateFrom = (filterDateFrom?.value || "").trim();
+        const dateTo = (filterDateTo?.value || "").trim();
+        return { companyId, branches: getSelectedBranches(), areas: getSelectedAreas(), dateFrom, dateTo };
       }
 
       function togglePanel(panel, trigger) {
@@ -440,16 +452,28 @@
         }
 
         if (activeDetail.type === "votos") {
+          // Construir tabla de votos por tema
+          const topicVotes = {};
+          (detail.feedback_reciente || []).forEach((item) => {
+            const t = item.tema || "sin tema";
+            if (!topicVotes[t]) topicVotes[t] = { tema: t, si: 0, no: 0 };
+            const v = (item.fue_util || "").toLowerCase();
+            if (v === "si" || v === "sí") topicVotes[t].si++;
+            else if (v === "no") topicVotes[t].no++;
+          });
+          const rows = Object.values(topicVotes)
+            .map((r) => ({ ...r, total: r.si + r.no }))
+            .sort((a, b) => b.total - a.total);
           setDetailTable(
-            "Distribución de votos",
+            "Votos por tema",
             [
-              { label: "Tipo de voto", key: "tipo" },
-              { label: "Cantidad", key: "cantidad" },
+              { label: "Tema", key: "tema" },
+              { label: "Sí", key: "si" },
+              { label: "No", key: "no" },
+              { label: "Total", key: "total" },
             ],
-            [
-              { tipo: "Sí", cantidad: detail.votos.si },
-              { tipo: "No", cantidad: detail.votos.no },
-            ]
+            rows,
+            "Sin datos de votos."
           );
           return;
         }
@@ -709,12 +733,14 @@
 
       async function loadStats() {
         statusEl.textContent = "Cargando estadísticas...";
-        const { companyId, branches, areas } = getFilterParams();
+        const { companyId, branches, areas, dateFrom, dateTo } = getFilterParams();
         const params = new URLSearchParams();
         params.set("_", String(Date.now()));
         if (companyId) params.set("company_id", companyId);
         if (branches.length) params.set("branches", branches.join(","));
         if (areas.length) params.set("areas", areas.join(","));
+        if (dateFrom) params.set("date_from", dateFrom);
+        if (dateTo) params.set("date_to", dateTo);
         const url = "/api/stats?" + params.toString();
         try {
           const response = await fetch(url, {
@@ -745,9 +771,13 @@
 
           if (data.available) {
             const fa = data.filter_applied || {};
-            const filtro = (fa.company_id || fa.branches?.length || fa.areas?.length)
-              ? ` · Filtro: ${fa.company_id || "todas"}${(fa.branches || []).length ? " · " + (fa.branches || []).join(", ") : ""}${(fa.areas || []).length ? " · " + (fa.areas || []).join(", ") : ""}`
-              : "";
+            let filtro = "";
+            if (fa.company_id || fa.branches?.length || fa.areas?.length || fa.date_from || fa.date_to) {
+              filtro = ` · Filtro: ${fa.company_id || "todas"}`;
+              if ((fa.branches || []).length) filtro += " · " + fa.branches.join(", ");
+              if ((fa.areas || []).length) filtro += " · " + fa.areas.join(", ");
+              if (fa.date_from || fa.date_to) filtro += ` · ${fa.date_from || "..."} → ${fa.date_to || "hoy"}`;
+            }
             statusEl.textContent = `Última actualización: ${data.updated_at} · Proyecto: ${data.source_project || "-"} · Auto: cada 1 min${filtro}`;
           } else {
             statusEl.textContent = `Modo local: ${data.reason} · Proyecto: ${data.source_project || "-"} · Server boot: ${data.server_boot_at || "-"} · Auto: cada 1 min`;
@@ -758,6 +788,8 @@
       }
 
       refreshBtn.addEventListener("click", loadStats);
+      filterDateFrom?.addEventListener("change", loadStats);
+      filterDateTo?.addEventListener("change", loadStats);
       filterCompanyEl?.addEventListener("change", () => {
         fillBranchAreaFilters();
         loadStats();
