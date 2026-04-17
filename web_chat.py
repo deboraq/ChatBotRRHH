@@ -2869,6 +2869,7 @@ def armar_respuesta_no_entendida(consulta, temas_map):
 def limpiar_estado_conversacion():
     _sess().pop("pending_feedback_topic", None)
     _sess().pop("pending_derivacion", None)
+    _sess().pop("pending_kb_answer", None)
 
 
 def _payload(
@@ -3075,7 +3076,7 @@ def procesar_feedback_pendiente(texto_usuario, tema_pendiente, temas_map, permit
 
     if tipo == "feedback":
         # Si el tema es del knowledge base y el usuario dijo "no" → mostrar menú y ofrecer derivación
-        if texto_norm == "no" and tema_pendiente == "knowledge_answer":
+        if texto_norm == "no" and _sess().get("pending_kb_answer"):
             chatbot.registrar_feedback(tema_pendiente, texto_norm, company_id=company_id)
             limpiar_estado_conversacion()
             hr_name = (_current_company() or {}).get("hr_team_name") or "Atención"
@@ -3390,7 +3391,18 @@ def responder_chat(mensaje_usuario):
             )
         requiere_feedback = tema_id not in chatbot.TEMAS_SIN_FEEDBACK
         if requiere_feedback:
-            _sess()["pending_feedback_topic"] = tema_id
+            if tema_id == "knowledge_answer":
+                # Guardar el tema real para estadísticas útiles (no el ID interno "knowledge_answer")
+                _msg_norm_fb = chatbot.normalizar_texto(mensaje_usuario)
+                _tema_real = chatbot.detectar_tema(_msg_norm_fb, temas_map)
+                _sess()["pending_feedback_topic"] = _tema_real or "consulta_kb"
+                _sess()["pending_kb_answer"] = True
+            elif tema_id == "knowledge_no_match":
+                _msg_norm_fb = chatbot.normalizar_texto(mensaje_usuario)
+                _tema_real = chatbot.detectar_tema(_msg_norm_fb, temas_map)
+                _sess()["pending_feedback_topic"] = (_tema_real + "_sin_respuesta") if _tema_real else "sin_respuesta"
+            else:
+                _sess()["pending_feedback_topic"] = tema_id
             respuesta = f"{respuesta}\n\n¿Esta información te fue de utilidad? (si/no)"
             return _payload(
                 respuesta,
