@@ -8932,6 +8932,17 @@ def stats_api():
     branches = [b.strip() for b in (branches_param or "").split(",") if b.strip()] if branches_param else None
     areas_param = request.args.get("areas")
     areas = [a.strip() for a in (areas_param or "").split(",") if a.strip()] if areas_param else None
+    date_from_str = request.args.get("date_from", "").strip()
+    date_to_str = request.args.get("date_to", "").strip()
+    date_from = None
+    date_to = None
+    try:
+        if date_from_str:
+            date_from = datetime.strptime(date_from_str, "%Y-%m-%d").date()
+        if date_to_str:
+            date_to = datetime.strptime(date_to_str, "%Y-%m-%d").date()
+    except ValueError:
+        pass
     if company_id:
         handoff_records = _list_handoffs(
             include_closed=True,
@@ -8946,11 +8957,15 @@ def stats_api():
         chatbot.db,
         rrhh_records=handoff_records,
         company_id=company_id,
+        date_from=date_from,
+        date_to=date_to,
     )
     filter_applied = {
         "company_id": company_id,
         "branches": branches or [],
         "areas": areas or [],
+        "date_from": date_from_str or None,
+        "date_to": date_to_str or None,
     }
     response = jsonify(
         {
