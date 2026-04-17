@@ -7600,7 +7600,7 @@ def _sync_knowledge_from_drive(company_id, folder_id):
         """Mapea el nombre de una subcarpeta al convenio correspondiente o None si es genérica."""
         n = folder_name.strip().lower()
         # Carpetas genéricas (sin convenio)
-        if any(g in n for g in ("generica", "general", "todos", "global")):
+        if any(g in n for g in ("generica", "generico", "general", "todos", "global", "comun", "base")):
             return None
         # Quitar prefijo "faqs " o "faqs_" si existe
         if n.startswith("faqs ") or n.startswith("faqs_"):
