@@ -6914,6 +6914,20 @@ def historial_api():
     branches = [b.strip() for b in (branches_param or "").split(",") if b.strip()] if branches_param else None
     areas_param = request.args.get("areas")
     areas = [a.strip() for a in (areas_param or "").split(",") if a.strip()] if areas_param else None
+    date_from = None
+    date_to = None
+    try:
+        _df = request.args.get("date_from", "").strip()
+        if _df:
+            date_from = datetime.strptime(_df, "%Y-%m-%d").date()
+    except Exception:
+        pass
+    try:
+        _dt = request.args.get("date_to", "").strip()
+        if _dt:
+            date_to = datetime.strptime(_dt, "%Y-%m-%d").date()
+    except Exception:
+        pass
 
     raw_items = _list_chat_history(limit=1500)
     handoff_ids = set()
@@ -6965,6 +6979,17 @@ def historial_api():
                 continue
         if q and q not in serialized["texto"].lower():
             continue
+        if date_from or date_to:
+            _fi = serialized.get("fecha_iso", "")
+            if _fi:
+                try:
+                    _item_date = datetime.fromisoformat(_fi.replace("Z", "+00:00")).date()
+                    if date_from and _item_date < date_from:
+                        continue
+                    if date_to and _item_date > date_to:
+                        continue
+                except Exception:
+                    pass
         items.append(serialized)
 
     filter_applied = {

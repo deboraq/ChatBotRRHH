@@ -212,6 +212,44 @@ code {
   min-width: 340px;
 }
 
+/* Date inputs matching dropdown style */
+.hist-date-input {
+  min-width: 140px;
+  padding: 8px 9px;
+  font: inherit;
+  font-size: 0.9rem;
+  height: 38px;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.hist-date-input:hover {
+  border-color: #2563eb;
+}
+
+/* Row color coding by remitente */
+.row-bot td { background: #eff6ff; }
+.row-rrhh td { background: #f0fdf4; }
+.row-sistema td { background: #f8fafc; color: #64748b; font-style: italic; }
+
+/* Expand/collapse buttons */
+.btn-expand, .btn-collapse {
+  background: transparent;
+  color: #2563eb;
+  border: none;
+  padding: 0 2px;
+  font-size: 0.82rem;
+  text-decoration: underline;
+  cursor: pointer;
+  border-radius: 0;
+}
+
 /* Modo oscuro */
 :root[data-theme="dark"] body {
   background: #070d18;
@@ -301,4 +339,28 @@ code {
 :root[data-theme="dark"] .filters #f-company option {
   background: #1e293b;
   color: #ffffff;
+}
+
+:root[data-theme="dark"] .hist-date-input {
+  background: #1e293b;
+  color: #ffffff;
+  border-color: #475569;
+  color-scheme: dark;
+}
+
+:root[data-theme="dark"] .hist-date-input:hover {
+  border-color: #2563eb;
+}
+
+:root[data-theme="dark"] .filters label {
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .row-bot td { background: #1e3a5f; }
+:root[data-theme="dark"] .row-rrhh td { background: #14401e; }
+:root[data-theme="dark"] .row-sistema td { background: #1e293b; color: #94a3b8; }
+
+:root[data-theme="dark"] .btn-expand,
+:root[data-theme="dark"] .btn-collapse {
+  color: #93c5fd;
 }

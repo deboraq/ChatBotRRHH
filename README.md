@@ -10,7 +10,7 @@ Plataforma integral de atención a colaboradores vía web y WhatsApp, con panel 
 
 ### Chat con colaboradores
 - Chat web en tiempo real con motor de IA (fuzzy matching + NLP)
-- Canal WhatsApp via Twilio (mismo bot, misma base de conocimiento)
+- Canal WhatsApp via Meta Cloud API (principal) y Twilio (fallback), mismo bot y misma base de conocimiento
 - Detección automática de empresa, sucursal y área del colaborador
 - Menú interactivo con temas habilitados por empresa
 - Análisis de sentimiento en consultas no resueltas (TextBlob)
@@ -51,15 +51,22 @@ Plataforma integral de atención a colaboradores vía web y WhatsApp, con panel 
 
 ### Historial (`/historial`)
 - Registro completo de todos los mensajes (colaborador, bot, RRHH, sistema)
-- Filtros por canal, empresa, colaborador, texto libre, fecha
-- Descarga y exportación
+- Filtros por empresa, sucursal, área, canal, remitente, conversación/nombre, texto libre y rango de fechas
+- Colores por remitente (colaborador, bot, agente, sistema)
+- Nombre del colaborador visible en la columna Remitente
+- Texto largo expandible con "ver más / ver menos"
+- Exportar CSV (descarga la vista filtrada actual, compatible con Excel)
 
 ### Estadísticas (`/estadisticas`)
 - Dashboard en tiempo real conectado a Firestore
-- Tasa de satisfacción, votos, temas más consultados
-- Estado de derivaciones RRHH (abiertas / en atención / cerradas)
-- Evolución de feedback (últimos 7 días)
-- Pendientes por sentimiento
+- Filtro por empresa, sucursal, área y rango de fechas
+- KPIs: consultas totales, satisfacción, colaboradores activos, resuelto por bot, sin respuesta, tiempo promedio de atención
+- Temas más consultados con porcentaje y drilldown
+- Derivaciones por agente con tiempos de atención
+- Evolución de actividad (gráfico de línea dinámico según rango)
+- Distribución de canales (gráfico de torta)
+- Historial de comunicados
+- Exportar CSV de cualquier detalle
 - Auto-refresco cada 1 minuto
 
 ### Legajos digitales
@@ -83,7 +90,7 @@ Plataforma integral de atención a colaboradores vía web y WhatsApp, con panel 
 | Base de datos | Firebase Firestore |
 | Archivos | Firebase Storage |
 | Hosting | Firebase Hosting → Cloud Run (`southamerica-east1`) |
-| WhatsApp | Twilio WhatsApp API |
+| WhatsApp | Meta Cloud API (principal) + Twilio (fallback) |
 | IA / NLP | Gemini AI (FAQs), TheFuzz (fuzzy matching), TextBlob (sentimiento) |
 | Automatizaciones | N8N (self-hosted) |
 | Email | SMTP (Gmail App Password u otro) |

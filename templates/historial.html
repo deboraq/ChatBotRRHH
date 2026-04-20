@@ -34,6 +34,7 @@
             <button type="submit">Cerrar sesión</button>
           </form>
           {% endif %}
+          <button id="btn-export-csv" type="button">Exportar CSV</button>
           <button id="btn-refresh" type="button">Actualizar</button>
         </div>
       </header>
@@ -98,6 +99,15 @@
           <input id="f-limit" type="number" min="1" max="1000" value="200" />
         </label>
 
+        <label>
+          Desde
+          <input id="f-date-from" type="date" class="hist-date-input" />
+        </label>
+        <label>
+          Hasta
+          <input id="f-date-to" type="date" class="hist-date-input" />
+        </label>
+
         <label class="checkbox">
           <input id="f-auto" type="checkbox" checked />
           Auto-refresh 1 min
@@ -144,7 +154,10 @@
       const fConversation = document.getElementById("f-conversation");
       const fQ = document.getElementById("f-q");
       const fLimit = document.getElementById("f-limit");
+      const fDateFrom = document.getElementById("f-date-from");
+      const fDateTo = document.getElementById("f-date-to");
       const fAuto = document.getElementById("f-auto");
+      const exportCsvBtn = document.getElementById("btn-export-csv");
 
       let timer = null;
       let filterContext = { companies: [], selected_company_id: null };
@@ -305,9 +318,36 @@
         if (fCanal.value) params.set("canal", fCanal.value);
         if (fConversation.value.trim()) params.set("conversation_id", fConversation.value.trim());
         if (fQ.value.trim()) params.set("q", fQ.value.trim());
+        if (fDateFrom.value) params.set("date_from", fDateFrom.value);
+        if (fDateTo.value) params.set("date_to", fDateTo.value);
         params.set("limit", String(fLimit.value || "200"));
         params.set("_", String(Date.now()));
         return params.toString();
+      }
+
+      function exportCSV() {
+        const rows = document.querySelectorAll("#history-body tr");
+        if (!rows.length) return;
+        const headers = Array.from(document.querySelectorAll("thead th")).map((th) => th.textContent.trim());
+        const csvRows = [headers];
+        rows.forEach((tr) => {
+          const cells = Array.from(tr.querySelectorAll("td")).map((td) => {
+            return td.textContent.trim().replace(/\s+/g, " ");
+          });
+          csvRows.push(cells);
+        });
+        const csvContent = csvRows.map((row) =>
+          row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+        ).join("\r\n");
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `historial_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
       }
 
       function fmtLocalDate(isoStr) {
@@ -321,6 +361,15 @@
         } catch(e) { return isoStr; }
       }
 
+      const ROW_CLASS = { colaborador: "row-colaborador", bot: "row-bot", rrhh: "row-rrhh", sistema: "row-sistema" };
+      const TEXT_MAX = 150;
+
+      function renderText(text) {
+        if (!text || text.length <= TEXT_MAX) return escapeHtml(text);
+        return `<span class="text-short">${escapeHtml(text.substring(0, TEXT_MAX))}… <button class="btn-expand" type="button">ver más</button></span>` +
+               `<span class="text-full" hidden>${escapeHtml(text)} <button class="btn-collapse" type="button">ver menos</button></span>`;
+      }
+
       function renderRows(items) {
         bodyEl.innerHTML = "";
         if (!items.length) {
@@ -329,17 +378,34 @@
         }
         for (const row of items) {
           const tr = document.createElement("tr");
+          if (ROW_CLASS[row.remitente]) tr.className = ROW_CLASS[row.remitente];
           tr.innerHTML = `
             <td>${escapeHtml(fmtLocalDate(row.fecha_iso))}</td>
-            <td><code>${escapeHtml(row.conversation_id)}</code>${row.colaborador_nombre ? `<br><span style="font-size:0.78rem;color:#64748b">${escapeHtml(row.colaborador_nombre)}</span>` : ""}</td>
+            <td><code>${escapeHtml(row.conversation_id)}</code></td>
             <td>${escapeHtml(row.canal)}</td>
-            <td>${escapeHtml(row.remitente)}</td>
+            <td class="remitente-${escapeHtml(row.remitente)}">${escapeHtml(row.remitente)}${row.remitente === "colaborador" && row.colaborador_nombre ? `<br><span style="font-size:0.78rem;color:#64748b">${escapeHtml(row.colaborador_nombre)}</span>` : ""}</td>
             <td>${escapeHtml(row.agente || "-")}</td>
-            <td class="text-cell">${escapeHtml(row.texto)}</td>
+            <td class="text-cell">${renderText(row.texto)}</td>
           `;
           bodyEl.appendChild(tr);
         }
       }
+
+      bodyEl.addEventListener("click", (e) => {
+        if (e.target.classList.contains("btn-expand")) {
+          const cell = e.target.closest(".text-cell");
+          if (cell) {
+            cell.querySelector(".text-short").hidden = true;
+            cell.querySelector(".text-full").hidden = false;
+          }
+        } else if (e.target.classList.contains("btn-collapse")) {
+          const cell = e.target.closest(".text-cell");
+          if (cell) {
+            cell.querySelector(".text-short").hidden = false;
+            cell.querySelector(".text-full").hidden = true;
+          }
+        }
+      });
 
       async function loadHistory() {
         try {
@@ -408,13 +474,14 @@
       fBranchPanel?.addEventListener("click", (e) => e.stopPropagation());
       fAreaPanel?.addEventListener("click", (e) => e.stopPropagation());
       document.addEventListener("click", closeDropdowns);
-      [fRemitente, fCanal, fConversation, fQ, fLimit].forEach((el) =>
+      [fRemitente, fCanal, fConversation, fQ, fLimit, fDateFrom, fDateTo].forEach((el) =>
         el.addEventListener("change", loadHistory)
       );
       fQ.addEventListener("keyup", (event) => {
         if (event.key === "Enter") loadHistory();
       });
       refreshBtn.addEventListener("click", loadHistory);
+      exportCsvBtn.addEventListener("click", exportCSV);
       fAuto.addEventListener("change", updateAutoRefresh);
 
       updateAutoRefresh();
