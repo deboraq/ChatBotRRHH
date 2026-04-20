@@ -404,6 +404,9 @@
       function setActiveDetail(type, value = null) {
         activeDetail = { type, value };
         renderActiveDetail();
+        // Scroll automático al panel de detalle
+        const detailPanel = document.querySelector(".detail-panel");
+        if (detailPanel) detailPanel.scrollIntoView({ behavior: "smooth", block: "start" });
       }
 
       function renderActiveDetail() {
@@ -478,14 +481,14 @@
 
         if (activeDetail.type === "resolucion_bot") {
           setDetailTable(
-            "Consultas respondidas por el bot (feedback positivo)",
+            "Consultas respondidas por el bot",
             [
               { label: "Fecha", key: "fecha" },
               { label: "Tema", key: "tema" },
-              { label: "Útil", key: "fue_util" },
+              { label: "¿Fue útil?", key: "fue_util" },
             ],
-            detail.feedback_si_util,
-            "Sin datos."
+            detail.feedback_reciente,
+            "Sin datos de consultas respondidas."
           );
           return;
         }
