@@ -658,6 +658,28 @@
         });
       }
 
+      function timeAgo(isoStr) {
+        if (!isoStr) return "";
+        try {
+          const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 60000);
+          if (diff < 1) return "ahora";
+          if (diff < 60) return `hace ${diff} min`;
+          const h = Math.floor(diff / 60);
+          const m = diff % 60;
+          return m > 0 ? `hace ${h}h ${m}min` : `hace ${h}h`;
+        } catch(e) { return ""; }
+      }
+
+      function waitBadgeClass(isoStr, estado) {
+        if (estado === "cerrada" || !isoStr) return "wait-badge";
+        try {
+          const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 60000);
+          if (diff >= 60) return "wait-badge wait-urgent";
+          if (diff >= 30) return "wait-badge wait-warning";
+          return "wait-badge";
+        } catch(e) { return "wait-badge"; }
+      }
+
       function renderConversations() {
         conversationListEl.innerHTML = "";
         let filtered = selectedAgentFilter
@@ -696,6 +718,7 @@
               <div class="conv-badges">
                 <span class="${badgeClass(conv.estado)}">${escapeHtml(conv.estado)}</span>
                 ${isUnread ? '<span class="badge new-message">nuevo</span>' : ""}
+                ${conv.estado !== "cerrada" && conv.updated_at_iso ? `<span class="${waitBadgeClass(conv.updated_at_iso, conv.estado)}">${timeAgo(conv.updated_at_iso)}</span>` : ""}
               </div>
             </div>
             <div class="conv-line">${escapeHtml(conv.ultima_consulta || "Sin consulta")}</div>

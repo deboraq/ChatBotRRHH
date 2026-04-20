@@ -455,3 +455,36 @@ html[data-theme="dark"] #filter-company {
   color: #fff !important;
 }
 
+/* Deltas de comparación entre períodos */
+.kpi-delta {
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 500;
+  min-height: 1em;
+  margin-top: 2px;
+}
+
+.kpi-delta.delta-up {
+  color: #16a34a;
+}
+
+.kpi-delta.delta-down {
+  color: #dc2626;
+}
+
+.kpi-delta.delta-neutral {
+  color: #64748b;
+}
+
+:root[data-theme="dark"] .kpi-delta.delta-up {
+  color: #4ade80;
+}
+
+:root[data-theme="dark"] .kpi-delta.delta-down {
+  color: #f87171;
+}
+
+:root[data-theme="dark"] .kpi-delta.delta-neutral {
+  color: #94a3b8;
+}
+

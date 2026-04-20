@@ -67,6 +67,12 @@
           <span class="filter-field-label">Hasta</span>
           <input type="date" id="filter-date-to" class="stats-date-input" />
         </div>
+        <div class="filter-field" style="align-self:flex-end;padding-bottom:4px;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85rem;">
+            <input type="checkbox" id="filter-compare" />
+            Comparar período anterior
+          </label>
+        </div>
       </section>
 
       <section id="status" class="status"></section>
@@ -75,11 +81,13 @@
         <article class="kpi-card actionable" id="card-resolucion-bot" data-drilldown="resolucion_bot">
           <h3>Resuelto por bot</h3>
           <p id="kpi-resolucion-bot">0%</p>
+          <span class="kpi-delta" id="delta-resolucion-bot"></span>
           <small>Consultas respondidas sin derivar</small>
         </article>
         <article class="kpi-card actionable" id="card-utilidad" data-drilldown="utilidad">
           <h3>Utilidad (%)</h3>
           <p id="kpi-utilidad">0%</p>
+          <span class="kpi-delta" id="delta-utilidad"></span>
           <small>Click para ver cálculo</small>
         </article>
         <article class="kpi-card actionable" id="card-votos" data-drilldown="votos">
@@ -90,21 +98,25 @@
         <article class="kpi-card actionable" id="card-sin-respuesta" data-drilldown="sin_respuesta">
           <h3>Sin respuesta</h3>
           <p id="kpi-sin-respuesta">0</p>
+          <span class="kpi-delta" id="delta-sin-respuesta"></span>
           <small>Temas sin info en la KB · Click para ver</small>
         </article>
         <article class="kpi-card actionable" id="card-feedback-total" data-drilldown="feedback">
           <h3>Feedback total</h3>
           <p id="kpi-feedback-total">0</p>
+          <span class="kpi-delta" id="delta-feedback"></span>
           <small>Click para ver detalle</small>
         </article>
         <article class="kpi-card actionable" id="card-no-util" data-drilldown="no_util">
           <h3>No útil</h3>
           <p id="kpi-no-util">0</p>
+          <span class="kpi-delta" id="delta-no-util"></span>
           <small>Click para ver casos</small>
         </article>
         <article class="kpi-card actionable" id="card-pendientes" data-drilldown="pendientes">
           <h3>Pendientes</h3>
           <p id="kpi-pendientes">0</p>
+          <span class="kpi-delta" id="delta-pendientes"></span>
           <small>Click para ver consultas</small>
         </article>
         <article class="kpi-card actionable" id="card-tiempo-atencion" data-drilldown="tiempo_atencion">
@@ -115,6 +127,7 @@
         <article class="kpi-card actionable" id="card-rrhh-abiertas" data-drilldown="rrhh_abiertas">
           <h3>Derivaciones abiertas</h3>
           <p id="kpi-rrhh-abiertas">0</p>
+          <span class="kpi-delta" id="delta-rrhh-abiertas"></span>
           <small>Pendientes + en atención</small>
         </article>
         <article class="kpi-card actionable" id="card-rrhh-atencion" data-drilldown="rrhh_en_atencion">
@@ -216,6 +229,61 @@
       const filterAreaLabel = document.getElementById("filter-area-label");
       const filterDateFrom = document.getElementById("filter-date-from");
       const filterDateTo = document.getElementById("filter-date-to");
+      const filterCompareEl = document.getElementById("filter-compare");
+
+      let compareMode = false;
+      let prevStats = null;
+
+      const DELTA_CONFIG = {
+        "resolucion-bot": { kpiKey: "resolucion_bot_pct", higherBetter: true, suffix: "%" },
+        "utilidad":       { kpiKey: "utilidad_pct",       higherBetter: true, suffix: "%" },
+        "sin-respuesta":  { kpiKey: "sin_respuesta_total", higherBetter: false, suffix: "" },
+        "feedback":       { kpiKey: "total_feedback",      higherBetter: true, suffix: "" },
+        "no-util":        { kpiKey: "no_util_total",       higherBetter: false, suffix: "" },
+        "pendientes":     { kpiKey: "total_pendientes",    higherBetter: false, suffix: "" },
+        "rrhh-abiertas":  { kpiKey: "rrhh_abiertas",       higherBetter: null, suffix: "" },
+      };
+
+      function getPreviousPeriodDates(dateFrom, dateTo) {
+        const toD = (s) => new Date(s + "T12:00:00");
+        const fmt = (d) => d.toISOString().slice(0, 10);
+        if (dateFrom && dateTo) {
+          const from = toD(dateFrom);
+          const to = toD(dateTo);
+          const diffMs = to.getTime() - from.getTime();
+          const prevTo = new Date(from.getTime() - 86400000);
+          const prevFrom = new Date(prevTo.getTime() - diffMs);
+          return { dateFrom: fmt(prevFrom), dateTo: fmt(prevTo) };
+        }
+        const today = new Date();
+        const prevTo = new Date(today); prevTo.setDate(prevTo.getDate() - 7);
+        const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - 6);
+        return { dateFrom: fmt(prevFrom), dateTo: fmt(prevTo) };
+      }
+
+      function renderDeltas(curKpis, prevKpis) {
+        for (const [id, cfg] of Object.entries(DELTA_CONFIG)) {
+          const el = document.getElementById("delta-" + id);
+          if (!el) continue;
+          const cur = curKpis[cfg.kpiKey] ?? 0;
+          const prev = prevKpis[cfg.kpiKey] ?? 0;
+          const diff = Math.round((cur - prev) * 10) / 10;
+          if (diff === 0) { el.textContent = ""; el.className = "kpi-delta"; continue; }
+          const sign = diff > 0 ? "+" : "";
+          el.textContent = `${sign}${diff}${cfg.suffix} vs período ant.`;
+          if (cfg.higherBetter === null) {
+            el.className = "kpi-delta delta-neutral";
+          } else if (cfg.higherBetter) {
+            el.className = "kpi-delta " + (diff > 0 ? "delta-up" : "delta-down");
+          } else {
+            el.className = "kpi-delta " + (diff < 0 ? "delta-up" : "delta-down");
+          }
+        }
+      }
+
+      function clearDeltas() {
+        document.querySelectorAll(".kpi-delta").forEach((el) => { el.textContent = ""; el.className = "kpi-delta"; });
+      }
 
       let lineChart;
       let pieChart;
@@ -865,6 +933,20 @@
           renderPieChart(data.pendientes_por_sentimiento);
           renderActiveDetail();
 
+          if (compareMode) {
+            const { dateFrom: pFrom, dateTo: pTo } = getPreviousPeriodDates(dateFrom, dateTo);
+            const prevParams = new URLSearchParams(params);
+            prevParams.set("date_from", pFrom);
+            prevParams.set("date_to", pTo);
+            prevParams.set("_", String(Date.now() + 1));
+            fetch("/api/stats?" + prevParams.toString(), { cache: "no-store", credentials: "same-origin" })
+              .then((r) => r.json())
+              .then((pd) => { if (pd.ok) renderDeltas(data.kpis, pd.kpis); })
+              .catch(() => {});
+          } else {
+            clearDeltas();
+          }
+
           if (data.available) {
             const fa = data.filter_applied || {};
             let filtro = "";
@@ -907,6 +989,10 @@
       btnExportCsv?.addEventListener("click", exportDetailToCSV);
       filterDateFrom?.addEventListener("change", loadStats);
       filterDateTo?.addEventListener("change", loadStats);
+      filterCompareEl?.addEventListener("change", () => {
+        compareMode = filterCompareEl.checked;
+        loadStats();
+      });
       filterCompanyEl?.addEventListener("change", () => {
         fillBranchAreaFilters();
         loadStats();
