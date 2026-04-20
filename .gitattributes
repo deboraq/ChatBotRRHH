@@ -1,0 +1,6 @@
+# Excluir templates y static del análisis de lenguajes de GitHub
+templates/* linguist-detectable=false
+static/* linguist-detectable=false
+n8n/* linguist-detectable=false
+docs/* linguist-detectable=false
+scripts/* linguist-detectable=false
