@@ -72,10 +72,10 @@
       <section id="status" class="status"></section>
 
       <section class="kpis-grid">
-        <article class="kpi-card actionable" id="card-feedback-total" data-drilldown="feedback">
-          <h3>Feedback total</h3>
-          <p id="kpi-feedback-total">0</p>
-          <small>Click para ver detalle</small>
+        <article class="kpi-card actionable" id="card-resolucion-bot" data-drilldown="resolucion_bot">
+          <h3>Resuelto por bot</h3>
+          <p id="kpi-resolucion-bot">0%</p>
+          <small>Consultas respondidas sin derivar</small>
         </article>
         <article class="kpi-card actionable" id="card-utilidad" data-drilldown="utilidad">
           <h3>Utilidad (%)</h3>
@@ -85,7 +85,17 @@
         <article class="kpi-card actionable" id="card-votos" data-drilldown="votos">
           <h3>Votos Sí / No</h3>
           <p id="kpi-votos">0 / 0</p>
-          <small>Click para ver distribución</small>
+          <small>Click para ver por tema</small>
+        </article>
+        <article class="kpi-card actionable" id="card-sin-respuesta" data-drilldown="sin_respuesta">
+          <h3>Sin respuesta</h3>
+          <p id="kpi-sin-respuesta">0</p>
+          <small>Temas sin info en la KB · Click para ver</small>
+        </article>
+        <article class="kpi-card actionable" id="card-feedback-total" data-drilldown="feedback">
+          <h3>Feedback total</h3>
+          <p id="kpi-feedback-total">0</p>
+          <small>Click para ver detalle</small>
         </article>
         <article class="kpi-card actionable" id="card-no-util" data-drilldown="no_util">
           <h3>No útil</h3>
@@ -96,6 +106,11 @@
           <h3>Pendientes</h3>
           <p id="kpi-pendientes">0</p>
           <small>Click para ver consultas</small>
+        </article>
+        <article class="kpi-card actionable" id="card-tiempo-atencion" data-drilldown="tiempo_atencion">
+          <h3>Tiempo prom. atención</h3>
+          <p id="kpi-tiempo-atencion">-</p>
+          <small>Conversaciones cerradas · Click por agente</small>
         </article>
         <article class="kpi-card actionable" id="card-rrhh-abiertas" data-drilldown="rrhh_abiertas">
           <h3>Derivaciones abiertas</h3>
@@ -126,7 +141,7 @@
 
       <section class="charts-grid">
         <article class="panel">
-          <h2>Evolución últimos 7 días</h2>
+          <h2 id="line-chart-title">Evolución últimos 7 días</h2>
           <div class="chart-box line-chart-box">
             <canvas id="lineChart"></canvas>
           </div>
@@ -146,6 +161,7 @@
             <tr>
               <th>Tema</th>
               <th>Cantidad</th>
+              <th>%</th>
             </tr>
           </thead>
           <tbody id="top-temas-body"></tbody>
@@ -155,7 +171,10 @@
       <section class="panel detail-panel">
         <div class="detail-header">
           <h2 id="detail-title">Detalle</h2>
-          <button id="btn-detail-reset" type="button">Ver resumen</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button id="btn-export-csv" type="button">Exportar CSV</button>
+            <button id="btn-detail-reset" type="button">Ver resumen</button>
+          </div>
         </div>
         <table>
           <thead id="detail-head"></thead>
@@ -176,12 +195,17 @@
       const comunicadosEl = document.getElementById("kpi-comunicados");
       const comDestEl = document.getElementById("kpi-com-dest");
       const legajosActivosEl = document.getElementById("kpi-legajos-activos");
+      const resolucionBotEl = document.getElementById("kpi-resolucion-bot");
+      const sinRespuestaEl = document.getElementById("kpi-sin-respuesta");
+      const tiempoAtencionEl = document.getElementById("kpi-tiempo-atencion");
       const topTemasBody = document.getElementById("top-temas-body");
       const refreshBtn = document.getElementById("btn-refresh");
       const detailTitleEl = document.getElementById("detail-title");
       const detailHeadEl = document.getElementById("detail-head");
       const detailBodyEl = document.getElementById("detail-body");
       const btnDetailReset = document.getElementById("btn-detail-reset");
+      const btnExportCsv = document.getElementById("btn-export-csv");
+      const lineChartTitleEl = document.getElementById("line-chart-title");
       const cards = document.querySelectorAll(".kpi-card.actionable");
       const filterCompanyEl = document.getElementById("filter-company");
       const filterBranchTrigger = document.getElementById("filter-branch-trigger");
@@ -195,6 +219,7 @@
 
       let lineChart;
       let pieChart;
+      let barChart;
       let latestStats = null;
       let activeDetail = { type: "resumen", value: null };
       let autoRefreshTimer = null;
@@ -451,6 +476,48 @@
           return;
         }
 
+        if (activeDetail.type === "resolucion_bot") {
+          setDetailTable(
+            "Consultas respondidas por el bot (feedback positivo)",
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Tema", key: "tema" },
+              { label: "Útil", key: "fue_util" },
+            ],
+            detail.feedback_si_util,
+            "Sin datos."
+          );
+          return;
+        }
+
+        if (activeDetail.type === "sin_respuesta") {
+          setDetailTable(
+            "Preguntas sin respuesta en la KB",
+            [
+              { label: "Fecha", key: "fecha" },
+              { label: "Tema consultado", key: "tema" },
+            ],
+            detail.sin_respuesta_items || [],
+            "No hay preguntas sin respuesta. ¡La KB está cubriendo todo!"
+          );
+          return;
+        }
+
+        if (activeDetail.type === "tiempo_atencion") {
+          setDetailTable(
+            "Derivaciones por agente",
+            [
+              { label: "Agente", key: "agente" },
+              { label: "Total asignadas", key: "total" },
+              { label: "Cerradas", key: "cerradas" },
+              { label: "Tiempo prom.", render: (r) => _fmtMins(r.tiempo_promedio_min) },
+            ],
+            detail.derivaciones_por_agente || [],
+            "Sin derivaciones registradas."
+          );
+          return;
+        }
+
         if (activeDetail.type === "votos") {
           // Construir tabla de votos por tema
           const topicVotes = {};
@@ -621,11 +688,16 @@
         );
       }
 
+      function _fmtMins(mins) {
+        if (mins == null) return "-";
+        return mins >= 60 ? `${(mins / 60).toFixed(1)} hs` : `${mins} min`;
+      }
+
       function renderTopTemas(items) {
         topTemasBody.innerHTML = "";
-        if (!items.length) {
+        if (!items || !items.length) {
           const tr = document.createElement("tr");
-          tr.innerHTML = "<td colspan='2'>Sin datos por el momento.</td>";
+          tr.innerHTML = "<td colspan='3'>Sin datos por el momento.</td>";
           topTemasBody.appendChild(tr);
           return;
         }
@@ -643,8 +715,12 @@
           const cantTd = document.createElement("td");
           cantTd.textContent = item.cantidad;
 
+          const pctTd = document.createElement("td");
+          pctTd.textContent = item.pct != null ? `${item.pct}%` : "-";
+
           tr.appendChild(temaTd);
           tr.appendChild(cantTd);
+          tr.appendChild(pctTd);
           topTemasBody.appendChild(tr);
         }
       }
@@ -764,6 +840,23 @@
           if (comunicadosEl) comunicadosEl.textContent = data.kpis.comunicados_total ?? 0;
           if (comDestEl) comDestEl.textContent = data.kpis.comunicados_destinatarios ?? 0;
           if (legajosActivosEl) legajosActivosEl.textContent = (data.kpis.legajos_activos ?? 0) + " / " + (data.kpis.legajos_total ?? 0);
+          if (resolucionBotEl) resolucionBotEl.textContent = `${data.kpis.resolucion_bot_pct ?? 0}%`;
+          if (sinRespuestaEl) sinRespuestaEl.textContent = data.kpis.sin_respuesta_total ?? 0;
+          if (tiempoAtencionEl) {
+            const mins = data.kpis.tiempo_promedio_atencion_min;
+            tiempoAtencionEl.textContent = mins != null
+              ? (mins >= 60 ? `${(mins / 60).toFixed(1)} hs` : `${mins} min`)
+              : "-";
+          }
+          // Título dinámico del gráfico
+          const fa = data.filter_applied || {};
+          if (lineChartTitleEl) {
+            if (fa.date_from || fa.date_to) {
+              lineChartTitleEl.textContent = `Evolución ${fa.date_from || "..."} → ${fa.date_to || "hoy"}`;
+            } else {
+              lineChartTitleEl.textContent = "Evolución últimos 7 días";
+            }
+          }
           renderTopTemas(data.top_temas);
           renderLineChart(data.series_7_dias);
           renderPieChart(data.pendientes_por_sentimiento);
@@ -787,7 +880,28 @@
         }
       }
 
+      function exportDetailToCSV() {
+        const title = (detailTitleEl.textContent || "detalle").trim();
+        const headers = Array.from(detailHeadEl.querySelectorAll("th")).map((th) => th.textContent.trim());
+        const rows = Array.from(detailBodyEl.querySelectorAll("tr")).map((tr) =>
+          Array.from(tr.querySelectorAll("td")).map((td) => td.textContent.trim())
+        ).filter((r) => r.length);
+        if (!headers.length) return;
+        const esc = (s) => `"${(s || "").replace(/"/g, '""')}"`;
+        const csv = [headers.map(esc).join(","), ...rows.map((r) => r.map(esc).join(","))].join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = title.replace(/[^a-z0-9áéíóú]/gi, "_").toLowerCase() + ".csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
       refreshBtn.addEventListener("click", loadStats);
+      btnExportCsv?.addEventListener("click", exportDetailToCSV);
       filterDateFrom?.addEventListener("change", loadStats);
       filterDateTo?.addEventListener("change", loadStats);
       filterCompanyEl?.addEventListener("change", () => {
