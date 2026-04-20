@@ -367,26 +367,33 @@ code {
 
 /* Vista agrupada por conversación */
 .conv-group-summary td {
-  background: #f0f9ff;
-  font-weight: 500;
+  background: #1e293b;
+  color: #e2e8f0;
+  font-weight: 600;
   cursor: default;
+  border-bottom: 2px solid #334155;
 }
 
 .conv-group-summary:hover td {
-  background: #e0f2fe;
+  background: #273549;
+}
+
+.conv-detail-row td {
+  border-left: 3px solid #cbd5e1;
+  background: #fff !important;
 }
 
 .conv-msg-count {
-  background: #e2e8f0;
+  background: #334155;
   border-radius: 10px;
   padding: 2px 8px;
   font-size: 0.82rem;
-  color: #475569;
+  color: #cbd5e1;
 }
 
 .btn-group-expand {
   background: transparent;
-  color: #2563eb;
+  color: #93c5fd;
   border: none;
   padding: 0 2px;
   font-size: 0.82rem;
@@ -410,12 +417,18 @@ code {
 }
 
 :root[data-theme="dark"] .conv-group-summary td {
-  background: #1e3a5f;
+  background: #0f172a;
   color: #e2e8f0;
+  border-bottom-color: #475569;
 }
 
 :root[data-theme="dark"] .conv-group-summary:hover td {
-  background: #1e4080;
+  background: #1e293b;
+}
+
+:root[data-theme="dark"] .conv-detail-row td {
+  border-left-color: #475569;
+  background: #132033 !important;
 }
 
 :root[data-theme="dark"] .conv-msg-count {
