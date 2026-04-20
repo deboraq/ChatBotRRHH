@@ -181,8 +181,13 @@ def build_statistics_from_records(
     if total_feedback > 0:
         utilidad_pct = round((votos_si / total_feedback) * 100, 2)
 
+    # Tasa de resolución del bot: % de consultas donde el bot dio alguna respuesta
+    total_consultas_bot = total_feedback + total_pendientes
+    resolucion_bot_pct = round(total_feedback / total_consultas_bot * 100, 1) if total_consultas_bot > 0 else 0.0
+
+    total_temas = sum(temas_counter.values())
     top_temas_todos = [
-        {"tema": tema, "cantidad": cantidad}
+        {"tema": tema, "cantidad": cantidad, "pct": round(cantidad / total_temas * 100, 1) if total_temas else 0}
         for tema, cantidad in temas_counter.most_common()
     ]
     sentimientos_todos = [
@@ -197,6 +202,12 @@ def build_statistics_from_records(
     feedback_si_util = [
         item for item in feedback_reciente_ordenado if _es_voto_si(item.get("fue_util"))
     ][:detail_limit]
+    # Preguntas sin respuesta: feedback donde el bot no pudo responder (tema contiene "sin_respuesta")
+    sin_respuesta_items = [
+        item for item in feedback_reciente_ordenado
+        if "sin_respuesta" in (item.get("tema") or "")
+    ][:detail_limit]
+    sin_respuesta_total = len(sin_respuesta_items)
     feedback_reciente = feedback_reciente_ordenado[:detail_limit]
     pendientes_recientes = _ordenar_por_fecha_desc(pendientes_recientes)[:detail_limit]
     desglose_diario = [
@@ -211,6 +222,9 @@ def build_statistics_from_records(
     rrhh_pendientes = 0
     rrhh_en_atencion = 0
     rrhh_cerradas = 0
+    tiempos_atencion = []
+    agentes_stats = {}
+
     for item in rrhh_records:
         estado = _normalizar_estado_handoff(item.get("estado"))
         if estado == "en_atencion":
@@ -236,8 +250,32 @@ def build_statistics_from_records(
             }
         )
 
+        # Seguimiento por agente y tiempos de atención
+        agente = str(item.get("rrhh_agente") or "sin asignar").strip()
+        if agente not in agentes_stats:
+            agentes_stats[agente] = {"agente": agente, "total": 0, "cerradas": 0, "tiempos_min": []}
+        agentes_stats[agente]["total"] += 1
+        if estado == "cerrada":
+            agentes_stats[agente]["cerradas"] += 1
+            created = _extraer_fecha(item.get("created_at"))
+            updated = _extraer_fecha(item.get("updated_at"))
+            if created and updated and updated > created:
+                mins = (updated - created).total_seconds() / 60
+                tiempos_atencion.append(mins)
+                agentes_stats[agente]["tiempos_min"].append(mins)
+
     rrhh_recientes = _ordenar_por_fecha_desc(rrhh_recientes)[:detail_limit]
     rrhh_abiertas = rrhh_pendientes + rrhh_en_atencion
+    tiempo_promedio_atencion_min = round(sum(tiempos_atencion) / len(tiempos_atencion), 1) if tiempos_atencion else None
+    derivaciones_por_agente = [
+        {
+            "agente": ad["agente"],
+            "total": ad["total"],
+            "cerradas": ad["cerradas"],
+            "tiempo_promedio_min": round(sum(ad["tiempos_min"]) / len(ad["tiempos_min"]), 1) if ad["tiempos_min"] else None,
+        }
+        for ad in sorted(agentes_stats.values(), key=lambda x: x["total"], reverse=True)
+    ]
 
     # ── Comunicados ──────────────────────────────────────────────────────────
     com_total = 0
@@ -280,12 +318,15 @@ def build_statistics_from_records(
             "votos_no": votos_no,
             "no_util_total": votos_no,
             "utilidad_pct": utilidad_pct,
+            "resolucion_bot_pct": resolucion_bot_pct,
+            "sin_respuesta_total": sin_respuesta_total,
             "total_pendientes": total_pendientes,
             "rrhh_total": len(rrhh_records),
             "rrhh_abiertas": rrhh_abiertas,
             "rrhh_pendientes": rrhh_pendientes,
             "rrhh_en_atencion": rrhh_en_atencion,
             "rrhh_cerradas": rrhh_cerradas,
+            "tiempo_promedio_atencion_min": tiempo_promedio_atencion_min,
             "comunicados_total": com_total,
             "comunicados_exitosos": com_exitosos,
             "comunicados_fallidos": com_fallidos,
@@ -301,11 +342,13 @@ def build_statistics_from_records(
             "feedback_reciente": feedback_reciente,
             "feedback_no_util": feedback_no_util,
             "feedback_si_util": feedback_si_util,
+            "sin_respuesta_items": sin_respuesta_items,
             "pendientes_recientes": pendientes_recientes,
             "ranking_temas": top_temas_todos,
             "ranking_sentimientos": sentimientos_todos,
             "desglose_diario": desglose_diario,
             "rrhh_conversaciones": rrhh_recientes,
+            "derivaciones_por_agente": derivaciones_por_agente,
             "votos": {
                 "si": votos_si,
                 "no": votos_no,
