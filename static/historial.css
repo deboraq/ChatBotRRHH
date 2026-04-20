@@ -364,3 +364,70 @@ code {
 :root[data-theme="dark"] .btn-collapse {
   color: #93c5fd;
 }
+
+/* Vista agrupada por conversación */
+.conv-group-summary td {
+  background: #f0f9ff;
+  font-weight: 500;
+  cursor: default;
+}
+
+.conv-group-summary:hover td {
+  background: #e0f2fe;
+}
+
+.conv-msg-count {
+  background: #e2e8f0;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.btn-group-expand {
+  background: transparent;
+  color: #2563eb;
+  border: none;
+  padding: 0 2px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border-radius: 0;
+  text-decoration: underline;
+}
+
+.btn-flat {
+  background: transparent;
+  color: #2563eb;
+  border: 1px solid #e2e8f0;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.btn-flat:hover {
+  background: #f0f9ff;
+}
+
+:root[data-theme="dark"] .conv-group-summary td {
+  background: #1e3a5f;
+  color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .conv-group-summary:hover td {
+  background: #1e4080;
+}
+
+:root[data-theme="dark"] .conv-msg-count {
+  background: #334155;
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .btn-flat {
+  color: #93c5fd;
+  border-color: #334155;
+}
+
+:root[data-theme="dark"] .btn-flat:hover {
+  background: #1e3a5f;
+}
