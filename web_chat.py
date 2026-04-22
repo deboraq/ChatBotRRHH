@@ -414,6 +414,7 @@ def _invalidar_sesion_wa_por_empleado(empleado_id, new_convenio=""):
     """
     if not chatbot.db or not empleado_id:
         return
+    phones_actualizados = set()
     try:
         snaps = chatbot.db.collection(WHATSAPP_CONTEXT_COLLECTION)\
             .where("wa_empleado_id", "==", empleado_id).get()
@@ -422,12 +423,11 @@ def _invalidar_sesion_wa_por_empleado(empleado_id, new_convenio=""):
                 "chat_context_step": CHAT_CONTEXT_STEP_DNI,
                 "wa_convenio": new_convenio,
             })
-            # También limpiar de la memoria si está activa
             phone_key = snap.id
+            phones_actualizados.add(phone_key)
             if phone_key in WHATSAPP_SESSIONS:
                 WHATSAPP_SESSIONS[phone_key]["chat_context_step"] = CHAT_CONTEXT_STEP_DNI
                 WHATSAPP_SESSIONS[phone_key]["wa_convenio"] = new_convenio
-            # Actualizar wa_identities para que el refetch use el convenio correcto
             try:
                 chatbot.db.collection(WA_IDENTITIES_COLLECTION).document(phone_key).update({
                     "convenio": new_convenio,
@@ -437,7 +437,24 @@ def _invalidar_sesion_wa_por_empleado(empleado_id, new_convenio=""):
                 pass
             logger.info("Sesión WA reseteada a DNI por cambio de convenio: empleado=%s phone=%s nuevo_convenio=%s", empleado_id, snap.id, new_convenio)
     except Exception as e:
-        logger.warning("_invalidar_sesion_wa_por_empleado: %s", e)
+        logger.warning("_invalidar_sesion_wa_por_empleado (context): %s", e)
+    # Actualizar wa_identities directo por empleado_id, por si el contexto fue borrado
+    try:
+        id_snaps = chatbot.db.collection(WA_IDENTITIES_COLLECTION)\
+            .where("empleado_id", "==", empleado_id).get()
+        for snap in id_snaps:
+            phone_key = snap.id
+            if phone_key in phones_actualizados:
+                continue  # ya fue actualizado arriba
+            snap.reference.update({
+                "convenio": new_convenio,
+                "updated_at": _utc_now(),
+            })
+            if phone_key in WHATSAPP_SESSIONS:
+                WHATSAPP_SESSIONS[phone_key]["wa_convenio"] = new_convenio
+            logger.info("wa_identities actualizado directo: empleado=%s phone=%s nuevo_convenio=%s", empleado_id, phone_key, new_convenio)
+    except Exception as e:
+        logger.warning("_invalidar_sesion_wa_por_empleado (identities): %s", e)
 
 
 def _save_whatsapp_chat_context(phone):
@@ -531,7 +548,9 @@ WA_IDENTITIES_COLLECTION = "whatsapp_identities"
 
 
 def _chat_context_step():
-    return _sess().get("chat_context_step") or CHAT_CONTEXT_STEP_COMPANY
+    step = _sess().get("chat_context_step") or CHAT_CONTEXT_STEP_COMPANY
+    _sess()["chat_context_step"] = step  # asegurar que se persista en sesión/Firestore
+    return step
 
 
 def _set_chat_context_company(company_id):
@@ -3375,7 +3394,11 @@ def responder_chat(mensaje_usuario):
         )
 
     last_kb_pregunta = _sess().get("last_kb_pregunta")
-    _wa_convenio = (_sess().get("wa_convenio") or "").strip() or None
+    # None = clave no existe (web, convenio desconocido) → KB sin filtro
+    # ""   = clave existe pero vacía (WA, sin convenio) → solo KB genérica
+    # "xx" = tiene convenio → KB genérica + convenio del empleado
+    _wa_key = _sess().get("wa_convenio")
+    _wa_convenio = _wa_key.strip().lower() if _wa_key is not None else None
     respuesta, tema_id = chatbot.obtener_respuesta(
         mensaje_usuario, temas_map, company_id=company_id, context_pregunta=last_kb_pregunta, convenio=_wa_convenio
     )
@@ -3404,11 +3427,22 @@ def responder_chat(mensaje_usuario):
                 # Guardar el tema real para estadísticas útiles (no el ID interno "knowledge_answer")
                 _msg_norm_fb = chatbot.normalizar_texto(mensaje_usuario)
                 _tema_real = chatbot.detectar_tema(_msg_norm_fb, temas_map)
+                if not _tema_real:
+                    # Fallback: buscar por keywords globales (cubre "horario de atencion" → contacto, etc.)
+                    for _t, _kws in _KB_TOPIC_KEYWORDS:
+                        if any(_kw in _msg_norm_fb for _kw in _kws):
+                            _tema_real = _t
+                            break
                 _sess()["pending_feedback_topic"] = _tema_real or "consulta_kb"
                 _sess()["pending_kb_answer"] = True
             elif tema_id == "knowledge_no_match":
                 _msg_norm_fb = chatbot.normalizar_texto(mensaje_usuario)
                 _tema_real = chatbot.detectar_tema(_msg_norm_fb, temas_map)
+                if not _tema_real:
+                    for _t, _kws in _KB_TOPIC_KEYWORDS:
+                        if any(_kw in _msg_norm_fb for _kw in _kws):
+                            _tema_real = _t
+                            break
                 _sess()["pending_feedback_topic"] = (_tema_real + "_sin_respuesta") if _tema_real else "sin_respuesta"
             else:
                 _sess()["pending_feedback_topic"] = tema_id
@@ -5696,12 +5730,17 @@ def _process_chat_turn(mensaje_trim):
     )
     if log_asistente_input:
         input_conversation_id = _get_handoff_session_id() or _session_chat_id()
+        _wa_nombre_hist = (_sess().get("wa_nombre") or "").strip()
         _add_chat_history(
             conversation_id=input_conversation_id,
             remitente="colaborador",
             texto=mensaje,
             canal="asistente",
-            metadata={"source": "api_chat", "company_id": company.get("company_id")},
+            metadata={
+                "source": "api_chat",
+                "company_id": company.get("company_id"),
+                "colaborador_nombre": _wa_nombre_hist or None,
+            },
         )
 
     payload = responder_chat(mensaje)
@@ -6979,6 +7018,11 @@ def historial_api():
         conv_id_s = serialized["conversation_id"]
         if conv_id_s in handoff_names:
             serialized["colaborador_nombre"] = handoff_names[conv_id_s]
+        elif not serialized.get("colaborador_nombre"):
+            # Fallback: leer nombre del metadata del item (guardado desde sesión WA)
+            _meta_nombre = str((item.get("metadata") or {}).get("colaborador_nombre") or "").strip()
+            if _meta_nombre:
+                serialized["colaborador_nombre"] = _meta_nombre
         if remitente and serialized["remitente"].lower() != remitente:
             continue
         if canal and serialized["canal"].lower() != canal:
@@ -7744,8 +7788,9 @@ _KB_TOPIC_KEYWORDS = [
     ("obra social",      ["obra social", "cobertura medica", "cobertura de salud", "osde", "prepaga",
                           "cambio de plan", "agregar familiares", "medicina prepaga"]),
     ("contacto",         ["contacto rrhh", "comunicarse con", "area de recursos humanos", "interno 200",
-                          "correo de rrhh", "horario de atencion", "oficina de rrhh", "contacto de rrhh",
-                          "datos de contacto", "como contactar", "como contacto", "contactar al",
+                          "correo de rrhh", "horario de atencion", "horario de rrhh", "horario del area",
+                          "oficina de rrhh", "contacto de rrhh", "datos de contacto",
+                          "como contactar", "como contacto", "contactar al",
                           "contactar a rrhh", "numero de rrhh", "equipo de rrhh"]),
     ("nacimiento",       ["nacimiento", "maternidad", "paternidad", "licencia por hijo", "adopcion"]),
     ("casamiento",       ["casamiento", "matrimonio", "boda"]),

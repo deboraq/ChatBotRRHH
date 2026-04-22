@@ -345,15 +345,23 @@ def obtener_knowledge_empresa(company_id=None, convenio=None):
             return []
         data = doc.to_dict() or {}
         entries = data.get("entries") or []
-        conv_norm = (convenio or "").strip().lower() if convenio else None
+        # conv_norm = None  → no filtrar (web, convenio desconocido) → devuelve todas
+        # conv_norm = ""   → sin convenio → solo entradas genéricas (sin tag de convenio)
+        # conv_norm = "xx" → con convenio → genéricas + las del convenio del empleado
+        conv_norm = convenio.strip().lower() if convenio is not None else None
         result = []
         for e in entries:
             if not isinstance(e, dict) or not (e.get("pregunta") or e.get("respuesta")):
                 continue
             e_conv = (e.get("convenio") or "").strip().lower()
-            # Si se filtra por convenio: incluir genéricas (sin convenio) + las del convenio del empleado
-            if conv_norm and e_conv and e_conv != conv_norm:
-                continue
+            if conv_norm is not None:
+                if conv_norm == "":
+                    # Sin convenio: excluir entradas etiquetadas con cualquier convenio
+                    if e_conv:
+                        continue
+                elif e_conv and e_conv != conv_norm:
+                    # Tiene convenio distinto al del empleado: excluir
+                    continue
             result.append({
                 "pregunta": str(e.get("pregunta") or "").strip(),
                 "respuesta": str(e.get("respuesta") or "").strip(),
