@@ -407,9 +407,10 @@ def _reset_whatsapp_chat_context(phone):
             logger.warning("_reset_whatsapp_chat_context: error para %s: %s", norm, e)
 
 
-def _invalidar_sesion_wa_por_empleado(empleado_id):
+def _invalidar_sesion_wa_por_empleado(empleado_id, new_convenio=""):
     """Resetea al paso DNI todas las sesiones WhatsApp vinculadas a un empleado.
     Se llama cuando cambia el convenio del empleado para forzar re-identificación.
+    También actualiza wa_identities para evitar que el convenio viejo se restaure.
     """
     if not chatbot.db or not empleado_id:
         return
@@ -419,14 +420,22 @@ def _invalidar_sesion_wa_por_empleado(empleado_id):
         for snap in snaps:
             snap.reference.update({
                 "chat_context_step": CHAT_CONTEXT_STEP_DNI,
-                "wa_convenio": "",
+                "wa_convenio": new_convenio,
             })
             # También limpiar de la memoria si está activa
             phone_key = snap.id
             if phone_key in WHATSAPP_SESSIONS:
                 WHATSAPP_SESSIONS[phone_key]["chat_context_step"] = CHAT_CONTEXT_STEP_DNI
-                WHATSAPP_SESSIONS[phone_key]["wa_convenio"] = ""
-            logger.info("Sesión WA reseteada a DNI por cambio de convenio: empleado=%s phone=%s", empleado_id, snap.id)
+                WHATSAPP_SESSIONS[phone_key]["wa_convenio"] = new_convenio
+            # Actualizar wa_identities para que el refetch use el convenio correcto
+            try:
+                chatbot.db.collection(WA_IDENTITIES_COLLECTION).document(phone_key).update({
+                    "convenio": new_convenio,
+                    "updated_at": _utc_now(),
+                })
+            except Exception:
+                pass
+            logger.info("Sesión WA reseteada a DNI por cambio de convenio: empleado=%s phone=%s nuevo_convenio=%s", empleado_id, snap.id, new_convenio)
     except Exception as e:
         logger.warning("_invalidar_sesion_wa_por_empleado: %s", e)
 
@@ -4097,7 +4106,7 @@ def api_legajos_empleado_patch(empleado_id):
         return jsonify({"ok": False, "error": msg or "No se pudo actualizar."}), 400
     # Si cambió el convenio, resetear sesión WA del empleado para forzar re-identificación
     if ok and convenio_nuevo != convenio_viejo:
-        _invalidar_sesion_wa_por_empleado(empleado_id)
+        _invalidar_sesion_wa_por_empleado(empleado_id, new_convenio=convenio_nuevo)
     cid = str(emp.get("company_id") or "").strip().lower()
     _legajos_audit(
         legajos_service.LEGAJOS_AUDIT_EMPLEADO_EDITAR,
@@ -6070,8 +6079,9 @@ def webhook_twilio_whatsapp():
             g.whatsapp_session["wa_empleado_id"] = identity.get("empleado_id") or ""
             g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
             g.whatsapp_session["wa_nombre"] = identity.get("nombre") or ""
-    elif not g.whatsapp_session.get("wa_convenio"):
+    elif not g.whatsapp_session.get("wa_convenio") and g.whatsapp_session.get("chat_context_step") != CHAT_CONTEXT_STEP_DNI:
         # Tiene empleado_id pero le falta convenio (sesión guardada antes de que se agregara) → refrescar
+        # No restaurar si el paso es DNI: la sesión fue reseteada intencionalmente
         identity = _get_whatsapp_identity(from_phone)
         if identity:
             g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
@@ -6503,8 +6513,9 @@ def webhook_meta_whatsapp():
                         g.whatsapp_session["wa_empleado_id"] = identity.get("empleado_id") or ""
                         g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
                         g.whatsapp_session["wa_nombre"] = identity.get("nombre") or ""
-                elif not g.whatsapp_session.get("wa_convenio"):
+                elif not g.whatsapp_session.get("wa_convenio") and g.whatsapp_session.get("chat_context_step") != CHAT_CONTEXT_STEP_DNI:
                     # Tiene empleado_id pero le falta convenio (sesión antigua) → refrescar
+                    # No restaurar si el paso es DNI: la sesión fue reseteada intencionalmente
                     identity = _get_whatsapp_identity(from_phone)
                     if identity:
                         g.whatsapp_session["wa_convenio"] = identity.get("convenio") or ""
