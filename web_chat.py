@@ -8933,6 +8933,29 @@ def api_comunicados_upload():
     return jsonify({"ok": True, "url": url})
 
 
+@flask_app.post("/api/whatsapp/send")
+def api_whatsapp_send_externo():
+    """Envía un mensaje de WhatsApp a un número. Autenticación por Bearer token (env WHATSAPP_SEND_API_KEY).
+    Body JSON: { phone: str, message: str, company_id?: str }
+    Uso: apps externas (ej: cronogramas/COSP) que necesiten enviar mensajes puntuales.
+    """
+    expected_key = os.environ.get("WHATSAPP_SEND_API_KEY", "")
+    if not expected_key:
+        return jsonify({"ok": False, "error": "Endpoint no habilitado (WHATSAPP_SEND_API_KEY no configurado)."}), 503
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer ") or auth_header[7:] != expected_key:
+        return jsonify({"ok": False, "error": "No autorizado."}), 401
+    data = request.get_json(silent=True) or {}
+    phone = str(data.get("phone") or "").strip()
+    message = str(data.get("message") or "").strip()
+    if not phone or not message:
+        return jsonify({"ok": False, "error": "Faltan campos: phone y message son obligatorios."}), 400
+    ok = _send_meta_whatsapp(phone, message)
+    if ok:
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "No se pudo enviar el mensaje. Verificá el número o las credenciales Meta."}), 502
+
+
 @flask_app.post("/api/rrhh/conversaciones/<conversation_id>/mensajes")
 @rrhh_permission_required(
     auth_rrhh.PERM_CONVERSATIONS_MANAGE,
