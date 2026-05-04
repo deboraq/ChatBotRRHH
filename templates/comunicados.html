@@ -89,11 +89,19 @@
       .comunicados-paso1-block .comunicados-dest-options { margin-bottom: 0.5rem; }
       html[data-theme="dark"] .comunicados-paso1-block { background: var(--panel-bg); border-color: var(--border-color, #333); }
       html[data-theme="dark"] .comunicados-paso1-block h3.block-title { color: var(--text, #eee); }
-      .comunicados-result { margin-top: 1.5rem; padding: 1rem; border-radius: 8px; background: var(--panel-bg, #f5f5f5); border: 1px solid var(--border-color, #ddd); }
+      .comunicados-result { margin-top: 1.5rem; padding: 1.2rem 1.2rem 1rem; border-radius: 10px; background: var(--panel-bg, #f5f5f5); border: 1px solid var(--border-color, #ddd); }
       .comunicados-result.success { background: #e8f5e9; border-color: #81c784; }
       .comunicados-result.error { background: #ffebee; border-color: #e57373; }
-      .comunicados-result h3 { margin: 0 0 0.5rem 0; font-size: 1rem; }
+      .comunicados-result h3 { margin: 0 0 0.75rem 0; font-size: 1rem; }
       .comunicados-result p { margin: 0.25rem 0; }
+      .com-progress-track { background: #ddd; border-radius: 10px; overflow: hidden; height: 18px; margin: 8px 0; }
+      html[data-theme="dark"] .com-progress-track { background: #333; }
+      .com-progress-bar { height: 18px; border-radius: 10px; transition: width 0.4s ease; background: #25d366; }
+      .com-progress-bar.warn { background: #e07000; }
+      .com-progress-label { font-size: 0.82em; color: #666; margin: 2px 0 6px; }
+      html[data-theme="dark"] .com-progress-label { color: #aaa; }
+      @keyframes com-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+      .com-spinner { display:inline-block; animation: com-pulse 1.2s ease-in-out infinite; margin-right:6px; }
       .btn-send { padding: 0.6rem 1.5rem; background: var(--primary, #1976d2); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
       .btn-send:hover { opacity: 0.9; }
       .btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -595,27 +603,31 @@
           btnEnviar.disabled = true;
           resultadoEl.style.display = "block";
           resultadoEl.className = "comunicados-result";
+          resultadoEl.innerHTML = "<h3><span class='com-spinner'>📤</span> Preparando envío...</h3>" +
+            "<div class='com-progress-track'><div class='com-progress-bar' style='width:0%'></div></div>" +
+            "<p class='com-progress-label'>0% completado</p>";
+          resultadoEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
           function renderProgreso(evt) {
             var pct = evt.total > 0 ? Math.round((evt.sent + evt.failed) / evt.total * 100) : 0;
-            var barColor = evt.failed > 0 ? "#e07000" : "#25d366";
+            var hasWarn = evt.failed > 0;
             var mainLine = "";
             if (evt.waiting) {
               mainLine = "⏳ Esperando " + evt.wait_remaining + " seg para el siguiente lote...";
             } else if (evt.done) {
-              mainLine = evt.failed > 0
-                ? "✅ Enviados: " + evt.sent + " · ❌ Fallidos: " + evt.failed + " de " + evt.total
+              mainLine = hasWarn
+                ? "✅ Enviados: " + evt.sent + " &nbsp;·&nbsp; ❌ Fallidos: " + evt.failed + " de " + evt.total
                 : "✅ ¡Listo! " + evt.sent + " mensajes enviados correctamente.";
             } else {
-              mainLine = "Enviando lote " + evt.batch + " de " + evt.batches + " · " + (evt.sent + evt.failed) + "/" + evt.total + " mensajes";
+              mainLine = "Enviando lote " + evt.batch + " de " + evt.batches + " &nbsp;·&nbsp; " + (evt.sent + evt.failed) + " / " + evt.total + " mensajes";
             }
             resultadoEl.innerHTML =
-              "<h3>" + (evt.done ? "Comunicado finalizado" : "Enviando comunicado...") + "</h3>" +
-              "<div style='background:#222;border-radius:8px;overflow:hidden;margin:10px 0;height:14px;'>" +
-                "<div style='height:14px;width:" + pct + "%;background:" + barColor + ";transition:width 0.3s;border-radius:8px;'></div>" +
+              "<h3>" + (evt.done ? "Comunicado finalizado" : "<span class='com-spinner'>📤</span> Enviando comunicado...") + "</h3>" +
+              "<div class='com-progress-track'>" +
+                "<div class='com-progress-bar" + (hasWarn ? " warn" : "") + "' style='width:" + pct + "%'></div>" +
               "</div>" +
-              "<p style='margin:6px 0;'>" + mainLine + "</p>" +
-              "<p style='font-size:0.8em;color:#aaa;margin:2px 0;'>" + pct + "% completado</p>";
+              "<p style='margin:4px 0;'>" + mainLine + "</p>" +
+              "<p class='com-progress-label'>" + pct + "% completado</p>";
           }
 
           var urlFinal = imagenUrl;
