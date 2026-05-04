@@ -159,7 +159,12 @@ RRHH_ADMIN_PASSWORD=clave-segura
 FIREBASE_CREDENTIALS=claves.json        # o dejar vacío en Cloud Run con SA
 FIREBASE_STORAGE_BUCKET=it-analyzer.firebasestorage.app
 
-# Twilio WhatsApp
+# Meta WhatsApp Cloud API (canal principal)
+META_ACCESS_TOKEN=           # Token permanente del usuario del sistema (sin expiración)
+META_PHONE_NUMBER_ID=        # ID numérico del número en Meta (ej: 1164802400039330)
+META_VERIFY_TOKEN=chatbot_rrhh_verify  # Token de verificación del webhook
+
+# Twilio WhatsApp (fallback)
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_WHATSAPP_FROM=whatsapp:+54911...
