@@ -363,8 +363,14 @@ def _load_whatsapp_chat_context(phone):
     sess = getattr(g, "whatsapp_session", None)
     if not sess:
         return
-    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name", "wa_empleado_id", "wa_convenio", "wa_nombre", "chat_session_id", "handoff_conversation_id"):
+    _STEP_ORDER = {"": 0, "dni": 1, "company": 2, "branch": 3, "area": 4, "ready": 5}
+    for key in ("chat_context_step", "chat_context_company_id", "chat_context_branch", "chat_context_area", "company_id", "company_name", "wa_empleado_id", "wa_convenio", "wa_nombre", "chat_session_id", "handoff_conversation_id", "pending_feedback_topic", "pending_kb_answer"):
         if key in data and data[key] is not None:
+            if key == "chat_context_step":
+                mem_step = sess.get("chat_context_step") or ""
+                fs_step = data[key] or ""
+                if _STEP_ORDER.get(fs_step, 0) <= _STEP_ORDER.get(mem_step, 0):
+                    continue  # no bajar el step en memoria a uno anterior de Firestore
             sess[key] = data[key]
 
 
@@ -482,6 +488,8 @@ def _save_whatsapp_chat_context(phone):
         "wa_nombre": sess.get("wa_nombre"),
         "chat_session_id": sess.get("chat_session_id"),
         "handoff_conversation_id": sess.get("handoff_conversation_id"),
+        "pending_feedback_topic": sess.get("pending_feedback_topic"),
+        "pending_kb_answer": sess.get("pending_kb_answer"),
         "updated_at": _utc_now(),
     }
     payload = {k: v for k, v in payload.items() if v is not None}
