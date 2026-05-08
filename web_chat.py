@@ -1060,7 +1060,8 @@ def _normalize_whatsapp_numbers(raw):
         seen_phones.add(key)
         label = str(item.get("label") or "").strip() or "Principal"
         notify_email = str(item.get("notify_email") or "").strip()[:200] or None
-        out.append({"phone": phone[:30], "label": label[:80], "notify_email": notify_email})
+        meta_pid = str(item.get("meta_phone_number_id") or "").strip()[:30] or None
+        out.append({"phone": phone[:30], "label": label[:80], "notify_email": notify_email, "meta_phone_number_id": meta_pid})
     return out
 
 
@@ -1180,8 +1181,12 @@ def _company_by_whatsapp_phone(phone):
     for company in _list_companies(include_inactive=False):
         for line in (company.get("whatsapp_numbers") or []):
             p = (line.get("phone") or "").strip()
+            meta_pid = (line.get("meta_phone_number_id") or "").strip()
+            label = (line.get("label") or "").strip() or None
             if _normalize_phone_for_match(p) == norm:
-                return company.get("company_id"), company, (line.get("label") or "").strip() or None
+                return company.get("company_id"), company, label
+            if meta_pid and meta_pid == phone:
+                return company.get("company_id"), company, label
     return None, None, None
 
 
