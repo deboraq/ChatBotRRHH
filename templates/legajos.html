@@ -21,7 +21,7 @@
       })();
     </script>
     <script type="application/json" id="legajos-config">
-      {{ {"can_manage": can_manage_legajos, "company_id": selected_company_id or "", "all_tipos_documento": all_tipos_documento } | tojson }}
+      {{ {"can_manage": can_manage_legajos, "company_id": selected_company_id or "", "all_tipos_documento": all_tipos_documento, "companies_branches_areas": companies_branches_areas } | tojson }}
     </script>
     <main class="rrhh-wrapper legajos-page">
       <header class="rrhh-header">
@@ -93,8 +93,8 @@
               <label class="legajos-modal-field"><span>Email</span><input type="email" id="legajos-modal-email" autocomplete="email" /></label>
               <label class="legajos-modal-field"><span>Teléfono WhatsApp</span><input type="tel" id="legajos-modal-telefono" placeholder="ej. 5493513012345" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Legajo</span><input type="text" id="legajos-modal-legajo" autocomplete="off" /></label>
-              <label class="legajos-modal-field"><span>Sucursal</span><input type="text" id="legajos-modal-sucursal" autocomplete="off" /></label>
-              <label class="legajos-modal-field"><span>Área</span><input type="text" id="legajos-modal-area" autocomplete="off" /></label>
+              <label class="legajos-modal-field"><span>Sucursal</span><select id="legajos-modal-sucursal"><option value="">Sin sucursal</option></select></label>
+              <label class="legajos-modal-field"><span>Área</span><select id="legajos-modal-area"><option value="">Sin área</option></select></label>
               <label class="legajos-modal-field">
                 <span>Convenio</span>
                 <select id="legajos-modal-convenio">
@@ -821,10 +821,48 @@
           if (modalEmpleadoId) modalEmpleadoId.value = "";
         }
 
+        function fillSucursalAreaSelects(selectedSucursal, selectedArea) {
+          var cid = (cfg.company_id || (companySel && companySel.value) || "").trim();
+          var data = (cfg.companies_branches_areas || {})[cid] || {};
+          var branches = data.branches || [];
+          var areas = data.areas || [];
+          var sucSel = document.getElementById("legajos-modal-sucursal");
+          var areaSel = document.getElementById("legajos-modal-area");
+          if (sucSel) {
+            sucSel.innerHTML = '<option value="">Sin sucursal</option>';
+            branches.forEach(function(b) {
+              var opt = document.createElement("option");
+              opt.value = b; opt.textContent = b;
+              if (b === selectedSucursal) opt.selected = true;
+              sucSel.appendChild(opt);
+            });
+            if (selectedSucursal && !branches.includes(selectedSucursal)) {
+              var opt = document.createElement("option");
+              opt.value = selectedSucursal; opt.textContent = selectedSucursal; opt.selected = true;
+              sucSel.appendChild(opt);
+            }
+          }
+          if (areaSel) {
+            areaSel.innerHTML = '<option value="">Sin área</option>';
+            areas.forEach(function(a) {
+              var opt = document.createElement("option");
+              opt.value = a; opt.textContent = a;
+              if (a === selectedArea) opt.selected = true;
+              areaSel.appendChild(opt);
+            });
+            if (selectedArea && !areas.includes(selectedArea)) {
+              var opt = document.createElement("option");
+              opt.value = selectedArea; opt.textContent = selectedArea; opt.selected = true;
+              areaSel.appendChild(opt);
+            }
+          }
+        }
+
         function openModalNuevo() {
           if (!modalEmpleado) return;
           modalModeCreate = true;
           clearModalFields();
+          fillSucursalAreaSelects("", "");
           if (modalTitle) modalTitle.textContent = "Nuevo colaborador";
           if (modalHint) modalHint.innerHTML = HINT_NUEVO;
           if (modalIdMeta) {
@@ -871,8 +909,7 @@
           setv("legajos-modal-email", emp.email);
           setv("legajos-modal-telefono", emp.telefono);
           setv("legajos-modal-legajo", emp.legajo_numero);
-          setv("legajos-modal-sucursal", emp.sucursal);
-          setv("legajos-modal-area", emp.area);
+          fillSucursalAreaSelects(emp.sucursal, emp.area);
           setv("legajos-modal-convenio", emp.convenio);
           setv("legajos-modal-notas", emp.notas);
           if (modalStatus) {

@@ -3832,6 +3832,14 @@ def legajos_page():
     available_companies = (
         _companies_for_user(current_user) if current_user else _list_companies(include_inactive=False)
     )
+    # Mapa company_id → {branches, areas} para los selects del formulario
+    companies_branches_areas = {
+        c.get("company_id"): {
+            "branches": _get_branches_for_company(c),
+            "areas": _get_all_areas_for_company(c),
+        }
+        for c in available_companies if c.get("company_id")
+    }
     return render_template(
         "legajos.html",
         auth_enabled=_auth_enabled(),
@@ -3841,6 +3849,7 @@ def legajos_page():
         selected_company_id=company.get("company_id"),
         selected_company_name=company.get("company_name"),
         all_tipos_documento=legajos_service.ALL_TIPOS_DOCUMENTO,
+        companies_branches_areas=companies_branches_areas,
     )
 
 
