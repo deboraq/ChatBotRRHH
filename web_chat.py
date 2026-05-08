@@ -4037,9 +4037,11 @@ def api_legajos_empleados_create():
         notas=str(data.get("notas") or "").strip(),
         email=str(data.get("email") or "").strip(),
         convenio=str(data.get("convenio") or "").strip(),
+        telefono=str(data.get("telefono") or "").strip(),
     )
     if not ok:
         return jsonify({"ok": False, "error": msg or "No se pudo crear el colaborador."}), 400
+    _sync_empleado_to_contactos(row)
     _legajos_audit(
         legajos_service.LEGAJOS_AUDIT_EMPLEADO_CREAR,
         cid,
@@ -4148,9 +4150,11 @@ def api_legajos_empleado_patch(empleado_id):
         notas=_patch_str("notas", emp.get("notas")),
         email=_patch_str("email", emp.get("email")),
         convenio=convenio_nuevo,
+        telefono=_patch_str("telefono", emp.get("telefono")),
     )
     if not ok:
         return jsonify({"ok": False, "error": msg or "No se pudo actualizar."}), 400
+    _sync_empleado_to_contactos(row)
     # Si cambió el convenio, resetear sesión WA del empleado para forzar re-identificación
     if ok and convenio_nuevo != convenio_viejo:
         _invalidar_sesion_wa_por_empleado(empleado_id, new_convenio=convenio_nuevo)
@@ -4683,6 +4687,47 @@ def _get_comunicados_contactos(company_id):
             data = doc.to_dict() or {}
             return list(data.get("contactos") or [])
     return []
+
+
+def _sync_empleado_to_contactos(emp):
+    """Sincroniza el teléfono de un empleado de legajos a la lista de contactos de comunicados."""
+    if not emp or not chatbot.db:
+        return
+    telefono = str(emp.get("telefono") or "").strip()
+    cid = str(emp.get("company_id") or "").strip().lower()
+    nombre = str(emp.get("nombre_completo") or "").strip()
+    legajo = str(emp.get("legajo_numero") or "").strip()
+    if not cid or not nombre:
+        return
+    try:
+        ref = chatbot.db.collection(COMUNICADOS_CONTACTOS_COLLECTION).document(cid)
+        doc = ref.get()
+        contactos = list((doc.to_dict() or {}).get("contactos") or []) if doc.exists else []
+        # Buscar contacto existente por legajo o por teléfono
+        idx = None
+        for i, c in enumerate(contactos):
+            if legajo and str(c.get("legajo") or "") == legajo:
+                idx = i
+                break
+            if telefono:
+                c_tel = re.sub(r"[^\d]", "", str(c.get("telefono") or ""))
+                e_tel = re.sub(r"[^\d]", "", telefono)
+                if c_tel and e_tel and c_tel[-8:] == e_tel[-8:]:
+                    idx = i
+                    break
+        entry = {"nombre": nombre, "telefono": telefono, "legajo": legajo}
+        if not telefono:
+            # Sin teléfono: si existía el contacto, actualizar nombre/legajo sin teléfono
+            if idx is not None:
+                contactos[idx].update({"nombre": nombre, "legajo": legajo})
+            # Si no existía y no hay teléfono, no crear contacto vacío
+        elif idx is not None:
+            contactos[idx] = entry
+        else:
+            contactos.append(entry)
+        ref.set({"contactos": contactos}, merge=True)
+    except Exception as e:
+        logger.warning("_sync_empleado_to_contactos: %s", e)
 
 
 def _resolve_whatsapp_contact(phone_raw, company_id, profile_name=""):

@@ -190,6 +190,7 @@ def empleado_from_snap(doc_snap) -> dict:
         "notas": data.get("notas") or "",
         "dni": data.get("dni") or "",
         "email": data.get("email") or "",
+        "telefono": data.get("telefono") or "",
         "convenio": data.get("convenio") or "",
         "activo": data.get("activo", True),
         "created_at": _serialize_ts(data.get("created_at")),
@@ -253,6 +254,7 @@ def create_empleado(
     notas: str = "",
     email: str = "",
     convenio: str = "",
+    telefono: str = "",
 ) -> tuple[bool, dict | None, str]:
     """Crea colaborador. ID en Firestore = {empresa}_{dni}. DNI obligatorio (6–16 dígitos). Legajo opcional."""
     if not db:
@@ -282,6 +284,7 @@ def create_empleado(
         "notas": str(notas or "").strip(),
         "dni": dni_digits,
         "email": str(email or "").strip().lower(),
+        "telefono": str(telefono or "").strip(),
         "convenio": str(convenio or "").strip(),
         "activo": True,
         "created_at": now,
@@ -310,6 +313,7 @@ def update_empleado(
     notas: str = "",
     email: str = "",
     convenio: str = "",
+    telefono: str = "",
 ) -> tuple[bool, dict | None, str]:
     """Actualiza datos. El DNI no se modifica (el ID del documento es fijo). Legajo vacío permitido."""
     if not db or not str(empleado_id or "").strip():
@@ -339,6 +343,7 @@ def update_empleado(
                 "area": str(area or "").strip(),
                 "notas": str(notas or "").strip(),
                 "email": str(email or "").strip().lower(),
+                "telefono": str(telefono or "").strip(),
                 "convenio": str(convenio or "").strip(),
                 "updated_at": now,
                 "updated_by": str(updated_by or "").strip(),
@@ -750,8 +755,8 @@ def search_documentos_empresa(
     return out
 
 
-def _normalize_import_row(row: dict) -> tuple[str, str, str, str, str, str, str]:
-    """Mapea encabezados flexibles a legajo, nombre, sucursal, área, notas, dni, email."""
+def _normalize_import_row(row: dict) -> tuple[str, str, str, str, str, str, str, str]:
+    """Mapea encabezados flexibles a legajo, nombre, sucursal, área, notas, dni, email, telefono."""
     m: dict[str, str] = {}
     for k, v in (row or {}).items():
         if k is None:
@@ -778,7 +783,8 @@ def _normalize_import_row(row: dict) -> tuple[str, str, str, str, str, str, str]
     notas = m.get("notas") or m.get("observaciones") or ""
     dni = m.get("dni") or m.get("documento") or m.get("nro_documento") or ""
     email = m.get("email") or m.get("mail") or m.get("correo") or ""
-    return leg.strip(), nom.strip(), suc.strip(), area.strip(), notas.strip(), dni.strip(), email.strip()
+    telefono = m.get("telefono") or m.get("teléfono") or m.get("tel") or m.get("phone") or ""
+    return leg.strip(), nom.strip(), suc.strip(), area.strip(), notas.strip(), dni.strip(), email.strip(), telefono.strip()
 
 
 def parse_legajos_import_file(filename: str, raw: bytes) -> tuple[list[tuple[int, dict]], str | None]:
@@ -860,13 +866,14 @@ def build_legajos_ejemplo_xlsx_bytes() -> tuple[bytes | None, str | None]:
     ws = wb.active
     ws.title = "Colaboradores"
     ws.append(
-        ["dni", "nombre_completo", "email", "legajo_numero", "sucursal", "area", "notas"]
+        ["dni", "nombre_completo", "email", "telefono", "legajo_numero", "sucursal", "area", "notas"]
     )
     ws.append(
         [
             30123456,
             "García Ana María",
             "ana@ejemplo.com",
+            "5493513001234",
             "1001",
             "Córdoba",
             "Administración",
@@ -878,6 +885,7 @@ def build_legajos_ejemplo_xlsx_bytes() -> tuple[bytes | None, str | None]:
             28999111,
             "López Juan Pablo",
             "juan@ejemplo.com",
+            "5493513005678",
             "1002",
             "Córdoba",
             "Operaciones",
@@ -902,7 +910,7 @@ def build_legajos_export_xlsx_bytes(items: list[dict]) -> tuple[bytes | None, st
     ws = wb.active
     ws.title = "Colaboradores"
     ws.append(
-        ["dni", "nombre_completo", "email", "legajo_numero", "sucursal", "area", "notas"]
+        ["dni", "nombre_completo", "email", "telefono", "legajo_numero", "sucursal", "area", "notas"]
     )
     for row in items or []:
         ws.append(
@@ -910,6 +918,7 @@ def build_legajos_export_xlsx_bytes(items: list[dict]) -> tuple[bytes | None, st
                 str(row.get("dni") or ""),
                 str(row.get("nombre_completo") or ""),
                 str(row.get("email") or ""),
+                str(row.get("telefono") or ""),
                 str(row.get("legajo_numero") or ""),
                 str(row.get("sucursal") or ""),
                 str(row.get("area") or ""),
@@ -968,7 +977,7 @@ def import_empleados_desde_filas(
     processed = 0
 
     for line_no, raw in filas:
-        leg, nom, suc, area, notas, dni, email = _normalize_import_row(raw)
+        leg, nom, suc, area, notas, dni, email, telefono = _normalize_import_row(raw)
         if not nom and not dni:
             continue
         processed += 1
@@ -989,6 +998,7 @@ def import_empleados_desde_filas(
             area=area,
             notas=notas,
             email=email,
+            telefono=telefono,
         )
         if ok:
             created += 1
