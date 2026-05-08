@@ -91,6 +91,7 @@
               <label class="legajos-modal-field"><span>DNI *</span><input type="text" id="legajos-modal-dni" inputmode="numeric" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Nombre completo *</span><input type="text" id="legajos-modal-nombre" autocomplete="name" /></label>
               <label class="legajos-modal-field"><span>Email</span><input type="email" id="legajos-modal-email" autocomplete="email" /></label>
+              <label class="legajos-modal-field"><span>Teléfono WhatsApp</span><input type="tel" id="legajos-modal-telefono" placeholder="ej. 5493513012345" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Legajo</span><input type="text" id="legajos-modal-legajo" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Sucursal</span><input type="text" id="legajos-modal-sucursal" autocomplete="off" /></label>
               <label class="legajos-modal-field"><span>Área</span><input type="text" id="legajos-modal-area" autocomplete="off" /></label>
@@ -813,7 +814,7 @@
         var HINT_EDITAR = "El DNI y el ID de Firestore no se modifican. Podés actualizar el resto de los datos.";
 
         function clearModalFields() {
-          ["legajos-modal-dni", "legajos-modal-nombre", "legajos-modal-email", "legajos-modal-legajo", "legajos-modal-sucursal", "legajos-modal-area", "legajos-modal-convenio", "legajos-modal-notas"].forEach(function(id) {
+          ["legajos-modal-dni", "legajos-modal-nombre", "legajos-modal-email", "legajos-modal-telefono", "legajos-modal-legajo", "legajos-modal-sucursal", "legajos-modal-area", "legajos-modal-convenio", "legajos-modal-notas"].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.value = "";
           });
@@ -868,6 +869,7 @@
           };
           setv("legajos-modal-nombre", emp.nombre_completo);
           setv("legajos-modal-email", emp.email);
+          setv("legajos-modal-telefono", emp.telefono);
           setv("legajos-modal-legajo", emp.legajo_numero);
           setv("legajos-modal-sucursal", emp.sucursal);
           setv("legajos-modal-area", emp.area);
@@ -1355,6 +1357,7 @@
             var dni = (document.getElementById("legajos-modal-dni") || {}).value || "";
             var nombre = (document.getElementById("legajos-modal-nombre") || {}).value || "";
             var email = (document.getElementById("legajos-modal-email") || {}).value || "";
+            var telefono = (document.getElementById("legajos-modal-telefono") || {}).value || "";
             var legajo = (document.getElementById("legajos-modal-legajo") || {}).value || "";
             var sucursal = (document.getElementById("legajos-modal-sucursal") || {}).value || "";
             var area = (document.getElementById("legajos-modal-area") || {}).value || "";
@@ -1384,6 +1387,7 @@
                 dni: dni.trim(),
                 nombre_completo: nombre.trim(),
                 email: email.trim(),
+                telefono: telefono.trim(),
                 legajo_numero: legajo.trim(),
                 sucursal: sucursal.trim(),
                 area: area.trim(),
@@ -1421,6 +1425,7 @@
             var bodyPatch = {
               nombre_completo: nombre.trim(),
               email: email.trim(),
+              telefono: telefono.trim(),
               legajo_numero: legajo.trim(),
               sucursal: sucursal.trim(),
               area: area.trim(),
