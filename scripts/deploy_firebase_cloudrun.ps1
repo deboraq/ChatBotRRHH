@@ -4,7 +4,7 @@ param(
     [string]$ServiceName = "chatbot-rrhh",
     [string]$ServiceAccountName = "chatbot-rrhh-run",
     [string]$AdminUser = "admin",
-    [string]$AdminPassword = "REMOVIDO",
+    [string]$AdminPassword = $env:RRHH_ADMIN_PASSWORD,
     [string]$WebSecret = "cambiar-por-secreto-largo",
     [switch]$UseHosting = $false,
     [switch]$UseDefaultServiceAccount = $false,
@@ -13,6 +13,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($AdminPassword)) {
+    throw "Definí la contraseña de admin con -AdminPassword o la variable de entorno RRHH_ADMIN_PASSWORD."
+}
 Set-Location $PSScriptRoot
 
 function Require-Command([string]$CommandName) {

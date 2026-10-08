@@ -3,10 +3,14 @@ param(
     [string]$Port = "8080",
     [string]$ProjectId = "it-analyzer",
     [string]$AdminUser = "admin",
-    [string]$AdminPassword = "REMOVIDO"
+    [string]$AdminPassword = $env:RRHH_ADMIN_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($AdminPassword)) {
+    throw "Definí la contraseña de admin con -AdminPassword o la variable de entorno RRHH_ADMIN_PASSWORD."
+}
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $ProjectRoot
 
